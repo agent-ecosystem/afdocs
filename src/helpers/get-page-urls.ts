@@ -1,7 +1,7 @@
 import { extractMarkdownLinks } from '../checks/content-discoverability/llms-txt-valid.js';
 import { MAX_SITEMAP_URLS } from '../constants.js';
 import { getLlmsTxtFilesForAnalysis, selectCanonicalLlmsTxt } from './llms-txt.js';
-import { isNonPageUrl, isMdUrl, toHtmlUrl } from './to-md-urls.js';
+import { isMdUrl, toHtmlUrl } from './to-md-urls.js';
 import type { CheckContext, DiscoveredFile } from '../types.js';
 
 /**
@@ -77,42 +77,77 @@ function extractLinksFromLlmsTxtFiles(files: DiscoveredFile[]): string[] {
 }
 
 /**
+ * Maximum depth of nested aggregate (.txt) files to follow when expanding
+ * an llms.txt index. Most sites use 1-2 levels (e.g. a top-level index that
+ * points to per-section indexes). 5 covers deeper trees like Alchemy's
+ * `/docs/llms.txt → /docs/chains/llms.txt → /docs/chains/{chain}/llms.txt`
+ * while still terminating on pathological cycles.
+ */
+const MAX_AGGREGATE_DEPTH = 5;
+
+/**
+ * Hard cap on the number of aggregate .txt files we'll fetch in a single
+ * walk, regardless of depth. Protects against very large sites
+ * (Alchemy has ~80 per-chain files) ballooning into hundreds of HTTP
+ * requests. 200 is enough headroom for the largest realistic case while
+ * still being a clear safety net.
+ */
+const MAX_AGGREGATE_FILES = 200;
+
+/**
  * Identify .txt links that are likely aggregate/index files (progressive
- * disclosure pattern) and walk them one level deep to find page URLs.
+ * disclosure pattern) and recursively walk them to find page URLs.
  *
  * A link is considered walkable when it ends in .txt and is on the same
- * origin as the site being tested. This covers both sub-product llms.txt
- * files (Cloudflare) and aggregate content files (Supabase).
+ * origin as the site being tested. This covers:
+ *   - sub-product llms.txt files (Cloudflare)
+ *   - aggregate content files (Supabase)
+ *   - multi-level nested indexes (Alchemy: top → section → sub-section)
+ *
+ * Walking is bounded by `MAX_AGGREGATE_DEPTH` and `MAX_AGGREGATE_FILES`
+ * so a malformed or extremely large index can't make us fetch unboundedly.
+ * Each aggregate is fetched at most once even if referenced multiple times.
  */
 async function walkAggregateLinks(ctx: CheckContext, urls: string[]): Promise<string[]> {
   const pageUrls: string[] = [];
-  const aggregateUrls: string[] = [];
+  const visitedAggregates = new Set<string>();
+  const queue: Array<{ url: string; depth: number }> = [];
 
   const siteOrigin = ctx.effectiveOrigin ?? ctx.origin;
 
-  for (const url of urls) {
+  function isSameOrigin(parsed: URL): boolean {
+    return parsed.origin === ctx.origin || parsed.origin === siteOrigin;
+  }
+
+  /** Sort a discovered URL into the page bucket or the aggregate-walk queue. */
+  function classify(url: string, parentDepth: number): void {
     try {
       const parsed = new URL(url);
       if (/\.txt$/i.test(parsed.pathname)) {
-        // .txt files are either aggregate indexes to walk (same origin)
-        // or external resources to skip — never page URLs themselves
-        if (parsed.origin === ctx.origin || parsed.origin === siteOrigin) {
-          aggregateUrls.push(url);
+        // Aggregates: same-origin, not yet visited, within depth budget.
+        // Cross-origin .txt links are external resources we don't control.
+        if (
+          isSameOrigin(parsed) &&
+          !visitedAggregates.has(url) &&
+          parentDepth + 1 <= MAX_AGGREGATE_DEPTH
+        ) {
+          visitedAggregates.add(url);
+          queue.push({ url, depth: parentDepth + 1 });
         }
-      } else if (parsed.origin === ctx.origin || parsed.origin === siteOrigin) {
-        // Only include same-origin page URLs; cross-origin links are
-        // external resources the site owner doesn't control.
+      } else if (isSameOrigin(parsed)) {
         pageUrls.push(normalizePageUrl(url));
       }
     } catch {
+      // Unparseable URL: keep it so the caller's later filtering can decide.
       pageUrls.push(normalizePageUrl(url));
     }
   }
 
-  if (aggregateUrls.length === 0) return pageUrls;
+  // Seed from the canonical llms.txt's links (parent depth 0).
+  for (const url of urls) classify(url, 0);
 
-  // Fetch aggregate files and extract their links
-  for (const aggUrl of aggregateUrls) {
+  while (queue.length > 0 && visitedAggregates.size <= MAX_AGGREGATE_FILES) {
+    const { url: aggUrl, depth } = queue.shift()!;
     try {
       const response = await ctx.http.fetch(aggUrl);
       if (!response.ok) continue;
@@ -131,20 +166,7 @@ async function walkAggregateLinks(ctx: CheckContext, urls: string[]): Promise<st
       };
       const subUrls = extractLinksFromLlmsTxtFiles([subFile]);
 
-      for (const subUrl of subUrls) {
-        // Only keep same-origin page URLs (skip further .txt nesting)
-        try {
-          const parsed = new URL(subUrl);
-          if (
-            (parsed.origin === ctx.origin || parsed.origin === siteOrigin) &&
-            !isNonPageUrl(subUrl)
-          ) {
-            pageUrls.push(subUrl);
-          }
-        } catch {
-          // Skip malformed URLs
-        }
-      }
+      for (const subUrl of subUrls) classify(subUrl, depth);
     } catch {
       // Skip failed fetches
     }

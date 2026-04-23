@@ -1297,6 +1297,75 @@ describe('getPageUrls', () => {
     expect(result.urls).toEqual(['http://walk-empty.local/docs/page']);
   });
 
+  it('walks nested aggregate .txt files recursively (Alchemy pattern)', async () => {
+    // Three-level nested structure: top index → section index → leaf pages.
+    // Mirrors how Alchemy's docs llms.txt is organized:
+    //   /docs/llms.txt → /docs/chains/llms.txt → /docs/chains/ethereum/llms.txt
+    const rootContent = `# Docs\n- [Chains](http://nested-walk.local/chains/llms.txt)\n`;
+    const chainsContent = `# Chains\n- [Ethereum](http://nested-walk.local/chains/ethereum/llms.txt)\n- [Solana](http://nested-walk.local/chains/solana/llms.txt)\n`;
+    const ethContent = `# Ethereum\n- [eth_call](http://nested-walk.local/chains/ethereum/eth-call.md): Call\n- [eth_chainId](http://nested-walk.local/chains/ethereum/eth-chain-id.md): Chain ID\n`;
+    const solContent = `# Solana\n- [getBalance](http://nested-walk.local/chains/solana/get-balance.md): Balance\n`;
+
+    server.use(
+      http.get('http://nested-walk.local/chains/llms.txt', () => HttpResponse.text(chainsContent)),
+      http.get('http://nested-walk.local/chains/ethereum/llms.txt', () =>
+        HttpResponse.text(ethContent),
+      ),
+      http.get('http://nested-walk.local/chains/solana/llms.txt', () =>
+        HttpResponse.text(solContent),
+      ),
+    );
+
+    const ctx = makeCtx('http://nested-walk.local', rootContent);
+    const result = await getPageUrls(ctx);
+    expect(result.urls).toContain('http://nested-walk.local/chains/ethereum/eth-call');
+    expect(result.urls).toContain('http://nested-walk.local/chains/ethereum/eth-chain-id');
+    expect(result.urls).toContain('http://nested-walk.local/chains/solana/get-balance');
+    expect(result.urls).toHaveLength(3);
+  });
+
+  it('does not refetch the same aggregate when referenced from multiple parents', async () => {
+    let sharedFetches = 0;
+    const rootContent = `# Docs\n- [SectionA](http://nested-dup.local/a/llms.txt)\n- [SectionB](http://nested-dup.local/b/llms.txt)\n`;
+    const aContent = `# A\n- [Shared](http://nested-dup.local/shared/llms.txt)\n- [PageA](http://nested-dup.local/a/page.md)\n`;
+    const bContent = `# B\n- [Shared](http://nested-dup.local/shared/llms.txt)\n- [PageB](http://nested-dup.local/b/page.md)\n`;
+    const sharedContent = `# Shared\n- [SharedPage](http://nested-dup.local/shared/page.md)\n`;
+
+    server.use(
+      http.get('http://nested-dup.local/a/llms.txt', () => HttpResponse.text(aContent)),
+      http.get('http://nested-dup.local/b/llms.txt', () => HttpResponse.text(bContent)),
+      http.get('http://nested-dup.local/shared/llms.txt', () => {
+        sharedFetches++;
+        return HttpResponse.text(sharedContent);
+      }),
+    );
+
+    const ctx = makeCtx('http://nested-dup.local', rootContent);
+    const result = await getPageUrls(ctx);
+
+    // Shared aggregate should only be fetched once even though both A and B reference it.
+    expect(sharedFetches).toBe(1);
+    expect(result.urls).toContain('http://nested-dup.local/a/page');
+    expect(result.urls).toContain('http://nested-dup.local/b/page');
+    expect(result.urls).toContain('http://nested-dup.local/shared/page');
+  });
+
+  it('terminates on cycles in the aggregate graph', async () => {
+    const rootContent = `# Docs\n- [A](http://nested-cycle.local/a/llms.txt)\n`;
+    // a → b → a → … would loop forever without cycle detection.
+    const aContent = `# A\n- [B](http://nested-cycle.local/b/llms.txt)\n- [Page](http://nested-cycle.local/a/page.md)\n`;
+    const bContent = `# B\n- [A](http://nested-cycle.local/a/llms.txt)\n`;
+
+    server.use(
+      http.get('http://nested-cycle.local/a/llms.txt', () => HttpResponse.text(aContent)),
+      http.get('http://nested-cycle.local/b/llms.txt', () => HttpResponse.text(bContent)),
+    );
+
+    const ctx = makeCtx('http://nested-cycle.local', rootContent);
+    const result = await getPageUrls(ctx);
+    expect(result.urls).toContain('http://nested-cycle.local/a/page');
+  });
+
   // ── .md URL normalization ──
 
   it('normalizes .md URLs from llms.txt to HTML equivalents', async () => {
