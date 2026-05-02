@@ -419,6 +419,12 @@ describe('scoring pipeline: resolutions populated for real check failures', () =
   it('each failing check produces a resolution string', async () => {
     const { pages } = makePages(host, 6);
     setupSite(host, { pages, cacheControl: 'max-age=300' });
+    // No llms.txt or sitemap → discovery falls back to baseUrl, and
+    // markdown-url-support probes baseUrl's .md candidates.
+    server.use(
+      http.get(`http://${host}/.md`, () => new HttpResponse(null, { status: 404 })),
+      http.get(`http://${host}/index.md`, () => new HttpResponse(null, { status: 404 })),
+    );
 
     const report = await runChecks(`http://${host}`, {
       requestDelay: 0,
