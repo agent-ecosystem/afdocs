@@ -68,6 +68,30 @@ describe('toMdUrls', () => {
   it('returns empty array for .xml files', () => {
     expect(toMdUrls('https://example.com/sitemap.xml')).toEqual([]);
   });
+
+  // Regression: issue #77 — Plaid-style /page/index.html.md URLs from llms.txt
+  it('returns .html.md URL as-is (already a markdown URL)', () => {
+    expect(toMdUrls('https://example.com/docs/auth/index.html.md')).toEqual([
+      'https://example.com/docs/auth/index.html.md',
+    ]);
+  });
+
+  // Invariant for issue #77 fix: parent-clean .md candidate generation
+  // (e.g. /docs/auth/index.html → /docs/auth.md) lives in markdown-url-support
+  // only, gated by an originalMdUrl signal from llms.txt. It must NOT be added
+  // to toMdUrls() — that would re-introduce the false-positive class where
+  // checks like llms-txt-directive-md and llms-txt-links-markdown pass via
+  // unrelated sibling .md files. If you need the parent-clean form, add it
+  // at the call site, not here.
+  it('does NOT generate /foo.md candidate from /foo/index.html (issue #77 isolation)', () => {
+    const result = toMdUrls('https://example.com/docs/auth/index.html');
+    expect(result).not.toContain('https://example.com/docs/auth.md');
+  });
+
+  it('does NOT generate /foo.md candidate from /foo/index.htm (issue #77 isolation)', () => {
+    const result = toMdUrls('https://example.com/docs/auth/index.htm');
+    expect(result).not.toContain('https://example.com/docs/auth.md');
+  });
 });
 
 describe('toHtmlUrl', () => {

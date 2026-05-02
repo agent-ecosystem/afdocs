@@ -2120,3 +2120,222 @@ describe('discoverAndSamplePages', () => {
     expect(result.warnings[0]).toContain('gzipped sitemap');
   });
 });
+
+// Issue #77: when llms.txt links use a .md/.mdx (or .html.md) suffix,
+// normalizePageUrl rewrites them to their HTML form for dedup against sitemap
+// entries. The original .md URL must still be carried alongside so that
+// markdown-availability checks can test the URL the site explicitly published.
+describe('originalMdUrls (issue #77)', () => {
+  it('preserves originalMdUrl for .html.md links from llms.txt', async () => {
+    const ctx = createContext('http://test77a.local', { requestDelay: 0 });
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test77a.local/docs/auth/index.html.md): Auth guide
+`;
+    const discovered: DiscoveredFile[] = [
+      { url: 'http://test77a.local/llms.txt', content, status: 200, redirected: false },
+    ];
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: { discoveredFiles: discovered },
+    });
+    mockSitemapNotFound(server, 'http://test77a.local');
+
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toContain('http://test77a.local/docs/auth/index.html');
+    expect(result.originalMdUrls).toBeDefined();
+    expect(result.originalMdUrls!['http://test77a.local/docs/auth/index.html']).toBe(
+      'http://test77a.local/docs/auth/index.html.md',
+    );
+  });
+
+  it('preserves originalMdUrl for .mdx links from llms.txt', async () => {
+    const ctx = createContext('http://test77b.local', { requestDelay: 0 });
+    const content = `# Docs
+> Summary
+## Links
+- [Guide](http://test77b.local/docs/guide.mdx): Guide
+`;
+    const discovered: DiscoveredFile[] = [
+      { url: 'http://test77b.local/llms.txt', content, status: 200, redirected: false },
+    ];
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: { discoveredFiles: discovered },
+    });
+    mockSitemapNotFound(server, 'http://test77b.local');
+
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toContain('http://test77b.local/docs/guide');
+    expect(result.originalMdUrls!['http://test77b.local/docs/guide']).toBe(
+      'http://test77b.local/docs/guide.mdx',
+    );
+  });
+
+  it('preserves originalMdUrl for plain .md links from llms.txt', async () => {
+    const ctx = createContext('http://test77c.local', { requestDelay: 0 });
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test77c.local/docs/auth.md): Auth
+`;
+    const discovered: DiscoveredFile[] = [
+      { url: 'http://test77c.local/llms.txt', content, status: 200, redirected: false },
+    ];
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: { discoveredFiles: discovered },
+    });
+    mockSitemapNotFound(server, 'http://test77c.local');
+
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toContain('http://test77c.local/docs/auth');
+    expect(result.originalMdUrls!['http://test77c.local/docs/auth']).toBe(
+      'http://test77c.local/docs/auth.md',
+    );
+  });
+
+  it('does not populate originalMdUrls for sitemap-only discovery', async () => {
+    const ctx = createContext('http://test77d.local', { requestDelay: 0 });
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'fail',
+      message: 'No llms.txt',
+      details: { discoveredFiles: [] },
+    });
+    server.use(
+      http.get('http://test77d.local/robots.txt', () => new HttpResponse('', { status: 404 })),
+      http.get(
+        'http://test77d.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+              <url><loc>http://test77d.local/docs/auth</loc></url>
+              <url><loc>http://test77d.local/docs/guide</loc></url>
+            </urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toContain('http://test77d.local/docs/auth');
+    // Sitemap URLs are HTML; nothing to preserve.
+    expect(
+      result.originalMdUrls === undefined || Object.keys(result.originalMdUrls).length === 0,
+    ).toBe(true);
+  });
+
+  it('keeps the .md form when llms.txt has both .md and HTML for the same page', async () => {
+    const ctx = createContext('http://test77e.local', { requestDelay: 0 });
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test77e.local/docs/auth.md): Auth markdown
+- [Auth HTML](http://test77e.local/docs/auth): Auth html
+`;
+    const discovered: DiscoveredFile[] = [
+      { url: 'http://test77e.local/llms.txt', content, status: 200, redirected: false },
+    ];
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: { discoveredFiles: discovered },
+    });
+    mockSitemapNotFound(server, 'http://test77e.local');
+
+    const result = await discoverAndSamplePages(ctx);
+    // Both entries collapse to the HTML URL after normalization.
+    const matching = result.urls.filter((u) => u === 'http://test77e.local/docs/auth');
+    expect(matching).toHaveLength(1);
+    expect(result.originalMdUrls!['http://test77e.local/docs/auth']).toBe(
+      'http://test77e.local/docs/auth.md',
+    );
+  });
+
+  it('filters originalMdUrls to the sampled subset', async () => {
+    const links = Array.from(
+      { length: 5 },
+      (_, i) => `- [P${i}](http://test77f.local/docs/p${i}/index.html.md): Page ${i}`,
+    ).join('\n');
+    const content = `# Docs\n> Summary\n## Links\n${links}\n`;
+    const ctx = createContext('http://test77f.local', { requestDelay: 0, maxLinksToTest: 2 });
+    const discovered: DiscoveredFile[] = [
+      { url: 'http://test77f.local/llms.txt', content, status: 200, redirected: false },
+    ];
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: { discoveredFiles: discovered },
+    });
+    mockSitemapNotFound(server, 'http://test77f.local');
+
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toHaveLength(2);
+    expect(result.sampled).toBe(true);
+    // Only the sampled URLs should have entries in originalMdUrls
+    expect(Object.keys(result.originalMdUrls ?? {})).toHaveLength(2);
+    for (const sampledUrl of result.urls) {
+      expect(result.originalMdUrls![sampledUrl]).toMatch(/\.html\.md$/);
+    }
+  });
+
+  it('propagates originalMdUrl through aggregate (.txt) walking', async () => {
+    const ctx = createContext('http://test77g.local', { requestDelay: 0 });
+    const llmsContent = `# Docs
+> Summary
+## Links
+- [Aggregate](http://test77g.local/docs/all.txt): All pages
+`;
+    const aggregateContent = `# All
+- [Auth](http://test77g.local/docs/auth/index.html.md): Auth guide
+`;
+    server.use(
+      http.get(
+        'http://test77g.local/docs/all.txt',
+        () =>
+          new HttpResponse(aggregateContent, {
+            status: 200,
+            headers: { 'Content-Type': 'text/plain' },
+          }),
+      ),
+    );
+    const discovered: DiscoveredFile[] = [
+      {
+        url: 'http://test77g.local/llms.txt',
+        content: llmsContent,
+        status: 200,
+        redirected: false,
+      },
+    ];
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: { discoveredFiles: discovered },
+    });
+    mockSitemapNotFound(server, 'http://test77g.local');
+
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toContain('http://test77g.local/docs/auth/index.html');
+    expect(result.originalMdUrls!['http://test77g.local/docs/auth/index.html']).toBe(
+      'http://test77g.local/docs/auth/index.html.md',
+    );
+  });
+});

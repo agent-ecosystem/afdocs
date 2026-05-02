@@ -380,4 +380,46 @@ describe('llms-txt-directive-md', () => {
     expect(result.status).toBe('pass');
     expect(result.details?.foundCount).toBe(1);
   });
+
+  // Issue #77 isolation: parent-clean candidate generation lives in
+  // markdown-url-support only. If it ever leaks into toMdUrls, this directive
+  // check would falsely pass when an unrelated /auth.md happens to contain
+  // the directive — a known false-positive class. Guard against that.
+  it('does not validate directive via parent-clean .md candidate (issue #77 isolation)', async () => {
+    const requestLog: string[] = [];
+    server.use(
+      // The page URL would be /docs/auth/index.html (HTML form). Conventional
+      // .md candidates 404…
+      http.get('http://test.local/docs/auth/index.md', () => {
+        requestLog.push('/docs/auth/index.md');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+      http.get('http://test.local/docs/auth/index.html/index.md', () => {
+        requestLog.push('/docs/auth/index.html/index.md');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+      // …but a sibling /docs/auth.md exists with the directive. The
+      // directive check must NOT request this URL.
+      http.get('http://test.local/docs/auth.md', () => {
+        requestLog.push('/docs/auth.md');
+        return new HttpResponse(
+          '> For AI agents: see [documentation index](/llms.txt) for navigation.\n\n# Wrong page',
+          { status: 200, headers: { 'Content-Type': 'text/markdown' } },
+        );
+      }),
+      // Content negotiation also fails so it can't pass that way
+      http.get('http://test.local/docs/auth/index.html', () => {
+        requestLog.push('/docs/auth/index.html [accept]');
+        return new HttpResponse('<!DOCTYPE html><html></html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }),
+    );
+
+    const ctx = makeCtx(llms('/docs/auth/index.html.md'));
+    const result = await check.run(ctx);
+    expect(result.status).not.toBe('pass');
+    expect(requestLog).not.toContain('/docs/auth.md');
+  });
 });

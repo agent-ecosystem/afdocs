@@ -12,6 +12,8 @@ interface PageResult {
   alreadyMd?: boolean;
   status: number;
   error?: string;
+  /** True when the original llms.txt-published URL served the content. */
+  originalUrlServed?: boolean;
 }
 
 /**
@@ -19,12 +21,16 @@ interface PageResult {
  * based on which candidate succeeded in previous results.
  * Returns 'index' if `page/index.md` wins, 'direct' if `page.md` wins, or null if
  * there's no clear winner yet.
+ *
+ * Wins served via the `originalMdUrl` from llms.txt are NOT counted: those
+ * URLs reflect the site's published form, not a `toMdUrls()` candidate, and
+ * counting them would skew the heuristic for unrelated pages.
  */
 function detectPreferredMdForm(results: PageResult[]): 'direct' | 'index' | null {
   let directWins = 0;
   let indexWins = 0;
   for (const r of results) {
-    if (!r.supported || !r.mdUrl) continue;
+    if (!r.supported || !r.mdUrl || r.originalUrlServed) continue;
     if (r.mdUrl.endsWith('/index.md') || r.mdUrl.endsWith('/index.mdx')) {
       indexWins++;
     } else {
@@ -36,6 +42,33 @@ function detectPreferredMdForm(results: PageResult[]): 'direct' | 'index' | null
   if (indexWins / total >= 0.8) return 'index';
   if (directWins / total >= 0.8) return 'direct';
   return null;
+}
+
+/**
+ * Issue #77: when llms.txt published a `/foo/index.html.md` URL but it 404s
+ * (and the regenerated `/foo/index.md` and `/foo/index.html/index.md` also
+ * 404), some sites still serve the markdown at the parent-clean path
+ * `/foo.md` (Plaid's pattern). This is gated to URLs whose llms.txt original
+ * matched `/index.html?\.md$` — strong evidence the site uses this convention.
+ *
+ * Do NOT move this into `toMdUrls()`. Other checks (`llms-txt-directive-md`,
+ * `llms-txt-links-markdown`, etc.) call `toMdUrls()` directly and would
+ * regress to the old false-positive class where unrelated sibling .md files
+ * pass validation. See issue #77 discussion.
+ */
+function deriveParentCleanMd(pageUrl: string, originalMdUrl: string): string | null {
+  if (!/\/index\.html?\.md$/i.test(new URL(originalMdUrl).pathname)) return null;
+  try {
+    const u = new URL(pageUrl);
+    const pathname = u.pathname.replace(/\/$/, '');
+    // Strip /index.html or /index.htm from the page URL and append .md
+    const stripped = pathname.replace(/\/index\.html?$/i, '');
+    if (!stripped || stripped === pathname) return null;
+    u.pathname = `${stripped}.md`;
+    return u.toString();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -58,6 +91,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     totalPages,
     sampled: wasSampled,
     warnings,
+    originalMdUrls,
   } = await discoverAndSamplePages(ctx);
 
   const results: PageResult[] = [];
@@ -68,15 +102,35 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     const batch = pageUrls.slice(i, i + concurrency);
     const batchResults = await Promise.all(
       batch.map(async (url): Promise<PageResult> => {
-        const candidates = toMdUrls(url);
+        const baseCandidates = toMdUrls(url);
         // Non-markdown file types (e.g. .json, .xml) have no .md equivalent — skip them
-        if (candidates.length === 0) {
+        if (baseCandidates.length === 0) {
           return { url, mdUrl: url, supported: false, skipped: true, status: 0 };
         }
         const alreadyMd = /\.mdx?$/i.test(new URL(url).pathname);
-        const ordered = orderCandidates(candidates, mdFormPreference);
+        const original = originalMdUrls?.[url];
+        const parentClean = original ? deriveParentCleanMd(url, original) : null;
+
+        // Build candidate list:
+        //   1. originalMdUrl (the URL llms.txt published) — first, when present.
+        //   2. toMdUrls() candidates, reordered by detected site preference.
+        //   3. parent-clean fallback (issue #77) — last, only when llms.txt
+        //      published a /foo/index.html.md form. Tried only if 1+2 fail.
+        const ordered = orderCandidates(baseCandidates, mdFormPreference);
+        const candidateList: string[] = [];
+        const seen = new Set<string>();
+        const addCandidate = (c: string | null | undefined) => {
+          if (c && !seen.has(c)) {
+            seen.add(c);
+            candidateList.push(c);
+          }
+        };
+        addCandidate(original);
+        for (const c of ordered) addCandidate(c);
+        addCandidate(parentClean);
+
         let lastError: string | undefined;
-        for (const mdUrl of ordered) {
+        for (const mdUrl of candidateList) {
           try {
             const response = await ctx.http.fetch(mdUrl);
             const body = await response.text();
@@ -90,7 +144,14 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
                 url,
                 markdown: { content: body, source: 'md-url' },
               });
-              return { url, mdUrl, supported: true, alreadyMd, status: response.status };
+              return {
+                url,
+                mdUrl,
+                supported: true,
+                alreadyMd,
+                status: response.status,
+                originalUrlServed: mdUrl === original,
+              };
             }
             lastError = undefined; // Got a response, not a fetch error
           } catch (err) {
@@ -99,7 +160,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
         }
         return {
           url,
-          mdUrl: ordered[0],
+          mdUrl: candidateList[0],
           supported: false,
           alreadyMd,
           status: 0,

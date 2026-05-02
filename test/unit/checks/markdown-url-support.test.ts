@@ -410,6 +410,85 @@ describe('markdown-url-support', () => {
     expect(cached?.markdown?.source).toBe('md-url');
   });
 
+  // Regression: issue #77 — sites whose llms.txt links use a `.html.md`
+  // suffix (e.g. Plaid: /docs/auth/index.html.md) lose markdown discovery
+  // because normalizePageUrl strips the .md, and the regenerated candidates
+  // (/docs/auth/index.md, /docs/auth/index.html/index.md) miss the real file.
+  it('detects markdown when llms.txt uses .html.md suffix (issue #77)', async () => {
+    const md = '# Auth\n\nAuth documentation with [a link](http://example.com).';
+    server.use(
+      http.get(
+        'http://test.local/docs/auth/index.html.md',
+        () =>
+          new HttpResponse(md, {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown' },
+          }),
+      ),
+      // The conventional candidates that the check currently generates 404
+      http.get(
+        'http://test.local/docs/auth/index.md',
+        () => new HttpResponse('Not Found', { status: 404 }),
+      ),
+      http.get(
+        'http://test.local/docs/auth.md',
+        () => new HttpResponse('Not Found', { status: 404 }),
+      ),
+      http.get(
+        'http://test.local/docs/auth/index.html/index.md',
+        () => new HttpResponse('Not Found', { status: 404 }),
+      ),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test.local/docs/auth/index.html.md): Auth guide
+`;
+    const result = await check.run(makeCtx({ content }));
+    expect(result.status).toBe('pass');
+    expect(result.details?.mdSupported).toBe(1);
+  });
+
+  // Regression: issue #77, second variant — Plaid actually does serve
+  // /docs/auth.md (clean path + .md) in addition to /docs/auth/index.html.md.
+  // The check should find at least one working markdown form.
+  it('detects markdown via clean-path .md when llms.txt uses .html.md suffix (issue #77)', async () => {
+    const md = '# Auth\n\nClean-path markdown with [a link](http://example.com).';
+    server.use(
+      http.get(
+        'http://test.local/docs/auth.md',
+        () =>
+          new HttpResponse(md, {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown' },
+          }),
+      ),
+      // The .html.md form 404s in this scenario; only /docs/auth.md works.
+      http.get(
+        'http://test.local/docs/auth/index.html.md',
+        () => new HttpResponse('Not Found', { status: 404 }),
+      ),
+      http.get(
+        'http://test.local/docs/auth/index.md',
+        () => new HttpResponse('Not Found', { status: 404 }),
+      ),
+      http.get(
+        'http://test.local/docs/auth/index.html/index.md',
+        () => new HttpResponse('Not Found', { status: 404 }),
+      ),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test.local/docs/auth/index.html.md): Auth guide
+`;
+    const result = await check.run(makeCtx({ content }));
+    expect(result.status).toBe('pass');
+    expect(result.details?.mdSupported).toBe(1);
+  });
+
   it('auto-detects page/index.md preference and tries it first in later batches', async () => {
     // 3 pages, all served at page/index.md (not page.md). With concurrency=1,
     // each page is a separate batch, so after page 1+2 the check should
@@ -478,5 +557,336 @@ describe('markdown-url-support', () => {
     expect(requestLog).toContain('/docs/b/index.md');
     expect(requestLog).not.toContain('/docs/c.md');
     expect(requestLog).toContain('/docs/c/index.md');
+  });
+
+  // ── Issue #77 coverage: original-URL preservation and parent-clean gating ──
+
+  // Sibling-page trap: when both the original .html.md and an unrelated
+  // /auth.md exist, the original must be tried first so we don't accidentally
+  // associate the page with a sibling's content.
+  it('prefers originalMdUrl over parent-clean candidate when both succeed (issue #77)', async () => {
+    const requestLog: string[] = [];
+    const realMd = '# Auth\n\nReal auth doc.';
+    const wrongMd = '# Authentication Section\n\nA different page entirely.';
+    server.use(
+      http.get('http://test.local/docs/auth/index.html.md', () => {
+        requestLog.push('/docs/auth/index.html.md');
+        return new HttpResponse(realMd, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+      http.get('http://test.local/docs/auth.md', () => {
+        requestLog.push('/docs/auth.md');
+        return new HttpResponse(wrongMd, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test.local/docs/auth/index.html.md): Auth guide
+`;
+    const result = await check.run(makeCtx({ content }));
+    expect(result.status).toBe('pass');
+    const pageResults = result.details?.pageResults as Array<{ mdUrl: string }>;
+    expect(pageResults[0].mdUrl).toBe('http://test.local/docs/auth/index.html.md');
+    expect(requestLog[0]).toBe('/docs/auth/index.html.md');
+    expect(requestLog).not.toContain('/docs/auth.md');
+  });
+
+  // Without an originalMdUrl signal (sitemap-only discovery), the parent-clean
+  // candidate must NOT be emitted. Otherwise an unrelated /auth.md would
+  // false-positive the check for a /auth/index.html page.
+  it('does not test /foo.md when /foo/index.html came from sitemap (issue #77 isolation)', async () => {
+    const requestLog: string[] = [];
+    server.use(
+      http.get('http://parentclean.local/robots.txt', () => new HttpResponse('', { status: 404 })),
+      http.get(
+        'http://parentclean.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+              <url><loc>http://parentclean.local/docs/auth/index.html</loc></url>
+            </urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+      http.get('http://parentclean.local/docs/auth/index.md', () => {
+        requestLog.push('/docs/auth/index.md');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+      http.get('http://parentclean.local/docs/auth/index.html/index.md', () => {
+        requestLog.push('/docs/auth/index.html/index.md');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+      http.get('http://parentclean.local/docs/auth.md', () => {
+        requestLog.push('/docs/auth.md');
+        return new HttpResponse('# Some other page\n\nUnrelated content.', {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+    );
+
+    const ctx = createContext('http://parentclean.local', { requestDelay: 0 });
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'fail',
+      message: 'No llms.txt',
+      details: { discoveredFiles: [] },
+    });
+    const result = await check.run(ctx);
+    expect(result.status).toBe('fail');
+    expect(requestLog).not.toContain('/docs/auth.md');
+  });
+
+  // Plain .md original (e.g. /docs/auth.md from llms.txt). No /index.html
+  // form is involved, so the parent-clean candidate must not fire.
+  it('does not emit parent-clean candidate when originalMdUrl is plain .md (issue #77)', async () => {
+    const requestLog: string[] = [];
+    server.use(
+      http.get('http://test.local/docs/feature.md', () => {
+        requestLog.push('/docs/feature.md');
+        return new HttpResponse('# Feature\n\nThe feature.', {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+      http.get('http://test.local/docs.md', () => {
+        requestLog.push('/docs.md');
+        return new HttpResponse('# Wrong page\n', {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [Feature](http://test.local/docs/feature.md): Feature
+`;
+    const result = await check.run(makeCtx({ content }));
+    expect(result.status).toBe('pass');
+    expect(requestLog[0]).toBe('/docs/feature.md');
+    expect(requestLog).not.toContain('/docs.md');
+  });
+
+  // .mdx originals get the original-first benefit, but the parent-clean gate
+  // requires /index.html?\.md specifically. Confirm parent-clean does not fire.
+  it('tries .mdx original first but does not emit parent-clean candidate (issue #77)', async () => {
+    const requestLog: string[] = [];
+    server.use(
+      http.get('http://test.local/docs/guide.mdx', () => {
+        requestLog.push('/docs/guide.mdx');
+        return new HttpResponse('# Guide\n\nThe guide.', {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+      http.get('http://test.local/docs.md', () => {
+        requestLog.push('/docs.md');
+        return new HttpResponse('Wrong', { status: 200 });
+      }),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [Guide](http://test.local/docs/guide.mdx): Guide
+`;
+    const result = await check.run(makeCtx({ content }));
+    expect(result.status).toBe('pass');
+    expect(requestLog[0]).toBe('/docs/guide.mdx');
+    expect(requestLog).not.toContain('/docs.md');
+  });
+
+  // /page.html.md (no /index segment): gate requires /index.html.md, so the
+  // parent-clean candidate is NOT emitted. The original is still tried first.
+  it('does not emit parent-clean candidate for /page.html.md (no /index)', async () => {
+    const requestLog: string[] = [];
+    server.use(
+      http.get('http://test.local/docs/auth.html.md', () => {
+        requestLog.push('/docs/auth.html.md');
+        return new HttpResponse('# Auth\n\nAuth.', {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test.local/docs/auth.html.md): Auth
+`;
+    const result = await check.run(makeCtx({ content }));
+    expect(result.status).toBe('pass');
+    expect(requestLog[0]).toBe('/docs/auth.html.md');
+  });
+
+  // Original 404, parent-clean wins (Plaid second variant).
+  it('falls back to parent-clean candidate when /index.html.md original 404s (issue #77)', async () => {
+    const requestLog: string[] = [];
+    const md = '# Auth\n\nThe auth doc served via clean path.';
+    server.use(
+      http.get('http://test.local/docs/auth/index.html.md', () => {
+        requestLog.push('/docs/auth/index.html.md');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+      http.get('http://test.local/docs/auth/index.md', () => {
+        requestLog.push('/docs/auth/index.md');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+      http.get('http://test.local/docs/auth/index.html/index.md', () => {
+        requestLog.push('/docs/auth/index.html/index.md');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+      http.get('http://test.local/docs/auth.md', () => {
+        requestLog.push('/docs/auth.md');
+        return new HttpResponse(md, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test.local/docs/auth/index.html.md): Auth
+`;
+    const result = await check.run(makeCtx({ content }));
+    expect(result.status).toBe('pass');
+    expect(requestLog).toContain('/docs/auth/index.html.md');
+    expect(requestLog).toContain('/docs/auth.md');
+    const pageResults = result.details?.pageResults as Array<{ mdUrl: string }>;
+    expect(pageResults[0].mdUrl).toBe('http://test.local/docs/auth.md');
+  });
+
+  // All forms 404: must fail cleanly without infinite candidate expansion.
+  it('fails cleanly when original, generated, and parent-clean candidates all 404', async () => {
+    const requestLog: string[] = [];
+    server.use(
+      http.get('http://test.local/docs/auth/index.html.md', () => {
+        requestLog.push('A');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+      http.get('http://test.local/docs/auth/index.md', () => {
+        requestLog.push('B');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+      http.get('http://test.local/docs/auth/index.html/index.md', () => {
+        requestLog.push('C');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+      http.get('http://test.local/docs/auth.md', () => {
+        requestLog.push('D');
+        return new HttpResponse('Not Found', { status: 404 });
+      }),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test.local/docs/auth/index.html.md): Auth
+`;
+    const result = await check.run(makeCtx({ content }));
+    expect(result.status).toBe('fail');
+    // Bounded: at most original + 2 generated + 1 parent-clean = 4 requests.
+    expect(requestLog.length).toBeLessThanOrEqual(4);
+  });
+
+  // mdFormPreference must not be skewed by originalMdUrl wins; otherwise a
+  // run of .html.md sites would mis-bias the heuristic for unrelated pages.
+  it('does not skew mdFormPreference based on originalMdUrl wins (issue #77)', async () => {
+    const md = '# P\n\nContent.';
+    const requestLog: string[] = [];
+    server.use(
+      // Three .html.md originals — all win on first try
+      http.get('http://test.local/docs/a/index.html.md', () => {
+        requestLog.push('/docs/a/index.html.md');
+        return new HttpResponse(md, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+      http.get('http://test.local/docs/b/index.html.md', () => {
+        requestLog.push('/docs/b/index.html.md');
+        return new HttpResponse(md, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+      http.get('http://test.local/docs/c/index.html.md', () => {
+        requestLog.push('/docs/c/index.html.md');
+        return new HttpResponse(md, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+      // Fourth page is plain HTML (no llms.txt original); should try .md
+      // first by default (preference null because original wins didn't count).
+      http.get('http://test.local/docs/d.md', () => {
+        requestLog.push('/docs/d.md');
+        return new HttpResponse(md, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [A](http://test.local/docs/a/index.html.md): A
+- [B](http://test.local/docs/b/index.html.md): B
+- [C](http://test.local/docs/c/index.html.md): C
+- [D](http://test.local/docs/d): D
+`;
+    const ctx = makeCtx({ content });
+    ctx.options.maxConcurrency = 1;
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    // /docs/d.md must be tried in the default order. If preference were
+    // skewed toward 'index' (because the .html.md originals end with index),
+    // the check would request /docs/d/index.md first.
+    const dIndex = requestLog.indexOf('/docs/d.md');
+    const dIndexMd = requestLog.indexOf('/docs/d/index.md');
+    expect(dIndex).toBeGreaterThanOrEqual(0);
+    if (dIndexMd >= 0) {
+      expect(dIndex).toBeLessThan(dIndexMd);
+    }
+  });
+
+  // pageResults reflects the URL the site actually served, not the page URL.
+  it('reports originalMdUrl in pageResults.mdUrl when it served the content', async () => {
+    server.use(
+      http.get(
+        'http://test.local/docs/auth/index.html.md',
+        () =>
+          new HttpResponse('# Auth', {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown' },
+          }),
+      ),
+    );
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test.local/docs/auth/index.html.md): Auth
+`;
+    const ctx = makeCtx({ content });
+    const result = await check.run(ctx);
+    const pageResults = result.details?.pageResults as Array<{ mdUrl: string }>;
+    expect(pageResults[0].mdUrl).toBe('http://test.local/docs/auth/index.html.md');
+    // Cache is keyed by page URL (the normalized HTML form)
+    const cached = ctx.pageCache.get('http://test.local/docs/auth/index.html');
+    expect(cached?.markdown?.content).toBe('# Auth');
   });
 });
