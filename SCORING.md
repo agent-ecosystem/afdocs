@@ -150,7 +150,7 @@ Not all warnings represent the same degree of degradation. A warning on `llms-tx
 | **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access` |
 | **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML; agents don't discover .md variants on their own)                                                                                                                                                                |
 
-Checks that only have pass/fail (no warn state): `http-status-codes`, `markdown-code-fence-validity`.
+`markdown-code-fence-validity` only has pass/fail (no warn state). `http-status-codes` is normally pass/fail but warns when every sampled response is indeterminate (HTTP 202 from CDN cache-miss/build, or 5xx) so the check couldn't measure bad-URL handling.
 
 ## Score caps
 

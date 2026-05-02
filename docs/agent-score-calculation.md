@@ -141,7 +141,7 @@ A warning is not a binary "half credit." Different warnings represent different 
 | **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access` |
 | **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML)                                                                                                                                                                                                                 |
 
-Two checks have no warn state and are strictly pass/fail: `http-status-codes` and `markdown-code-fence-validity`.
+`markdown-code-fence-validity` is strictly pass/fail. `http-status-codes` is normally pass/fail but emits a warn when every sampled response is indeterminate (HTTP 202 during CDN cache-miss/build, or 5xx) so we couldn't measure bad-URL handling.
 
 ## Score caps
 

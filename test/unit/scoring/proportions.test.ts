@@ -120,6 +120,39 @@ describe('proportions', () => {
       expect(result!.proportion).toBeCloseTo(0.667, 2);
       expect(result!.tested).toBe(3);
     });
+
+    it('skips indeterminate items from the proportion', () => {
+      const result = getCheckProportion(
+        makeResult('http-status-codes', 'fail', {
+          pageResults: [
+            { url: '/a', classification: 'correct-error', status: 404 },
+            { url: '/b', classification: 'soft-404', status: 200 },
+            { url: '/c', classification: 'indeterminate', status: 202 },
+          ],
+        }),
+        makeWeight(7),
+      );
+      // 1 pass, 1 fail, 1 skipped = 1/2
+      expect(result!.proportion).toBeCloseTo(0.5, 2);
+      expect(result!.tested).toBe(2);
+    });
+
+    it('falls back to top-level warn status when all items are indeterminate', () => {
+      // Extractor returns undefined for all-indeterminate, so scoring falls
+      // back to the top-level 'warn' status. The site gets warn-coefficient
+      // credit for the check rather than a hard 0 (we couldn't measure).
+      const result = getCheckProportion(
+        makeResult('http-status-codes', 'warn', {
+          pageResults: [
+            { url: '/a', classification: 'indeterminate', status: 202 },
+            { url: '/b', classification: 'indeterminate', status: 503 },
+          ],
+        }),
+        makeWeight(7),
+      );
+      expect(result!.proportion).toBe(0.5);
+      expect(result!.tested).toBe(1);
+    });
   });
 
   describe('markdown-url-support', () => {
