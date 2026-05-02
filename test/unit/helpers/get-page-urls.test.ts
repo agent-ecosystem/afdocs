@@ -14,7 +14,6 @@ import {
   deduplicateVersionedUrls,
   extractVersionFromUrl,
   extractLocaleFromUrl,
-  isSameOriginIgnoringWww,
 } from '../../../src/helpers/get-page-urls.js';
 import { MAX_SITEMAP_URLS } from '../../../src/constants.js';
 import { createContext } from '../../../src/runner.js';
@@ -154,33 +153,6 @@ describe('filterByPathPrefix', () => {
     const urls = ['not-a-url', 'https://example.com/docs/page'];
     const result = filterByPathPrefix(urls, 'https://example.com/docs');
     expect(result).toEqual(['not-a-url', 'https://example.com/docs/page']);
-  });
-});
-
-describe('isSameOriginIgnoringWww', () => {
-  it('returns true for identical origins', () => {
-    expect(isSameOriginIgnoringWww('https://example.com', 'https://example.com')).toBe(true);
-  });
-
-  it('returns true for www vs bare-host (issue #83)', () => {
-    expect(isSameOriginIgnoringWww('https://swift.org', 'https://www.swift.org')).toBe(true);
-    expect(isSameOriginIgnoringWww('https://www.swift.org', 'https://swift.org')).toBe(true);
-  });
-
-  it('returns false for different protocols', () => {
-    expect(isSameOriginIgnoringWww('http://example.com', 'https://example.com')).toBe(false);
-  });
-
-  it('returns false for different ports', () => {
-    expect(isSameOriginIgnoringWww('https://example.com:8443', 'https://example.com')).toBe(false);
-  });
-
-  it('returns false for unrelated hosts', () => {
-    expect(isSameOriginIgnoringWww('https://example.com', 'https://other.com')).toBe(false);
-  });
-
-  it('returns false for subdomains that are not www (e.g. docs)', () => {
-    expect(isSameOriginIgnoringWww('https://docs.example.com', 'https://example.com')).toBe(false);
   });
 });
 
@@ -1299,8 +1271,10 @@ describe('getPageUrls', () => {
     ]);
   });
 
-  it('still rejects truly cross-host sitemap URLs', async () => {
-    // Sanity check: www-equivalence does not relax filtering for unrelated hosts.
+  it('still rejects truly cross-host sitemap URLs (but allows scheme upgrade)', async () => {
+    // www-equivalence does not relax filtering for unrelated hosts. Scheme
+    // is intentionally ignored: an http→https sitemap entry resolves to the
+    // same site after the canonical scheme upgrade.
     mockSitemapNotFound(server, 'http://strict-host.local');
     server.use(
       http.get(
@@ -1315,7 +1289,7 @@ describe('getPageUrls', () => {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>http://strict-host.local/keep</loc></url>
   <url><loc>http://other-host.local/drop</loc></url>
-  <url><loc>https://strict-host.local/drop-scheme</loc></url>
+  <url><loc>https://strict-host.local/keep-scheme</loc></url>
 </urlset>`,
             { status: 200, headers: { 'Content-Type': 'application/xml' } },
           ),
@@ -1325,7 +1299,10 @@ describe('getPageUrls', () => {
     const ctx = createContext('http://strict-host.local', { requestDelay: 0 });
     const warnings: string[] = [];
     const result = await getUrlsFromSitemap(ctx, warnings, { skipRefinement: true });
-    expect(result).toEqual(['http://strict-host.local/keep']);
+    expect(result).toEqual([
+      'http://strict-host.local/keep',
+      'https://strict-host.local/keep-scheme',
+    ]);
   });
 
   it('warns and skips gzipped sitemap from robots.txt', async () => {
