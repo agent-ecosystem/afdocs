@@ -7,6 +7,7 @@ interface AuthGateDetails {
   softAuthGate?: number;
   authRedirect?: number;
   testedPages?: number;
+  fetchErrors?: number;
   pageResults?: Array<{
     url: string;
     classification: string;
@@ -59,6 +60,20 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     (authDetails.authRedirect ?? 0);
   const accessibleCount = authDetails.accessible ?? 0;
   const testedCount = authDetails.testedPages ?? 0;
+  const fetchErrors = authDetails.fetchErrors ?? 0;
+
+  // If auth-gate-detection failed solely because pages couldn't be fetched
+  // (DNS failure, network error, etc.) rather than from detected auth responses,
+  // we have no signal about authentication. Skip rather than imply an auth problem.
+  if (gatedCount === 0 && fetchErrors > 0) {
+    return {
+      id,
+      category,
+      status: 'skip',
+      message:
+        'auth-gate-detection failed due to fetch errors, not detected auth responses; cannot assess alternative access',
+    };
+  }
 
   const detectedPaths: DetectedPath[] = [];
 
