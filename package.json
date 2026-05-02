@@ -1,6 +1,6 @@
 {
   "name": "afdocs",
-  "version": "0.18.3",
+  "version": "0.18.4",
   "description": "Test your documentation site against the Agent-Friendly Documentation Spec",
   "type": "module",
   "main": "dist/index.js",
