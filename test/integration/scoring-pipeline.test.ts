@@ -90,6 +90,10 @@ function setupSite(
       http.get(`http://${host}/sitemap.xml`, () => new HttpResponse('', { status: 404 })),
     );
   }
+  handlers.push(
+    http.get(`http://${host}/sitemap-index.xml`, () => new HttpResponse('', { status: 404 })),
+    http.get(`http://${host}/sitemap_index.xml`, () => new HttpResponse('', { status: 404 })),
+  );
 
   // Root URL for homepage-based discovery
   const pageLinks = opts.pages

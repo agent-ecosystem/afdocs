@@ -603,6 +603,7 @@ describe('markdown-url-support', () => {
   // false-positive the check for a /auth/index.html page.
   it('does not test /foo.md when /foo/index.html came from sitemap (issue #77 isolation)', async () => {
     const requestLog: string[] = [];
+    mockSitemapNotFound(server, 'http://parentclean.local');
     server.use(
       http.get('http://parentclean.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(

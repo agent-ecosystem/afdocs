@@ -4,6 +4,7 @@ import { setupServer } from 'msw/node';
 import { createContext, normalizeUrl, runChecks } from '../../src/runner.js';
 import { registerCheck } from '../../src/checks/registry.js';
 import '../../src/checks/index.js';
+import { mockSitemapNotFound } from '../helpers/mock-sitemap-not-found.js';
 
 const server = setupServer();
 
@@ -206,6 +207,7 @@ describe('runner', () => {
     // page-size-markdown depends on [['markdown-url-support', 'content-negotiation']]
     // When neither dependency runs (filtered out), page-size-markdown should still run
     // rather than being skipped.
+    mockSitemapNotFound(server, 'http://standalone.local');
     server.use(
       http.get('http://standalone.local/llms.txt', () => new HttpResponse(null, { status: 404 })),
       http.get(
@@ -429,6 +431,7 @@ describe('runner', () => {
   });
 
   it('includes timestamp and url in report', async () => {
+    mockSitemapNotFound(server, 'http://meta.local');
     server.use(
       http.get('http://meta.local/llms.txt', () => new HttpResponse(null, { status: 404 })),
       http.get('http://meta.local/docs/llms.txt', () => new HttpResponse(null, { status: 404 })),
@@ -456,6 +459,7 @@ describe('runner', () => {
   });
 
   it('includes discoverySources in report when page discovery runs', async () => {
+    mockSitemapNotFound(server, 'http://sources.local');
     server.use(
       http.get('http://sources.local/llms.txt', () =>
         HttpResponse.text('# Docs\n## Links\n- [A](http://sources.local/docs/a): A\n'),

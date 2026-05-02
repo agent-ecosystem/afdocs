@@ -328,14 +328,21 @@ async function discoverSitemapUrls(ctx: CheckContext, originOverride?: string): 
 
   // Build fallback candidates: origin-level sitemap first, then subpath sitemaps
   // when the base URL has a non-root path (e.g. swagger.io/docs/).
+  // Both `sitemap-index.xml` (hyphen) and `sitemap_index.xml` (underscore) are
+  // observed in the wild; e.g. Document360's CMS emits the underscore form.
   const fallbackOrigin = originOverride ?? ctx.origin;
-  const candidates = [`${fallbackOrigin}/sitemap.xml`];
+  const candidates = [
+    `${fallbackOrigin}/sitemap.xml`,
+    `${fallbackOrigin}/sitemap-index.xml`,
+    `${fallbackOrigin}/sitemap_index.xml`,
+  ];
 
   const baseUrlPath = new URL(ctx.baseUrl).pathname.replace(/\/$/, '');
   if (baseUrlPath && baseUrlPath !== '') {
     const subpathBase = `${fallbackOrigin}${baseUrlPath}`;
     candidates.push(`${subpathBase}/sitemap.xml`);
     candidates.push(`${subpathBase}/sitemap-index.xml`);
+    candidates.push(`${subpathBase}/sitemap_index.xml`);
   }
 
   return candidates;

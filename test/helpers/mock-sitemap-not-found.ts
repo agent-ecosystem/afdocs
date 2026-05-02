@@ -14,6 +14,8 @@ export function mockSitemapNotFound(server: SetupServerApi, baseUrl: string): vo
   const handlers = [
     http.get(`${parsed.origin}/robots.txt`, () => new HttpResponse('', { status: 404 })),
     http.get(`${parsed.origin}/sitemap.xml`, () => new HttpResponse('', { status: 404 })),
+    http.get(`${parsed.origin}/sitemap-index.xml`, () => new HttpResponse('', { status: 404 })),
+    http.get(`${parsed.origin}/sitemap_index.xml`, () => new HttpResponse('', { status: 404 })),
   ];
   const subpath = parsed.pathname.replace(/\/$/, '');
   if (subpath && subpath !== '') {
@@ -24,6 +26,10 @@ export function mockSitemapNotFound(server: SetupServerApi, baseUrl: string): vo
       ),
       http.get(
         `${parsed.origin}${subpath}/sitemap-index.xml`,
+        () => new HttpResponse('', { status: 404 }),
+      ),
+      http.get(
+        `${parsed.origin}${subpath}/sitemap_index.xml`,
         () => new HttpResponse('', { status: 404 }),
       ),
     );

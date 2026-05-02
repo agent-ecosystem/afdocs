@@ -147,6 +147,7 @@ describe('page-size-markdown', () => {
 
   it('works in standalone mode when dependencies never ran', async () => {
     mockNoLlmsTxt('ps-md-standalone.local');
+    mockSitemapNotFound(server, 'http://ps-md-standalone.local');
     server.use(
       http.get(
         'http://ps-md-standalone.local/robots.txt',
@@ -187,6 +188,7 @@ describe('page-size-markdown', () => {
 
   it('skips in standalone mode when no markdown found', async () => {
     mockNoLlmsTxt('ps-md-nomd.local');
+    mockSitemapNotFound(server, 'http://ps-md-nomd.local');
     server.use(
       http.get('http://ps-md-nomd.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get('http://ps-md-nomd.local/sitemap.xml', () => new HttpResponse('', { status: 404 })),
