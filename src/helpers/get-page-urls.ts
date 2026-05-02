@@ -43,45 +43,100 @@ export async function getUrlsFromCachedLlmsTxt(ctx: CheckContext): Promise<strin
   return result.pageUrls;
 }
 
+/**
+ * Variant of `getUrlsFromCachedLlmsTxt` that also returns the originalMdUrl
+ * mapping for URLs whose llms.txt form ended in `.md`/`.mdx` (issue #77).
+ */
+export async function getUrlsFromCachedLlmsTxtWithOriginals(
+  ctx: CheckContext,
+): Promise<{ pageUrls: string[]; originalMdUrls: Record<string, string> }> {
+  const existsResult = ctx.previousResults.get('llms-txt-exists');
+  const discovered = getLlmsTxtFilesForAnalysis(existsResult);
+
+  const entries = extractLinksFromLlmsTxtFiles(discovered);
+  const result = await walkAggregateLinksWithOriginals(ctx, entries);
+  return {
+    pageUrls: result.pageUrls.map((p) => p.url),
+    originalMdUrls: collectOriginalMdUrls(result.pageUrls),
+  };
+}
+
 export async function getUrlsFromCachedLlmsTxtWithOmitted(
   ctx: CheckContext,
 ): Promise<AggregateWalkResult> {
   const existsResult = ctx.previousResults.get('llms-txt-exists');
   const discovered = getLlmsTxtFilesForAnalysis(existsResult);
 
-  const urls = extractLinksFromLlmsTxtFiles(discovered);
-  return walkAggregateLinks(ctx, urls);
+  const entries = extractLinksFromLlmsTxtFiles(discovered);
+  const result = await walkAggregateLinksWithOriginals(ctx, entries);
+  return {
+    pageUrls: result.pageUrls.map((p) => p.url),
+    omittedTxtUrls: result.omittedTxtUrls,
+  };
+}
+
+function collectOriginalMdUrls(pages: DiscoveredPageUrl[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const p of pages) {
+    if (p.originalMdUrl && !(p.url in map)) {
+      map[p.url] = p.originalMdUrl;
+    }
+  }
+  return map;
 }
 
 /**
  * Normalize a discovered page URL: convert .md/.mdx URLs to their HTML
  * equivalent so that llms.txt entries like `/docs/guide/index.md` deduplicate
- * against sitemap entries like `/docs/guide/`. Markdown-specific checks are
- * unaffected because they derive .md candidates from HTML URLs via toMdUrls().
+ * against sitemap entries like `/docs/guide/`. The original .md URL is
+ * returned alongside as `originalMdUrl` so that markdown-availability checks
+ * can still test the URL the site explicitly published (issue #77).
  */
-function normalizePageUrl(url: string): string {
-  return isMdUrl(url) ? toHtmlUrl(url) : url;
+function normalizePageUrl(url: string): { url: string; originalMdUrl?: string } {
+  if (isMdUrl(url)) {
+    return { url: toHtmlUrl(url), originalMdUrl: url };
+  }
+  return { url };
 }
 
-function extractLinksFromLlmsTxtFiles(files: DiscoveredFile[]): string[] {
-  const urls = new Set<string>();
+interface DiscoveredPageUrl {
+  url: string;
+  originalMdUrl?: string;
+}
+
+function extractLinksFromLlmsTxtFiles(files: DiscoveredFile[]): DiscoveredPageUrl[] {
+  // Map normalized URL → originalMdUrl. A given page may appear in llms.txt
+  // both as `/page.md` and `/page` (HTML); we keep the .md form so downstream
+  // markdown checks have a known-good URL to test.
+  const seen = new Map<string, string | undefined>();
+
+  function record(rawUrl: string) {
+    const { url, originalMdUrl } = normalizePageUrl(rawUrl);
+    const existing = seen.get(url);
+    if (existing === undefined && originalMdUrl) {
+      seen.set(url, originalMdUrl);
+    } else if (!seen.has(url)) {
+      seen.set(url, originalMdUrl);
+    }
+  }
+
   for (const file of files) {
     const links = extractMarkdownLinks(file.content);
     for (const link of links) {
       if (link.url.startsWith('http://') || link.url.startsWith('https://')) {
-        urls.add(normalizePageUrl(link.url));
+        record(link.url);
       } else if (link.url.startsWith('/')) {
         // Resolve root-relative URLs against the source file's origin
         try {
           const base = new URL(file.url);
-          urls.add(normalizePageUrl(new URL(link.url, base.origin).toString()));
+          record(new URL(link.url, base.origin).toString());
         } catch {
           // Skip malformed URLs
         }
       }
     }
   }
-  return Array.from(urls);
+  return Array.from(seen, ([url, originalMdUrl]) => ({ url, originalMdUrl }));
 }
 
 /**
@@ -98,29 +153,32 @@ export interface AggregateWalkResult {
   omittedTxtUrls: string[];
 }
 
-async function walkAggregateLinks(ctx: CheckContext, urls: string[]): Promise<AggregateWalkResult> {
-  const pageUrls: string[] = [];
+async function walkAggregateLinksWithOriginals(
+  ctx: CheckContext,
+  entries: DiscoveredPageUrl[],
+): Promise<{ pageUrls: DiscoveredPageUrl[]; omittedTxtUrls: string[] }> {
+  const pageUrls: DiscoveredPageUrl[] = [];
   const aggregateUrls: string[] = [];
   const omittedTxtUrls: string[] = [];
 
   const siteOrigin = ctx.effectiveOrigin ?? ctx.origin;
 
-  for (const url of urls) {
+  for (const entry of entries) {
     try {
-      const parsed = new URL(url);
+      const parsed = new URL(entry.url);
       if (/\.txt$/i.test(parsed.pathname)) {
         // .txt files are either aggregate indexes to walk (same origin)
         // or external resources to skip — never page URLs themselves
         if (parsed.origin === ctx.origin || parsed.origin === siteOrigin) {
-          aggregateUrls.push(url);
+          aggregateUrls.push(entry.url);
         }
       } else if (parsed.origin === ctx.origin || parsed.origin === siteOrigin) {
         // Only include same-origin page URLs; cross-origin links are
         // external resources the site owner doesn't control.
-        pageUrls.push(normalizePageUrl(url));
+        pageUrls.push(entry);
       }
     } catch {
-      pageUrls.push(normalizePageUrl(url));
+      pageUrls.push(entry);
     }
   }
 
@@ -144,19 +202,19 @@ async function walkAggregateLinks(ctx: CheckContext, urls: string[]): Promise<Ag
         status: response.status,
         redirected: response.redirected,
       };
-      const subUrls = extractLinksFromLlmsTxtFiles([subFile]);
+      const subEntries = extractLinksFromLlmsTxtFiles([subFile]);
 
-      for (const subUrl of subUrls) {
+      for (const subEntry of subEntries) {
         try {
-          const parsed = new URL(subUrl);
+          const parsed = new URL(subEntry.url);
           const isSameOrigin = parsed.origin === ctx.origin || parsed.origin === siteOrigin;
           if (!isSameOrigin) continue;
 
           if (/\.txt$/i.test(parsed.pathname)) {
             // Depth-1 .txt link: record as omitted rather than descending
-            omittedTxtUrls.push(subUrl);
-          } else if (!isNonPageUrl(subUrl)) {
-            pageUrls.push(subUrl);
+            omittedTxtUrls.push(subEntry.url);
+          } else if (!isNonPageUrl(subEntry.url)) {
+            pageUrls.push(subEntry);
           }
         } catch {
           // Skip malformed URLs
@@ -177,7 +235,9 @@ async function walkAggregateLinks(ctx: CheckContext, urls: string[]): Promise<Ag
  * Mirrors the canonical-selection logic in `llms-txt-exists` so that the same
  * single source of truth drives sampling whether or not `llms-txt-exists` ran.
  */
-async function fetchLlmsTxtUrls(ctx: CheckContext): Promise<string[]> {
+async function fetchLlmsTxtUrls(
+  ctx: CheckContext,
+): Promise<{ pageUrls: string[]; originalMdUrls: Record<string, string> }> {
   const explicitUrl = ctx.options.llmsTxtUrl;
   const candidates = explicitUrl
     ? [explicitUrl]
@@ -213,9 +273,12 @@ async function fetchLlmsTxtUrls(ctx: CheckContext): Promise<string[]> {
 
   const canonical = selectCanonicalLlmsTxt(discovered, ctx.baseUrl);
   const filesForAnalysis = canonical ? [canonical] : [];
-  const urls = extractLinksFromLlmsTxtFiles(filesForAnalysis);
-  const result = await walkAggregateLinks(ctx, urls);
-  return result.pageUrls;
+  const entries = extractLinksFromLlmsTxtFiles(filesForAnalysis);
+  const result = await walkAggregateLinksWithOriginals(ctx, entries);
+  return {
+    pageUrls: result.pageUrls.map((p) => p.url),
+    originalMdUrls: collectOriginalMdUrls(result.pageUrls),
+  };
 }
 
 /**
@@ -285,6 +348,13 @@ export interface PageUrlResult {
   warnings: string[];
   /** Which discovery methods contributed to the final URL set. */
   sources: DiscoverySource[];
+  /**
+   * Map of normalized URL → the original .md/.mdx URL the llms.txt published.
+   * Only populated for URLs discovered via llms.txt; sitemap URLs contribute none.
+   * Markdown-availability checks use this to test the site-published markdown
+   * URL alongside the conventional candidates from `toMdUrls()` (issue #77).
+   */
+  originalMdUrls?: Record<string, string>;
 }
 
 function isGzipped(url: string): boolean {
@@ -880,33 +950,54 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
     return deduplicateVersionedUrls(localeFiltered, version);
   }
 
+  /** Filter the originalMdUrls map to a subset of URLs. */
+  function filterOriginalMdUrls(
+    map: Record<string, string>,
+    keep: string[],
+  ): Record<string, string> | undefined {
+    const keepSet = new Set(keep);
+    const out: Record<string, string> = {};
+    for (const [url, original] of Object.entries(map)) {
+      if (keepSet.has(url)) out[url] = original;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
   // 1. Try llms.txt links from cached results (if llms-txt-exists ran)
-  const cachedUrls = await getUrlsFromCachedLlmsTxt(ctx);
-  let llmsTxtUrls = refineUrls(filterByPathPrefix(cachedUrls, filterBase));
+  const cached = await getUrlsFromCachedLlmsTxtWithOriginals(ctx);
+  let llmsTxtUrls = refineUrls(filterByPathPrefix(cached.pageUrls, filterBase));
+  let originalMdUrls = cached.originalMdUrls;
 
   // 2. Try fetching llms.txt directly (standalone mode, llms-txt-exists didn't run)
   if (llmsTxtUrls.length === 0 && !ctx.previousResults.has('llms-txt-exists')) {
-    const fetchedUrls = await fetchLlmsTxtUrls(ctx);
-    llmsTxtUrls = refineUrls(filterByPathPrefix(fetchedUrls, filterBase));
+    const fetched = await fetchLlmsTxtUrls(ctx);
+    llmsTxtUrls = refineUrls(filterByPathPrefix(fetched.pageUrls, filterBase));
+    originalMdUrls = fetched.originalMdUrls;
   }
 
   if (llmsTxtUrls.length > 0) {
     sources.push('llms-txt');
+    const filteredOriginals = filterOriginalMdUrls(originalMdUrls, llmsTxtUrls);
 
     // If llms.txt meets the requested sample size, no need for sitemap
     if (llmsTxtUrls.length >= ctx.options.maxLinksToTest) {
-      return { urls: llmsTxtUrls, warnings, sources };
+      return { urls: llmsTxtUrls, warnings, sources, originalMdUrls: filteredOriginals };
     }
 
     // llms.txt is thin — try sitemap to fill the gap
     const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: filterBase });
     if (sitemapUrls.length > 0) {
       sources.push('sitemap');
-      return { urls: mergeUrlSets(llmsTxtUrls, sitemapUrls), warnings, sources };
+      return {
+        urls: mergeUrlSets(llmsTxtUrls, sitemapUrls),
+        warnings,
+        sources,
+        originalMdUrls: filteredOriginals,
+      };
     }
 
     // Sitemap had nothing; return llms.txt URLs alone
-    return { urls: llmsTxtUrls, warnings, sources };
+    return { urls: llmsTxtUrls, warnings, sources, originalMdUrls: filteredOriginals };
   }
 
   // 3. Try sitemap (path, locale, and version filtering applied inside)
@@ -930,6 +1021,12 @@ export interface SampledPages {
   urlTags?: Record<string, string>;
   /** Which discovery methods contributed to the page URL set. */
   sources?: DiscoverySource[];
+  /**
+   * Map of sampled URL → original .md/.mdx URL from llms.txt (issue #77).
+   * `markdown-url-support` uses this to test the URL the site explicitly
+   * published before falling back to conventional `toMdUrls()` candidates.
+   */
+  originalMdUrls?: Record<string, string>;
 }
 
 /**
@@ -1023,12 +1120,25 @@ export async function discoverAndSamplePages(ctx: CheckContext): Promise<Sampled
     }
   }
 
+  // Filter originalMdUrls to the sampled subset so downstream checks
+  // don't see entries for URLs that were filtered out.
+  let originalMdUrls: Record<string, string> | undefined;
+  if (discovery.originalMdUrls) {
+    const sampledSet = new Set(urls);
+    const filtered: Record<string, string> = {};
+    for (const [url, original] of Object.entries(discovery.originalMdUrls)) {
+      if (sampledSet.has(url)) filtered[url] = original;
+    }
+    if (Object.keys(filtered).length > 0) originalMdUrls = filtered;
+  }
+
   ctx._sampledPages = {
     urls,
     totalPages,
     sampled,
     warnings: discovery.warnings,
     sources: discovery.sources,
+    originalMdUrls,
   };
   return ctx._sampledPages;
 }

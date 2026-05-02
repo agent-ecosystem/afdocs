@@ -328,4 +328,43 @@ Just text, no links here.
     expect(result.status).toBe('warn');
     expect(result.details?.mdVariantsAvailable).toBe(1);
   });
+
+  // Issue #77 isolation: parent-clean candidate generation lives in
+  // markdown-url-support only. If it ever leaks into toMdUrls, this links
+  // check would falsely validate a link to /docs/auth/index.html via an
+  // unrelated /docs/auth.md sibling. Guard against that.
+  it('does not validate link via parent-clean .md candidate (issue #77 isolation)', async () => {
+    const requestLog: string[] = [];
+    server.use(
+      http.head('http://test.local/docs/auth/index.html', () => {
+        requestLog.push('HEAD /docs/auth/index.html');
+        return new HttpResponse(null, { status: 200 });
+      }),
+      http.head('http://test.local/docs/auth/index.md', () => {
+        requestLog.push('HEAD /docs/auth/index.md');
+        return new HttpResponse(null, { status: 404 });
+      }),
+      http.head('http://test.local/docs/auth/index.html/index.md', () => {
+        requestLog.push('HEAD /docs/auth/index.html/index.md');
+        return new HttpResponse(null, { status: 404 });
+      }),
+      // The sibling /docs/auth.md exists but must not be requested.
+      http.head('http://test.local/docs/auth.md', () => {
+        requestLog.push('HEAD /docs/auth.md');
+        return new HttpResponse(null, { status: 200 });
+      }),
+      http.get('http://test.local/docs/auth.md', () => {
+        requestLog.push('GET /docs/auth.md');
+        return new HttpResponse('# unrelated', {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+    );
+
+    const content = `# Test\n> Summary\n## Links\n- [Auth](http://test.local/docs/auth/index.html): Auth\n`;
+    await check.run(makeCtx(content));
+    expect(requestLog).not.toContain('HEAD /docs/auth.md');
+    expect(requestLog).not.toContain('GET /docs/auth.md');
+  });
 });
