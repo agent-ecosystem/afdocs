@@ -4,6 +4,7 @@ import { setupServer } from 'msw/node';
 import { getCheck } from '../../../src/checks/registry.js';
 import { createContext } from '../../../src/runner.js';
 import type { DiscoveredFile } from '../../../src/types.js';
+import { mockSitemapNotFound } from '../../helpers/mock-sitemap-not-found.js';
 import {
   hasLocaleCodeAt,
   filterToUnprefixedLocale,
@@ -288,15 +289,7 @@ describe('llms-txt-coverage', () => {
     const host = 'cov-no-sitemap.local';
     const ctx = makeCtx(host, [`http://${host}/docs/page`], '/docs');
 
-    server.use(
-      http.get(`http://${host}/robots.txt`, () => new HttpResponse('', { status: 404 })),
-      http.get(`http://${host}/sitemap.xml`, () => new HttpResponse('', { status: 404 })),
-      http.get(`http://${host}/docs/sitemap.xml`, () => new HttpResponse('', { status: 404 })),
-      http.get(
-        `http://${host}/docs/sitemap-index.xml`,
-        () => new HttpResponse('', { status: 404 }),
-      ),
-    );
+    mockSitemapNotFound(server, `http://${host}/docs`);
 
     const result = await check.run(ctx);
     expect(result.status).toBe('skip');
@@ -527,10 +520,8 @@ describe('llms-txt-coverage', () => {
 
     const ctx = makeCtx(host, docPages, '/docs');
 
+    mockSitemapNotFound(server, `http://${host}/docs`);
     server.use(
-      // No main sitemap
-      http.get(`http://${host}/robots.txt`, () => new HttpResponse('', { status: 404 })),
-      http.get(`http://${host}/sitemap.xml`, () => new HttpResponse('', { status: 404 })),
       // Docs sitemap is an index
       http.get(
         `http://${host}/docs/sitemap.xml`,
@@ -547,10 +538,6 @@ describe('llms-txt-coverage', () => {
             status: 200,
             headers: { 'content-type': 'application/xml' },
           }),
-      ),
-      http.get(
-        `http://${host}/docs/sitemap-index.xml`,
-        () => new HttpResponse('', { status: 404 }),
       ),
     );
 

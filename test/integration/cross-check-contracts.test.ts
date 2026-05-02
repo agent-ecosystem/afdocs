@@ -150,6 +150,7 @@ describe('previousResults safety: checks handle missing dependencies gracefully'
       const ctx = createContext(`http://${host}`, { requestDelay: 0 });
       // No llms-txt-exists in previousResults, no llms.txt
 
+      mockSitemapNotFound(server, `http://${host}`);
       server.use(
         http.get(`http://${host}/llms.txt`, () => new HttpResponse(null, { status: 404 })),
         http.get(`http://${host}/docs/llms.txt`, () => new HttpResponse(null, { status: 404 })),
@@ -368,6 +369,7 @@ describe('cross-check field contracts: empty/missing upstream details', () => {
       details: { discoveredFiles: [] },
     });
 
+    mockSitemapNotFound(server, `http://${host}`);
     server.use(
       http.get(`http://${host}/llms.txt`, () => new HttpResponse(null, { status: 404 })),
       http.get(`http://${host}/docs/llms.txt`, () => new HttpResponse(null, { status: 404 })),

@@ -90,6 +90,10 @@ function setupSite(
       http.get(`http://${host}/sitemap.xml`, () => new HttpResponse('', { status: 404 })),
     );
   }
+  handlers.push(
+    http.get(`http://${host}/sitemap-index.xml`, () => new HttpResponse('', { status: 404 })),
+    http.get(`http://${host}/sitemap_index.xml`, () => new HttpResponse('', { status: 404 })),
+  );
 
   // Root URL for homepage-based discovery
   const pageLinks = opts.pages
@@ -415,6 +419,12 @@ describe('scoring pipeline: resolutions populated for real check failures', () =
   it('each failing check produces a resolution string', async () => {
     const { pages } = makePages(host, 6);
     setupSite(host, { pages, cacheControl: 'max-age=300' });
+    // No llms.txt or sitemap → discovery falls back to baseUrl, and
+    // markdown-url-support probes baseUrl's .md candidates.
+    server.use(
+      http.get(`http://${host}/.md`, () => new HttpResponse(null, { status: 404 })),
+      http.get(`http://${host}/index.md`, () => new HttpResponse(null, { status: 404 })),
+    );
 
     const report = await runChecks(`http://${host}`, {
       requestDelay: 0,

@@ -308,6 +308,7 @@ describe('page-size-html', () => {
   });
 
   it('falls back to baseUrl when no llms.txt', async () => {
+    mockSitemapNotFound(server, 'http://ps-html-fb.local');
     server.use(
       http.get(
         'http://ps-html-fb.local/llms.txt',

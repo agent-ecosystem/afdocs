@@ -480,6 +480,7 @@ describe('content-start-position', () => {
   // ── Fallback to baseUrl ──
 
   it('falls back to baseUrl when no llms.txt', async () => {
+    mockSitemapNotFound(server, 'http://csp-fb.local');
     server.use(
       http.get(
         'http://csp-fb.local/llms.txt',

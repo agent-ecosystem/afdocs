@@ -48,6 +48,8 @@ function setupSite(
     http.get(`http://${host}/docs/llms.txt`, () => new HttpResponse(null, { status: 404 })),
     http.get(`http://${host}/robots.txt`, () => new HttpResponse('', { status: 404 })),
     http.get(`http://${host}/sitemap.xml`, () => new HttpResponse('', { status: 404 })),
+    http.get(`http://${host}/sitemap-index.xml`, () => new HttpResponse('', { status: 404 })),
+    http.get(`http://${host}/sitemap_index.xml`, () => new HttpResponse('', { status: 404 })),
   );
 
   for (const page of opts.pages) {

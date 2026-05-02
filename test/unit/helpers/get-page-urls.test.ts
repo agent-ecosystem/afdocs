@@ -719,6 +719,7 @@ describe('getPageUrls', () => {
   });
 
   it('fetches and parses sitemap.xml when no llms.txt links', async () => {
+    mockSitemapNotFound(server, 'http://sitemap-test.local');
     server.use(
       http.get(
         'http://sitemap-test.local/robots.txt',
@@ -748,6 +749,7 @@ describe('getPageUrls', () => {
   });
 
   it('handles sitemap index files (follows sub-sitemaps)', async () => {
+    mockSitemapNotFound(server, 'http://index-test.local');
     server.use(
       http.get('http://index-test.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -784,6 +786,7 @@ describe('getPageUrls', () => {
   });
 
   it('filters sitemap URLs to same-origin only', async () => {
+    mockSitemapNotFound(server, 'http://origin-test.local');
     server.use(
       http.get('http://origin-test.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -810,6 +813,7 @@ describe('getPageUrls', () => {
   });
 
   it('falls back to baseUrl when both llms.txt and sitemap are empty', async () => {
+    mockSitemapNotFound(server, 'http://empty-test.local');
     server.use(
       http.get('http://empty-test.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -825,6 +829,7 @@ describe('getPageUrls', () => {
   });
 
   it('handles malformed sitemap XML gracefully', async () => {
+    mockSitemapNotFound(server, 'http://bad-xml.local');
     server.use(
       http.get('http://bad-xml.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -848,6 +853,7 @@ describe('getPageUrls', () => {
       (_, i) => `  <url><loc>http://big-sitemap.local/page/${i}</loc></url>`,
     ).join('\n');
 
+    mockSitemapNotFound(server, 'http://big-sitemap.local');
     server.use(
       http.get('http://big-sitemap.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -878,6 +884,7 @@ describe('getPageUrls', () => {
       (_, i) => `  <url><loc>http://cap-prefix.local/en/6.0/page/${i}</loc></url>`,
     ).join('\n');
 
+    mockSitemapNotFound(server, 'http://cap-prefix.local/en/6.0');
     server.use(
       http.get('http://cap-prefix.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -943,6 +950,7 @@ describe('getPageUrls', () => {
       .map((u) => `  <url><loc>${u}</loc></url>`)
       .join('\n');
 
+    mockSitemapNotFound(server, 'http://ver-dedup.local');
     server.use(
       http.get('http://ver-dedup.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -966,6 +974,7 @@ describe('getPageUrls', () => {
 
   it('filters sitemap index to default locale, skipping non-English sub-sitemaps (#30)', async () => {
     // Django-like sitemap index: 12 locale sitemaps, only en should be fetched
+    mockSitemapNotFound(server, 'http://locale-idx.local');
     server.use(
       http.get('http://locale-idx.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -1006,6 +1015,7 @@ describe('getPageUrls', () => {
   });
 
   it('handles sitemap fetch network errors gracefully', async () => {
+    mockSitemapNotFound(server, 'http://net-err.local');
     server.use(
       http.get('http://net-err.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get('http://net-err.local/sitemap.xml', () => HttpResponse.error()),
@@ -1085,6 +1095,7 @@ describe('getPageUrls', () => {
   });
 
   it('falls back to /sitemap.xml when robots.txt has no Sitemap directive', async () => {
+    mockSitemapNotFound(server, 'http://no-directive.local');
     server.use(
       http.get(
         'http://no-directive.local/robots.txt',
@@ -1107,6 +1118,95 @@ describe('getPageUrls', () => {
     expect(result.urls).toEqual(['http://no-directive.local/page']);
   });
 
+  it('falls back to /sitemap-index.xml at root when robots.txt lacks Sitemap directive and /sitemap.xml is absent', async () => {
+    server.use(
+      http.get(
+        'http://root-index.local/robots.txt',
+        () => new HttpResponse('User-agent: *\nAllow: /\n', { status: 200 }),
+      ),
+      http.get('http://root-index.local/sitemap.xml', () => new HttpResponse('', { status: 404 })),
+      http.get(
+        'http://root-index.local/sitemap_index.xml',
+        () => new HttpResponse('', { status: 404 }),
+      ),
+      http.get(
+        'http://root-index.local/sitemap-index.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>http://root-index.local/sitemap-0.xml</loc></sitemap>
+</sitemapindex>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+      http.get(
+        'http://root-index.local/sitemap-0.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://root-index.local/page-a</loc></url>
+  <url><loc>http://root-index.local/page-b</loc></url>
+</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+
+    const ctx = makeCtx('http://root-index.local');
+    const result = await getPageUrls(ctx);
+    expect(result.urls).toEqual([
+      'http://root-index.local/page-a',
+      'http://root-index.local/page-b',
+    ]);
+  });
+
+  it('falls back to /sitemap_index.xml (underscore variant) at root when other candidates 404', async () => {
+    server.use(
+      http.get(
+        'http://underscore-index.local/robots.txt',
+        () => new HttpResponse('User-agent: *\nAllow: /\n', { status: 200 }),
+      ),
+      http.get(
+        'http://underscore-index.local/sitemap.xml',
+        () => new HttpResponse('', { status: 404 }),
+      ),
+      http.get(
+        'http://underscore-index.local/sitemap-index.xml',
+        () => new HttpResponse('', { status: 404 }),
+      ),
+      http.get(
+        'http://underscore-index.local/sitemap_index.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>http://underscore-index.local/sitemap-en.xml</loc></sitemap>
+</sitemapindex>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+      http.get(
+        'http://underscore-index.local/sitemap-en.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://underscore-index.local/article-1</loc></url>
+  <url><loc>http://underscore-index.local/article-2</loc></url>
+</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+
+    const ctx = makeCtx('http://underscore-index.local');
+    const result = await getPageUrls(ctx);
+    expect(result.urls).toEqual([
+      'http://underscore-index.local/article-1',
+      'http://underscore-index.local/article-2',
+    ]);
+  });
+
   it('warns and skips gzipped sitemap from robots.txt', async () => {
     server.use(
       http.get(
@@ -1124,6 +1224,7 @@ describe('getPageUrls', () => {
   });
 
   it('warns and skips gzipped sub-sitemap from sitemap index', async () => {
+    mockSitemapNotFound(server, 'http://gz-index.local');
     server.use(
       http.get('http://gz-index.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -1446,6 +1547,7 @@ describe('getPageUrls', () => {
 
   it('fetches llms.txt directly when llms-txt-exists has not run', async () => {
     const llmsTxt = `# Docs\n> Summary\n## Links\n- [Intro](http://direct-llms.local/docs/intro): Intro\n- [Guide](http://direct-llms.local/docs/guide): Guide\n`;
+    mockSitemapNotFound(server, 'http://direct-llms.local');
     server.use(
       http.get(
         'http://direct-llms.local/llms.txt',
@@ -1470,6 +1572,7 @@ describe('getPageUrls', () => {
   });
 
   it('skips llms.txt with non-text content-type in standalone mode', async () => {
+    mockSitemapNotFound(server, 'http://nontext-llms.local');
     server.use(
       http.get(
         'http://nontext-llms.local/llms.txt',
@@ -1497,6 +1600,7 @@ describe('getPageUrls', () => {
   });
 
   it('skips llms.txt that returns HTML in standalone mode', async () => {
+    mockSitemapNotFound(server, 'http://html-llms.local');
     server.use(
       http.get(
         'http://html-llms.local/llms.txt',
@@ -1520,6 +1624,7 @@ describe('getPageUrls', () => {
   });
 
   it('skips empty llms.txt in standalone mode', async () => {
+    mockSitemapNotFound(server, 'http://empty-llms.local');
     server.use(
       http.get(
         'http://empty-llms.local/llms.txt',
@@ -1540,6 +1645,7 @@ describe('getPageUrls', () => {
   });
 
   it('handles llms.txt fetch errors gracefully in standalone mode', async () => {
+    mockSitemapNotFound(server, 'http://err-llms.local');
     server.use(
       http.get('http://err-llms.local/llms.txt', () => HttpResponse.error()),
       http.get('http://err-llms.local/docs/llms.txt', () => HttpResponse.error()),
@@ -1612,6 +1718,7 @@ describe('getPageUrls', () => {
   });
 
   it('scopes sitemap URLs to the baseUrl path prefix', async () => {
+    mockSitemapNotFound(server, 'http://sitemap-scope.local/docs');
     server.use(
       http.get(
         'http://sitemap-scope.local/robots.txt',
@@ -1651,6 +1758,7 @@ describe('getPageUrls', () => {
 
   it('discovers sitemap at docs subpath when origin-level sitemap is empty (#32)', async () => {
     // Simulate Swagger UI: robots.txt 404, /sitemap.xml 404, but /docs/sitemap-index.xml exists
+    mockSitemapNotFound(server, 'http://subpath-sm.local/docs');
     server.use(
       http.get('http://subpath-sm.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -1786,6 +1894,7 @@ describe('getPageUrls', () => {
   });
 
   it('explicit preferredLocale applies to sitemap index filtering', async () => {
+    mockSitemapNotFound(server, 'http://opt-sitemap-locale.local');
     server.use(
       http.get(
         'http://opt-sitemap-locale.local/robots.txt',
@@ -1829,6 +1938,7 @@ describe('getPageUrls', () => {
   });
 
   it('skipRefinement returns unfiltered sitemap URLs', async () => {
+    mockSitemapNotFound(server, 'http://skip-refine.local');
     server.use(
       http.get('http://skip-refine.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -1886,6 +1996,7 @@ describe('getPageUrls', () => {
   });
 
   it('respects maxUrls cap when following sitemap index sub-sitemaps', async () => {
+    mockSitemapNotFound(server, 'http://cap-index.local');
     server.use(
       http.get('http://cap-index.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
@@ -2214,6 +2325,7 @@ describe('originalMdUrls (issue #77)', () => {
       message: 'No llms.txt',
       details: { discoveredFiles: [] },
     });
+    mockSitemapNotFound(server, 'http://test77d.local');
     server.use(
       http.get('http://test77d.local/robots.txt', () => new HttpResponse('', { status: 404 })),
       http.get(
