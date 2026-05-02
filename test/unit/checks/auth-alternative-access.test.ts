@@ -71,6 +71,31 @@ describe('auth-alternative-access', () => {
     expect(result.message).toContain('errored');
   });
 
+  it('skips when auth-gate-detection failed due to fetch errors only', async () => {
+    // Simulates the early-return path in auth-gate-detection where every page
+    // failed to fetch (e.g. DNS NXDOMAIN). Details include fetchErrors but no
+    // gated/accessible counts. We should not emit auth-no-alternative here.
+    const result = await check.run(
+      makeCtx(
+        authGateResult('fail', {
+          totalPages: 1,
+          testedPages: 1,
+          fetchErrors: 1,
+          pageResults: [
+            {
+              url: 'https://example-domain-not-resolving.com',
+              classification: 'accessible',
+              status: null,
+              error: 'fetch failed',
+            },
+          ],
+        }),
+      ),
+    );
+    expect(result.status).toBe('skip');
+    expect(result.message).toContain('fetch errors');
+  });
+
   it('skips when auth-gate-detection was skipped', async () => {
     const result = await check.run(
       makeCtx({
