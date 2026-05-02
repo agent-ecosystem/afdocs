@@ -740,7 +740,7 @@ export async function getUrlsFromSitemap(
   function shouldInclude(url: string): boolean {
     try {
       const u = new URL(url);
-      if (u.origin !== matchOrigin) return false;
+      if (!isSameOriginIgnoringWww(u.origin, matchOrigin)) return false;
       if (prefixPath) return matchesPathPrefix(url, prefixPath);
       return true;
     } catch {
@@ -802,6 +802,25 @@ export async function getUrlsFromSitemap(
 
 function isWwwVariant(hostname1: string, hostname2: string): boolean {
   return hostname1 === `www.${hostname2}` || hostname2 === `www.${hostname1}`;
+}
+
+/**
+ * Compare two origins, treating `www.host` and `host` as equivalent.
+ *
+ * Sitemap entries are commonly published on the bare-host canonical
+ * (e.g. `https://swift.org/...`) even when the served site is `www.swift.org`.
+ * Strict origin equality would discard every such URL.
+ */
+export function isSameOriginIgnoringWww(origin1: string, origin2: string): boolean {
+  if (origin1 === origin2) return true;
+  try {
+    const a = new URL(origin1);
+    const b = new URL(origin2);
+    if (a.protocol !== b.protocol || a.port !== b.port) return false;
+    return isWwwVariant(a.hostname, b.hostname);
+  } catch {
+    return false;
+  }
 }
 
 /**

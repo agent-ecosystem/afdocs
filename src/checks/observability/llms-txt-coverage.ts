@@ -2,6 +2,7 @@ import { registerCheck } from '../registry.js';
 import {
   getUrlsFromCachedLlmsTxtWithOmitted,
   getUrlsFromSitemap,
+  isSameOriginIgnoringWww,
   parseSitemapUrls,
 } from '../../helpers/get-page-urls.js';
 import { isNonPageUrl } from '../../helpers/to-md-urls.js';
@@ -297,7 +298,7 @@ function scopeUrls(urls: string[], origin: string, baseUrlPath: string): string[
   return urls.filter((url) => {
     try {
       const parsed = new URL(url);
-      if (parsed.origin !== origin) return false;
+      if (!isSameOriginIgnoringWww(parsed.origin, origin)) return false;
       if (baseUrlPath && baseUrlPath !== '/') {
         if (!parsed.pathname.startsWith(baseUrlPath + '/') && parsed.pathname !== baseUrlPath) {
           return false;

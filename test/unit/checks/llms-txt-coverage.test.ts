@@ -708,6 +708,38 @@ describe('llms-txt-coverage', () => {
     expect(result.details?.sitemapDocPages).toBe(2);
   });
 
+  test('scopes sitemap URLs across www vs bare-host (issue #83)', async () => {
+    // swift.org-style: scored URL is `www.host`, but sitemap entries are on bare host.
+    // Coverage scoping must treat these as same-origin or coverage = 0%.
+    const wwwHost = 'www.www-cov.local';
+    const bareHost = 'www-cov.local';
+    const llmsTxtPages = [`http://${wwwHost}/docs/intro`, `http://${wwwHost}/docs/guide`];
+    const sitemapPages = [
+      `http://${bareHost}/docs/intro`,
+      `http://${bareHost}/docs/guide`,
+      `http://${bareHost}/docs/extra`,
+    ];
+
+    const ctx = makeCtx(wwwHost, llmsTxtPages, '/docs');
+
+    server.use(
+      http.get(
+        `http://${wwwHost}/robots.txt`,
+        () => new HttpResponse(`Sitemap: http://${wwwHost}/sitemap.xml`, { status: 200 }),
+      ),
+      http.get(
+        `http://${wwwHost}/sitemap.xml`,
+        () =>
+          new HttpResponse(makeSitemap(sitemapPages), {
+            headers: { 'content-type': 'application/xml' },
+          }),
+      ),
+    );
+
+    const result = await check.run(ctx);
+    expect(result.details?.sitemapDocPages).toBe(3);
+  });
+
   test('excludes paths relative to base URL prefix', async () => {
     const host = 'basepath-exclude.local';
     const pages = [`http://${host}/docs/getting-started`, `http://${host}/docs/api-reference`];

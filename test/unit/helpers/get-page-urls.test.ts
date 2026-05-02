@@ -14,6 +14,7 @@ import {
   deduplicateVersionedUrls,
   extractVersionFromUrl,
   extractLocaleFromUrl,
+  isSameOriginIgnoringWww,
 } from '../../../src/helpers/get-page-urls.js';
 import { MAX_SITEMAP_URLS } from '../../../src/constants.js';
 import { createContext } from '../../../src/runner.js';
@@ -153,6 +154,33 @@ describe('filterByPathPrefix', () => {
     const urls = ['not-a-url', 'https://example.com/docs/page'];
     const result = filterByPathPrefix(urls, 'https://example.com/docs');
     expect(result).toEqual(['not-a-url', 'https://example.com/docs/page']);
+  });
+});
+
+describe('isSameOriginIgnoringWww', () => {
+  it('returns true for identical origins', () => {
+    expect(isSameOriginIgnoringWww('https://example.com', 'https://example.com')).toBe(true);
+  });
+
+  it('returns true for www vs bare-host (issue #83)', () => {
+    expect(isSameOriginIgnoringWww('https://swift.org', 'https://www.swift.org')).toBe(true);
+    expect(isSameOriginIgnoringWww('https://www.swift.org', 'https://swift.org')).toBe(true);
+  });
+
+  it('returns false for different protocols', () => {
+    expect(isSameOriginIgnoringWww('http://example.com', 'https://example.com')).toBe(false);
+  });
+
+  it('returns false for different ports', () => {
+    expect(isSameOriginIgnoringWww('https://example.com:8443', 'https://example.com')).toBe(false);
+  });
+
+  it('returns false for unrelated hosts', () => {
+    expect(isSameOriginIgnoringWww('https://example.com', 'https://other.com')).toBe(false);
+  });
+
+  it('returns false for subdomains that are not www (e.g. docs)', () => {
+    expect(isSameOriginIgnoringWww('https://docs.example.com', 'https://example.com')).toBe(false);
   });
 });
 
@@ -1205,6 +1233,99 @@ describe('getPageUrls', () => {
       'http://underscore-index.local/article-1',
       'http://underscore-index.local/article-2',
     ]);
+  });
+
+  it('accepts sitemap URLs published on bare-host when scored URL has www (issue #83)', async () => {
+    // swift.org-style: scored URL is www.host.local, but the sitemap lists URLs
+    // on the bare host. Without www-equivalence in the origin filter, every URL
+    // is discarded and afdocs falls back to single-page sampling.
+    mockSitemapNotFound(server, 'http://www.www-bare.local/documentation/');
+    server.use(
+      http.get(
+        'http://www.www-bare.local/robots.txt',
+        () => new HttpResponse('User-agent: *\n', { status: 200 }),
+      ),
+      http.get(
+        'http://www.www-bare.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://www-bare.local/documentation/intro</loc></url>
+  <url><loc>http://www-bare.local/documentation/guide</loc></url>
+</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+
+    const ctx = createContext('http://www.www-bare.local/documentation/', { requestDelay: 0 });
+    const warnings: string[] = [];
+    const result = await getUrlsFromSitemap(ctx, warnings, { skipRefinement: true });
+    expect(result).toEqual([
+      'http://www-bare.local/documentation/intro',
+      'http://www-bare.local/documentation/guide',
+    ]);
+  });
+
+  it('accepts sitemap URLs published on www-host when scored URL is bare (issue #83)', async () => {
+    // Inverse scenario: scored URL is bare host, sitemap entries are www-prefixed.
+    mockSitemapNotFound(server, 'http://bare-www.local');
+    server.use(
+      http.get(
+        'http://bare-www.local/robots.txt',
+        () => new HttpResponse('User-agent: *\n', { status: 200 }),
+      ),
+      http.get(
+        'http://bare-www.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://www.bare-www.local/page-1</loc></url>
+  <url><loc>http://www.bare-www.local/page-2</loc></url>
+</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+
+    const ctx = createContext('http://bare-www.local', { requestDelay: 0 });
+    const warnings: string[] = [];
+    const result = await getUrlsFromSitemap(ctx, warnings, { skipRefinement: true });
+    expect(result).toEqual([
+      'http://www.bare-www.local/page-1',
+      'http://www.bare-www.local/page-2',
+    ]);
+  });
+
+  it('still rejects truly cross-host sitemap URLs', async () => {
+    // Sanity check: www-equivalence does not relax filtering for unrelated hosts.
+    mockSitemapNotFound(server, 'http://strict-host.local');
+    server.use(
+      http.get(
+        'http://strict-host.local/robots.txt',
+        () => new HttpResponse('User-agent: *\n', { status: 200 }),
+      ),
+      http.get(
+        'http://strict-host.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://strict-host.local/keep</loc></url>
+  <url><loc>http://other-host.local/drop</loc></url>
+  <url><loc>https://strict-host.local/drop-scheme</loc></url>
+</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+
+    const ctx = createContext('http://strict-host.local', { requestDelay: 0 });
+    const warnings: string[] = [];
+    const result = await getUrlsFromSitemap(ctx, warnings, { skipRefinement: true });
+    expect(result).toEqual(['http://strict-host.local/keep']);
   });
 
   it('warns and skips gzipped sitemap from robots.txt', async () => {
