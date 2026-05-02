@@ -2,6 +2,7 @@ import { extractMarkdownLinks } from '../checks/content-discoverability/llms-txt
 import { MAX_SITEMAP_URLS } from '../constants.js';
 import { getLlmsTxtFilesForAnalysis, selectCanonicalLlmsTxt } from './llms-txt.js';
 import { isNonPageUrl, isMdUrl, toHtmlUrl } from './to-md-urls.js';
+import { isSameSite } from './host-equivalence.js';
 import { isLocaleSegment, hasStructuralDuplication } from './locale-codes.js';
 import type { CheckContext, DiscoveredFile } from '../types.js';
 
@@ -162,6 +163,8 @@ async function walkAggregateLinksWithOriginals(
   const omittedTxtUrls: string[] = [];
 
   const siteOrigin = ctx.effectiveOrigin ?? ctx.origin;
+  const isAcceptedOrigin = (url: string): boolean =>
+    isSameSite(url, ctx.origin) || isSameSite(url, siteOrigin);
 
   for (const entry of entries) {
     try {
@@ -169,10 +172,10 @@ async function walkAggregateLinksWithOriginals(
       if (/\.txt$/i.test(parsed.pathname)) {
         // .txt files are either aggregate indexes to walk (same origin)
         // or external resources to skip — never page URLs themselves
-        if (parsed.origin === ctx.origin || parsed.origin === siteOrigin) {
+        if (isAcceptedOrigin(entry.url)) {
           aggregateUrls.push(entry.url);
         }
-      } else if (parsed.origin === ctx.origin || parsed.origin === siteOrigin) {
+      } else if (isAcceptedOrigin(entry.url)) {
         // Only include same-origin page URLs; cross-origin links are
         // external resources the site owner doesn't control.
         pageUrls.push(entry);
@@ -207,8 +210,7 @@ async function walkAggregateLinksWithOriginals(
       for (const subEntry of subEntries) {
         try {
           const parsed = new URL(subEntry.url);
-          const isSameOrigin = parsed.origin === ctx.origin || parsed.origin === siteOrigin;
-          if (!isSameOrigin) continue;
+          if (!isAcceptedOrigin(subEntry.url)) continue;
 
           if (/\.txt$/i.test(parsed.pathname)) {
             // Depth-1 .txt link: record as omitted rather than descending
@@ -739,13 +741,13 @@ export async function getUrlsFromSitemap(
 
   function shouldInclude(url: string): boolean {
     try {
-      const u = new URL(url);
-      if (u.origin !== matchOrigin) return false;
-      if (prefixPath) return matchesPathPrefix(url, prefixPath);
-      return true;
+      new URL(url);
     } catch {
       return false;
     }
+    if (!isSameSite(url, matchOrigin)) return false;
+    if (prefixPath) return matchesPathPrefix(url, prefixPath);
+    return true;
   }
 
   // Collect up to collectLimit URLs before refinement. The cap is applied
@@ -800,10 +802,6 @@ export async function getUrlsFromSitemap(
   return deduplicated.slice(0, maxUrls);
 }
 
-function isWwwVariant(hostname1: string, hostname2: string): boolean {
-  return hostname1 === `www.${hostname2}` || hostname2 === `www.${hostname1}`;
-}
-
 /**
  * Get the base URL for path-prefix filtering, accounting for cross-host redirects.
  *
@@ -811,24 +809,22 @@ function isWwwVariant(hostname1: string, hostname2: string): boolean {
  * the original baseUrl path doesn't apply to the redirected host, so we return the
  * effectiveOrigin (a root URL) which makes path filtering a no-op.
  *
- * When the redirect is www-canonicalization (e.g. alchemy.com → www.alchemy.com),
- * the path structure is preserved, so we transfer the baseUrl's path to the
- * effective origin to keep path-prefix filtering active.
+ * When the redirect stays on the same site (e.g. www-canonicalization or an
+ * http→https upgrade), the path structure is preserved, so we transfer the
+ * baseUrl's path to the effective origin to keep path-prefix filtering active.
  */
 export function getPathFilterBase(ctx: CheckContext): string {
   if (!ctx.effectiveOrigin || ctx.effectiveOrigin === ctx.origin) {
     return ctx.baseUrl;
   }
 
-  try {
-    const originalHost = new URL(ctx.origin).hostname;
-    const effectiveHost = new URL(ctx.effectiveOrigin).hostname;
-    if (isWwwVariant(originalHost, effectiveHost)) {
+  if (isSameSite(ctx.origin, ctx.effectiveOrigin)) {
+    try {
       const basePath = new URL(ctx.baseUrl).pathname.replace(/\/$/, '');
       return basePath ? `${ctx.effectiveOrigin}${basePath}` : ctx.effectiveOrigin;
+    } catch {
+      // fall through
     }
-  } catch {
-    // fall through
   }
 
   return ctx.effectiveOrigin;

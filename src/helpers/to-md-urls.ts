@@ -1,25 +1,21 @@
-/**
- * Strip the leading "www." from a hostname, if present.
- */
-function stripWww(host: string): string {
-  return host.startsWith('www.') ? host.slice(4) : host;
-}
+import { isSameSite } from './host-equivalence.js';
 
 /**
  * Returns true if the two URLs have different hosts (i.e. a cross-host redirect).
  * A www ↔ bare-domain redirect (e.g. mongodb.com → www.mongodb.com) is NOT
  * considered cross-host because every HTTP client and agent follows it.
+ *
+ * Returns false for malformed URLs — when we can't classify, default to
+ * "not cross-host" so we don't penalize on bad inputs.
  */
 export function isCrossHostRedirect(originalUrl: string, finalUrl: string): boolean {
   try {
-    const original = new URL(originalUrl);
-    const final_ = new URL(finalUrl);
-    if (original.host === final_.host) return false;
-    // www ↔ bare-domain is same-site, not cross-host
-    return stripWww(original.host) !== stripWww(final_.host);
+    new URL(originalUrl);
+    new URL(finalUrl);
   } catch {
     return false;
   }
+  return !isSameSite(originalUrl, finalUrl);
 }
 
 /**

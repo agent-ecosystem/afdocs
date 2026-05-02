@@ -4,6 +4,7 @@ import {
   getUrlsFromSitemap,
   parseSitemapUrls,
 } from '../../helpers/get-page-urls.js';
+import { isSameSite } from '../../helpers/host-equivalence.js';
 import { isNonPageUrl } from '../../helpers/to-md-urls.js';
 import { isLocaleSegment, hasStructuralDuplication } from '../../helpers/locale-codes.js';
 import {
@@ -297,7 +298,7 @@ function scopeUrls(urls: string[], origin: string, baseUrlPath: string): string[
   return urls.filter((url) => {
     try {
       const parsed = new URL(url);
-      if (parsed.origin !== origin) return false;
+      if (!isSameSite(url, origin)) return false;
       if (baseUrlPath && baseUrlPath !== '/') {
         if (!parsed.pathname.startsWith(baseUrlPath + '/') && parsed.pathname !== baseUrlPath) {
           return false;
