@@ -204,6 +204,66 @@ describe('http-status-codes', () => {
     expect(result.message).toContain('1 failed to fetch');
   });
 
+  it('classifies HTTP 202 as indeterminate, not soft-404', async () => {
+    server.use(
+      http.get(
+        'http://test.local/docs/page1-afdocs-nonexistent-8f3a',
+        () => new HttpResponse(null, { status: 202 }),
+      ),
+      http.get(
+        'http://test.local/docs/page2-afdocs-nonexistent-8f3a',
+        () => new HttpResponse('Not Found', { status: 404 }),
+      ),
+    );
+
+    const content = `# Docs\n## Links\n- [Page 1](http://test.local/docs/page1): First\n- [Page 2](http://test.local/docs/page2): Second\n`;
+    const result = await check.run(makeCtx(content));
+    expect(result.status).toBe('pass');
+    expect(result.details?.soft404Count).toBe(0);
+    expect(result.details?.correctErrorCount).toBe(1);
+    expect(result.details?.indeterminateCount).toBe(1);
+    const pageResults = result.details?.pageResults as Array<{
+      classification: string;
+      indeterminateReason?: string;
+    }>;
+    const indet = pageResults.find((p) => p.classification === 'indeterminate');
+    expect(indet?.indeterminateReason).toContain('202');
+  });
+
+  it('classifies 5xx as indeterminate', async () => {
+    server.use(
+      http.get(
+        'http://test.local/docs/page1-afdocs-nonexistent-8f3a',
+        () => new HttpResponse('Server Error', { status: 503 }),
+      ),
+    );
+
+    const content = `# Docs\n## Links\n- [Page 1](http://test.local/docs/page1): First\n`;
+    const result = await check.run(makeCtx(content));
+    const pageResults = result.details?.pageResults as Array<{ classification: string }>;
+    expect(pageResults[0].classification).toBe('indeterminate');
+    expect(result.details?.indeterminateCount).toBe(1);
+  });
+
+  it('warns when all responses are indeterminate', async () => {
+    server.use(
+      http.get(
+        'http://test.local/docs/page1-afdocs-nonexistent-8f3a',
+        () => new HttpResponse(null, { status: 202 }),
+      ),
+      http.get(
+        'http://test.local/docs/page2-afdocs-nonexistent-8f3a',
+        () => new HttpResponse('Server Error', { status: 503 }),
+      ),
+    );
+
+    const content = `# Docs\n## Links\n- [Page 1](http://test.local/docs/page1): First\n- [Page 2](http://test.local/docs/page2): Second\n`;
+    const result = await check.run(makeCtx(content));
+    expect(result.status).toBe('warn');
+    expect(result.message).toContain('Could not determine');
+    expect(result.details?.indeterminateCount).toBe(2);
+  });
+
   it('strips fragments from test URLs', async () => {
     server.use(
       http.get(

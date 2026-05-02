@@ -272,6 +272,7 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
           classification: string;
           status?: number | null;
           bodyHint?: string;
+          indeterminateReason?: string;
           error?: string;
         }>
       | undefined;
@@ -280,6 +281,10 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
       .filter((p) => p.classification !== 'correct-error')
       .map((p) => {
         if (p.error) return formatDetailLine('fail', p.testUrl ?? p.url, p.error);
+        if (p.classification === 'indeterminate') {
+          const info = p.indeterminateReason ?? `HTTP ${p.status} (indeterminate)`;
+          return formatDetailLine('warn', p.testUrl ?? p.url, info);
+        }
         const info = p.bodyHint
           ? `HTTP ${p.status} (${p.bodyHint})`
           : `HTTP ${p.status} instead of 404`;

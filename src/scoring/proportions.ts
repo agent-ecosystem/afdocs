@@ -292,6 +292,10 @@ function httpStatusCodesExtractor(
     }
   });
 
+  // All responses indeterminate (or fetch errors): exclude from scoring.
+  // We can't say whether the site handles bad URLs correctly.
+  if (items.every((i) => i.status === 'skip')) return undefined;
+
   return countByStatus(items, weight.warnCoefficient);
 }
 

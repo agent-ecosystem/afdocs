@@ -7,10 +7,11 @@ interface StatusCodeResult {
   url: string;
   testUrl: string;
   status: number | null;
-  classification: 'correct-error' | 'soft-404' | 'fetch-error';
+  classification: 'correct-error' | 'soft-404' | 'indeterminate' | 'fetch-error';
   redirected?: boolean;
   finalUrl?: string;
   bodyHint?: string;
+  indeterminateReason?: string;
   error?: string;
 }
 
@@ -44,8 +45,29 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
           const redirected = response.redirected || response.url !== testUrl;
           const finalUrl = redirected ? response.url : undefined;
 
-          if (status >= 400) {
+          if (status >= 400 && status < 500) {
             return { url, testUrl, status, classification: 'correct-error', redirected, finalUrl };
+          }
+
+          // 202 Accepted: per RFC 7231, the request is being processed but not
+          // complete. Vercel/Next.js ISR returns this during cache-miss/build
+          // for fresh URLs — it's a CDN behavior, not site-level error handling.
+          // 5xx: server failure tells us nothing about how the site handles
+          // bad URLs. Both are excluded from the soft-404 tally.
+          if (status === 202 || status >= 500) {
+            const reason =
+              status === 202
+                ? 'HTTP 202 (CDN still processing — not a site response)'
+                : `HTTP ${status} (server error — bad-URL handling unknown)`;
+            return {
+              url,
+              testUrl,
+              status,
+              classification: 'indeterminate',
+              redirected,
+              finalUrl,
+              indeterminateReason: reason,
+            };
           }
 
           // Status 200 (or other 2xx/3xx) — possible soft 404
@@ -86,6 +108,8 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const fetchErrors = results.filter((r) => r.classification === 'fetch-error').length;
   const soft404s = results.filter((r) => r.classification === 'soft-404');
   const correctErrors = results.filter((r) => r.classification === 'correct-error');
+  const indeterminate = results.filter((r) => r.classification === 'indeterminate');
+  const determinate = correctErrors.length + soft404s.length;
 
   if (tested.length === 0) {
     return {
@@ -104,15 +128,25 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     };
   }
 
-  const status = soft404s.length > 0 ? 'fail' : 'pass';
   const pageLabel = sampled ? 'sampled pages' : 'pages';
-  const suffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
+  const fetchSuffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
+  const indetSuffix =
+    indeterminate.length > 0 ? `; ${indeterminate.length} indeterminate (HTTP 202/5xx)` : '';
+  const suffix = `${fetchSuffix}${indetSuffix}`;
 
+  let status: 'pass' | 'warn' | 'fail';
   let message: string;
-  if (status === 'pass') {
-    message = `All ${tested.length} ${pageLabel} return proper error codes for bad URLs${suffix}`;
+  if (determinate === 0) {
+    // Every response was indeterminate (e.g. all 202 or 5xx). We can't say
+    // whether the site handles bad URLs correctly.
+    status = 'warn';
+    message = `Could not determine bad-URL handling: all ${indeterminate.length} ${pageLabel} returned indeterminate responses${fetchSuffix}`;
+  } else if (soft404s.length > 0) {
+    status = 'fail';
+    message = `${soft404s.length} of ${determinate} ${pageLabel} return 200 for non-existent URLs (soft 404)${suffix}`;
   } else {
-    message = `${soft404s.length} of ${tested.length} ${pageLabel} return 200 for non-existent URLs (soft 404)${suffix}`;
+    status = 'pass';
+    message = `All ${determinate} ${pageLabel} return proper error codes for bad URLs${suffix}`;
   }
 
   return {
@@ -126,6 +160,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       sampled,
       soft404Count: soft404s.length,
       correctErrorCount: correctErrors.length,
+      indeterminateCount: indeterminate.length,
       fetchErrors,
       pageResults: results,
       discoveryWarnings: warnings,

@@ -131,9 +131,12 @@ Each check has a specific warn coefficient rather than a uniform default.
 | `auth-gate-detection`                                        | 0.50       | Partial gating. Some docs accessible, some invisible to agents.                                                                                                                              |
 | `auth-alternative-access`                                    | 0.50       | Partial alternative access. Covers some gated content but not all.                                                                                                                           |
 
-Checks without a warn state (`http-status-codes`,
-`markdown-code-fence-validity`) don't appear in this table. Their spec
-definitions only have pass and fail levels.
+`markdown-code-fence-validity` doesn't appear in this table because its
+spec definition only has pass and fail levels. `http-status-codes` is
+normally pass/fail too, but emits a warn when every sampled response is
+indeterminate (HTTP 202 during CDN cache-miss/build, or 5xx); in that
+case scoring falls back to the default warn coefficient of 0.5 because
+the check couldn't measure bad-URL handling.
 
 This replaces the worst-case aggregation for scoring purposes. A site where
 3/50 pages exceed the size limit scores ~94% of the check's weight, not 0%.
