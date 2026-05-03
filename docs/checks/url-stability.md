@@ -17,18 +17,28 @@ In empirical testing, soft 404s (pages returning 200 with "page not found" conte
 
 ### Results
 
-| Result | Condition                                          |
-| ------ | -------------------------------------------------- |
-| Pass   | Fabricated bad URLs return proper 4xx status codes |
-| Fail   | Bad URLs return 200 (soft 404)                     |
+| Result | Condition                                                                                  |
+| ------ | ------------------------------------------------------------------------------------------ |
+| Pass   | Fabricated bad URLs return proper 4xx status codes                                         |
+| Warn   | Every sampled response was indeterminate (HTTP 202 or 5xx); bad-URL handling is unmeasured |
+| Fail   | Bad URLs return 200 (soft 404)                                                             |
 
-This check has no warn state; it's strictly pass/fail.
+AFDocs tests this by generating non-existent URLs based on your site's URL structure and checking whether the server returns 404 or 200. Per-page responses fall into one of three buckets:
 
-AFDocs tests this by generating non-existent URLs based on your site's URL structure and checking whether the server returns 404 or 200.
+- **`correct-error`** (counts toward pass): 4xx status code.
+- **`soft-404`** (counts toward fail): 2xx/3xx status code, often a templated "page not found" page.
+- **`indeterminate`** (excluded from the soft-404 tally): HTTP 202 or 5xx. RFC 7231 says 202 means "still processing," and Vercel/Next.js ISR returns it during cache-miss/build for fresh URLs. 5xx responses tell us nothing about how the site handles bad URLs. Both are reported separately rather than penalized as soft 404s.
+
+If at least one response is determinate, the check scores from the determinate subset (e.g., 2 correct-error + 1 indeterminate scores as 2/2 = pass). The warn state only fires when **every** sampled response is indeterminate, in which case the check applies the default 0.5 warn coefficient because bad-URL handling could not be measured.
 
 ### How to fix
 
 Configure your server or hosting platform to return a 404 status code for pages that don't exist. Most docs platforms handle this correctly by default; the common exception is single-page applications that serve the shell HTML for all routes and handle 404s client-side.
+
+**If this check warns** with "all sampled pages returned indeterminate responses," the most common causes are:
+
+- **Vercel/Next.js ISR** returning 202 during cache-miss or build. Real agents (low concurrency, warm cache) typically don't hit this, so it's noise rather than signal. No action needed.
+- **A misconfigured server returning 5xx for missing paths** (e.g., an Apache rewrite rule that maps `/foo` to `/foo.html` without checking that the target file exists, then loops or hits an internal error). This is a real issue: agents requesting a typo'd URL get a 500 instead of a clean 404. Add a guard so the rewrite only fires when the target exists, and set an `ErrorDocument 404` directive that points at your platform's 404 page.
 
 ### What about serving helpful content on missing pages?
 
