@@ -40,9 +40,15 @@ RewriteRule ^llms\.txt$ /log-agent-signal.php?path=llms.txt&trigger=llms-txt [L,
 # VitePress builds non-index pages as flat .html files (quick-start.html),
 # not directories (quick-start/index.html). This rule maps trailing-slash
 # URLs to their .html counterparts so the directive check can fetch them.
+# Guard with a -f check on the .html target so missing paths fall through
+# to a real 404 (via ErrorDocument below) rather than looping into a 500.
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{DOCUMENT_ROOT}/$1.html -f
 RewriteRule ^(.*?)/?$ /$1.html [L]
+
+# Serve the VitePress 404 page body for missing paths and return a real 404.
+ErrorDocument 404 /404.html
 
 # Serve .md files with the correct content type
 AddType text/markdown .md
