@@ -1,4 +1,4 @@
-import { parse } from 'node-html-parser';
+import { parse, NodeType, type HTMLElement, type Node } from 'node-html-parser';
 import { registerCheck } from '../registry.js';
 import { fetchPage } from '../../helpers/fetch-page.js';
 import { toHtmlUrl } from '../../helpers/to-md-urls.js';
@@ -32,12 +32,9 @@ const STRIP_TAGS = [
 ];
 
 /**
- * Tags that were removed at the DOM level (STRIP_TAGS). If these tag names
- * appear in `.text` output, they came from entity-decoded content (e.g.,
- * `&lt;nav&gt;` → `<nav>` in prose discussing HTML elements), not from
- * actual DOM elements. The text-level tag stripping regex should keep their
- * content rather than deleting it, so both sides produce matching text
- * after normalize() strips the angle brackets.
+ * Tag names corresponding to STRIP_TAGS, used by the DOM walker to skip
+ * these elements if they reappear inside re-parsed <pre> content (e.g.,
+ * a stray <style> block injected by a CSS-in-JS library).
  */
 const DOM_STRIPPED_TAGS = new Set(STRIP_TAGS);
 
@@ -90,122 +87,6 @@ interface PageParityResult {
   sampleDiffs: string[];
   error?: string;
 }
-
-/**
- * Known HTML tag names used to distinguish real tags from angle-bracket
- * placeholders like <YOUR_API_KEY> or <clusterName> in code examples.
- * Only needs to cover tags that appear in node-html-parser's .text output
- * (i.e., tags inside <pre> that survive as raw text).
- */
-const HTML_TAG_NAMES = new Set([
-  'a',
-  'abbr',
-  'address',
-  'article',
-  'aside',
-  'audio',
-  'b',
-  'bdi',
-  'bdo',
-  'blockquote',
-  'body',
-  'br',
-  'button',
-  'canvas',
-  'caption',
-  'cite',
-  'code',
-  'col',
-  'colgroup',
-  'data',
-  'dd',
-  'del',
-  'details',
-  'dfn',
-  'dialog',
-  'div',
-  'dl',
-  'dt',
-  'em',
-  'embed',
-  'fieldset',
-  'figcaption',
-  'figure',
-  'footer',
-  'form',
-  'h1',
-  'h2',
-  'h3',
-  'h4',
-  'h5',
-  'h6',
-  'head',
-  'header',
-  'hr',
-  'html',
-  'i',
-  'iframe',
-  'img',
-  'input',
-  'ins',
-  'kbd',
-  'label',
-  'legend',
-  'li',
-  'link',
-  'main',
-  'map',
-  'mark',
-  'meta',
-  'meter',
-  'nav',
-  'noscript',
-  'object',
-  'ol',
-  'optgroup',
-  'option',
-  'output',
-  'p',
-  'param',
-  'picture',
-  'pre',
-  'progress',
-  'q',
-  'rp',
-  'rt',
-  'ruby',
-  's',
-  'samp',
-  'script',
-  'section',
-  'select',
-  'slot',
-  'small',
-  'source',
-  'span',
-  'strong',
-  'style',
-  'sub',
-  'summary',
-  'sup',
-  'table',
-  'tbody',
-  'td',
-  'template',
-  'textarea',
-  'tfoot',
-  'th',
-  'thead',
-  'time',
-  'title',
-  'tr',
-  'track',
-  'u',
-  'ul',
-  'var',
-  'video',
-  'wbr',
-]);
 
 /** Block-level HTML elements that should produce line breaks in extracted text. */
 const BLOCK_TAGS = new Set([
@@ -359,34 +240,67 @@ function extractHtmlText(html: string, parityExclusions?: string[]): HtmlExtract
     }
   }
 
-  // Insert newlines before block-level elements so .text produces
-  // separated lines instead of smashing paragraphs together
-  for (const tag of BLOCK_TAGS) {
-    for (const el of content.querySelectorAll(tag)) {
-      el.insertAdjacentHTML('beforebegin', '\n');
-      el.insertAdjacentHTML('afterend', '\n');
-    }
+  // Walk the DOM to produce text. Doing this ourselves (instead of relying
+  // on .text) lets us handle two cases that flat-text + regex stripping
+  // can't disambiguate:
+  //
+  // 1. node-html-parser treats <pre> content as a single raw-text node, so
+  //    syntax-highlighter markup inside (<span class="kw">, <div class="line">,
+  //    <code class="lang-js">) appears as literal text. We re-parse that
+  //    rawText as HTML and walk the resulting subtree, which yields just the
+  //    code's textContent without any markup leaking through.
+  //
+  // 2. Inline `<code>` mentions in prose (rendered as <code>&lt;code&gt;</code>
+  //    from a `\`<code>\`` markdown span) decode to literal `<code>` text. The
+  //    DOM walk preserves that as text; normalize() then strips the angle
+  //    brackets so it matches the markdown side. Previously the text-level
+  //    tag-stripping regex deleted these as if they were tags.
+  const text = walkContent(content);
+  return { text, segmentationStripped };
+}
+
+/**
+ * Walk a DOM subtree and emit text content with newlines around block
+ * elements. Used by extractHtmlText.
+ */
+function walkContent(node: HTMLElement): string {
+  let out = '';
+  for (const child of node.childNodes) {
+    out += walkNode(child);
+  }
+  return out;
+}
+
+function walkNode(node: Node): string {
+  if (node.nodeType === NodeType.TEXT_NODE) {
+    // text getter decodes entities (&lt; -> <, &amp; -> &)
+    return node.text;
+  }
+  if (node.nodeType !== NodeType.ELEMENT_NODE) {
+    // Skip comments and anything else
+    return '';
+  }
+  const el = node as HTMLElement;
+  const tag = el.tagName?.toLowerCase();
+  if (!tag) return walkContent(el);
+
+  // Defensive: even though STRIP_TAGS removes these at DOM level above,
+  // re-parsed <pre> content can re-introduce script/style/etc. as elements,
+  // so skip them here too.
+  if (DOM_STRIPPED_TAGS.has(tag)) return '';
+
+  if (tag === 'pre') {
+    // node-html-parser parses <pre> content as a single raw text node, so
+    // any inner markup (syntax-highlighter spans/divs/code) is opaque.
+    // Re-parse the rawText to expose that markup as DOM nodes, then walk.
+    const reparsed = parse(el.rawText);
+    return '\n' + walkContent(reparsed) + '\n';
   }
 
-  // node-html-parser treats <pre> content as raw text, so <style> tags
-  // injected inside code blocks (e.g., Emotion CSS-in-JS / Leafygreen)
-  // survive DOM-level stripping. Remove <style>...</style> blocks first,
-  // inject newlines before <div tags to separate code lines (e.g.,
-  // Expressive Code / Shiki use <div class="ec-line"> inside <pre>),
-  // then strip HTML tags while preserving angle-bracket placeholders
-  // like <YOUR_API_KEY> or <clusterName> (decoded from &lt;...&gt; entities).
-  const text = content.text
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<div[\s>]/gi, '\n<div ')
-    .replace(/<\/[^>\s]+>/g, '')
-    .replace(/<([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g, (_match, tag, rest) => {
-      const lower = tag.toLowerCase();
-      if (DOM_STRIPPED_TAGS.has(lower)) return tag;
-      if (HTML_TAG_NAMES.has(lower)) return '';
-      return tag + rest;
-    });
-  return { text, segmentationStripped };
+  if (BLOCK_TAGS.has(tag)) {
+    return '\n' + walkContent(el) + '\n';
+  }
+  return walkContent(el);
 }
 
 /**
@@ -399,6 +313,12 @@ function extractHtmlText(html: string, parityExclusions?: string[]): HtmlExtract
  * preserves the literal text inside <pre><code> and <code> tags. The
  * placeholder approach hides code content from the stripping regexes,
  * then restores it after all stripping is done.
+ *
+ * Heading lines are also placeholder-protected: a heading like
+ * "### 1. How well..." has the "1. " stripped by the numbered-list regex
+ * if processed normally, even though that "1. " is part of the heading
+ * text on the HTML side. Protecting heading content keeps the bullet/
+ * numbered-list passes from touching it.
  */
 function extractMarkdownText(markdown: string): string {
   let text = markdown;
@@ -457,20 +377,44 @@ function extractMarkdownText(markdown: string): string {
     return `\x00CODE${idx}\x00`;
   });
 
-  // Step 3: Strip markdown formatting on non-code text
+  // Step 3: Protect heading lines from list-marker stripping. Headings
+  // like "### 1. How well are X supported?" survive into the HTML as
+  // "<h3>1. How well are X supported?</h3>", so the leading "1. " is
+  // part of the heading text — not a list marker. Without this, the
+  // numbered-list regex would strip it and the markdown side wouldn't
+  // contain the HTML segment.
+  const headings: string[] = [];
+  text = text.replace(/^#{1,6}\s+(.*)$/gm, (_match, content) => {
+    const idx = headings.length;
+    headings.push(content);
+    return `\x00HEAD${idx}\x00`;
+  });
+
+  // Step 4: Strip list markers and setext underlines while heading lines
+  // are still placeholder-protected. These are the passes that would
+  // misinterpret heading text — e.g., the numbered-list regex stripping
+  // "1. " from "### 1. How well..." (issue #91).
   text = text
-    // Remove heading markers
-    .replace(/^#{1,6}\s+/gm, '')
     // Remove setext-style heading underlines
     .replace(/^[=-]+$/gm, '')
-    // Remove link/image URLs, keep text: [text](url) → text
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     // Remove reference-style link definitions
     .replace(/^\[.*?\]:\s+.*$/gm, '')
     // Remove list bullets/numbers (before emphasis, so leading * isn't
     // misinterpreted as an emphasis marker)
     .replace(/^[\s]*[-*+]\s+/gm, '')
-    .replace(/^[\s]*\d+\.\s+/gm, '')
+    .replace(/^[\s]*\d+\.\s+/gm, '');
+
+  // Step 5: Restore heading text. From here on, heading content is
+  // processed like any other body text — emphasis, links, etc. inside
+  // heading text gets the same treatment so it matches the HTML side
+  // (where <h1><em>Foo</em></h1> renders as "Foo").
+  // eslint-disable-next-line no-control-regex
+  text = text.replace(/\x00HEAD(\d+)\x00/g, (_match, idxStr) => headings[parseInt(idxStr, 10)]);
+
+  // Step 6: Strip remaining markdown formatting on body and heading text.
+  text = text
+    // Remove link/image URLs, keep text: [text](url) → text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     // Remove emphasis markers. * emphasis is stripped unconditionally.
     // _ emphasis is stripped only at word boundaries (per CommonMark,
     // _text_ is emphasis only when _ is not adjacent to an alphanumeric).
@@ -483,7 +427,7 @@ function extractMarkdownText(markdown: string): string {
     // Remove horizontal rules
     .replace(/^[-*_]{3,}$/gm, '');
 
-  // Step 4: Restore code content (without backticks/fence markers)
+  // Step 7: Restore code content (without backticks/fence markers).
   // eslint-disable-next-line no-control-regex
   text = text.replace(/\x00CODE(\d+)\x00/g, (_match, idxStr) => codeSpans[parseInt(idxStr, 10)]);
   // eslint-disable-next-line no-control-regex
