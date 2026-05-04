@@ -2151,6 +2151,127 @@ The greet helper is also re-exported from the package index for convenience.`;
     expect(pageResults[0].missingSegments).toBe(0);
   });
 
+  it('preserves inline `<tag>` code spans on the HTML side (issue #90)', async () => {
+    // Markdown like `<code>` (a code span whose content looks like an HTML
+    // tag) renders to <code>&lt;code&gt;</code>. The DOM walker emits the
+    // entity-decoded text "<code>" literally; normalize() then strips angle
+    // brackets so both sides produce "code". Previously the text-level
+    // tag-stripping regex deleted these as if they were tags.
+    const html = `<html><body><main>
+      <h1>Code Examples in Prose</h1>
+      <p>This type of code example should not be rendered using the HTML <code>&lt;code&gt;</code> tag in any context.</p>
+      <p>The <code>&lt;main&gt;</code> element is for the main content area of the page document body.</p>
+      <p>Use the <code>&lt;title&gt;</code> tag inside <code>&lt;head&gt;</code> to set the page title for browsers.</p>
+      <p>The <code>&lt;h1&gt;</code> element should appear once per page as the top-level heading content.</p>
+      <p>The <code>&lt;link&gt;</code> element pulls in stylesheets and other external resources for rendering.</p>
+      <p>Anchor elements use <code>&lt;a&gt;</code> with an href attribute pointing to the destination url.</p>
+      <p>The <code>&lt;nav&gt;</code> element wraps navigation menus that link to other pages on the site.</p>
+      <p>For inline emphasis use <code>&lt;em&gt;</code> rather than the older italic element from the past.</p>
+      <p>The <code>&lt;article&gt;</code> element groups self-contained pieces of content like blog posts.</p>
+      <p>Use <code>&lt;section&gt;</code> for thematic groupings of content within a page or document body.</p>
+    </main></body></html>`;
+
+    const markdown = `# Code Examples in Prose
+
+This type of code example should not be rendered using the HTML \`<code>\` tag in any context.
+
+The \`<main>\` element is for the main content area of the page document body.
+
+Use the \`<title>\` tag inside \`<head>\` to set the page title for browsers.
+
+The \`<h1>\` element should appear once per page as the top-level heading content.
+
+The \`<link>\` element pulls in stylesheets and other external resources for rendering.
+
+Anchor elements use \`<a>\` with an href attribute pointing to the destination url.
+
+The \`<nav>\` element wraps navigation menus that link to other pages on the site.
+
+For inline emphasis use \`<em>\` rather than the older italic element from the past.
+
+The \`<article>\` element groups self-contained pieces of content like blog posts.
+
+Use \`<section>\` for thematic groupings of content within a page or document body.`;
+
+    const url = 'http://mcp-tag-spans.local/docs/code-examples';
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-tag-spans.local');
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
+    expect(pageResults[0].missingSegments).toBe(0);
+  });
+
+  it('preserves leading numbers in headings (issue #91)', async () => {
+    // Headings like "### 1. How well..." render to "<h3>1. How well...</h3>",
+    // where "1. " is part of the heading text, not a list marker. The
+    // markdown extractor must not run the numbered-list regex against
+    // heading content or the segments won't match.
+    const html = `<html><body><main>
+      <h1>Audit Conclusions</h1>
+      <p>This document summarizes findings across four numbered research questions about agent docs.</p>
+      <h3>1. How well are key programming languages supported by code examples?</h3>
+      <p>Most documentation covers JavaScript and Python well but lags on Go and Rust ecosystem support.</p>
+      <h3>2. Are authentication flows documented for both web and machine-to-machine clients?</h3>
+      <p>Web flows are well documented but service-to-service flows often skip the credential rotation steps.</p>
+      <h3>3. Is the rate-limiting behavior described in enough detail to handle gracefully?</h3>
+      <p>Most APIs document headers and quotas but few cover the retry-after semantics in detail.</p>
+      <h3>4. Are versioning and deprecation policies clearly communicated to integrators?</h3>
+      <p>Versioning is consistent across the platforms surveyed but deprecation timelines are often vague.</p>
+      <p>The above questions framed the audit and inform the recommendations in the next section.</p>
+    </main></body></html>`;
+
+    const markdown = `# Audit Conclusions
+
+This document summarizes findings across four numbered research questions about agent docs.
+
+### 1. How well are key programming languages supported by code examples?
+
+Most documentation covers JavaScript and Python well but lags on Go and Rust ecosystem support.
+
+### 2. Are authentication flows documented for both web and machine-to-machine clients?
+
+Web flows are well documented but service-to-service flows often skip the credential rotation steps.
+
+### 3. Is the rate-limiting behavior described in enough detail to handle gracefully?
+
+Most APIs document headers and quotas but few cover the retry-after semantics in detail.
+
+### 4. Are versioning and deprecation policies clearly communicated to integrators?
+
+Versioning is consistent across the platforms surveyed but deprecation timelines are often vague.
+
+The above questions framed the audit and inform the recommendations in the next section.`;
+
+    const url = 'http://mcp-numbered-headings.local/blog/audit';
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-numbered-headings.local');
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
+    expect(pageResults[0].missingSegments).toBe(0);
+  });
+
   it('uses configurable thresholds (0/0 = informational mode)', async () => {
     // Setting both thresholds to 0 means the check always passes,
     // making it informational for sites with intentional content divergence.
