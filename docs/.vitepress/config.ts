@@ -44,6 +44,10 @@ export default defineConfig({
       dark: '/logos/afdoc_logo_dark.svg',
     },
 
+    search: {
+      provider: 'local',
+    },
+
     nav: [
       { text: 'Guide', link: '/what-is-agent-score' },
       { text: 'Checks', link: '/checks/' },
