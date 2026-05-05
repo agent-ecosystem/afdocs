@@ -2330,4 +2330,211 @@ All requests are authenticated automatically using the configured API credential
     const pageResults = result.details?.pageResults as Array<{ error?: string }>;
     expect(pageResults[0].error).toContain('Invalid CSS selector');
   });
+
+  it('honors fence length: an N-backtick fence contains shorter runs as content', async () => {
+    // 4-backtick outer fence wrapping 3-backtick inner fences. The inner
+    // markers are content per CommonMark §4.5 and must not be consumed as
+    // delimiters when extracting markdown text.
+    const html = `<html><body><main>
+      <p>The following demonstrates how an outer fenced block can contain shorter fences.</p>
+      <p>Readers should see the inner backtick lines exactly as written, with no rendering applied.</p>
+      <pre><code>\`\`\`alpha filename="first.txt"
+first inner body line that is long enough to count
+\`\`\`
+
+\`\`\`beta filename="second.txt"
+second inner body line that is long enough to count
+\`\`\`
+
+\`\`\`gamma filename="third.txt"
+third inner body line that is long enough to count
+\`\`\`</code></pre>
+      <p>This pattern lets prose explain how to author fenced blocks without rendering them.</p>
+      <p>The same shape appears in any documentation that teaches markdown or MDX syntax.</p>
+      <p>It is also used when one tool's output happens to include backtick-delimited regions.</p>
+      <p>Comparing the two formats requires both sides to treat the inner lines as plain text.</p>
+      <p>Otherwise the markdown extractor will consume the inner markers as real delimiters.</p>
+      <p>That asymmetry produces missing segments even though the two sources carry equal text.</p>
+      <p>Extracting the markdown side must respect the opener length and look for a matching close.</p>
+      <p>A four-backtick opener can only be terminated by a four-or-more-backtick closing line.</p>
+    </main></body></html>`;
+
+    const markdown = `The following demonstrates how an outer fenced block can contain shorter fences.
+
+Readers should see the inner backtick lines exactly as written, with no rendering applied.
+
+\`\`\`\`outer filename="example.mdx"
+\`\`\`alpha filename="first.txt"
+first inner body line that is long enough to count
+\`\`\`
+
+\`\`\`beta filename="second.txt"
+second inner body line that is long enough to count
+\`\`\`
+
+\`\`\`gamma filename="third.txt"
+third inner body line that is long enough to count
+\`\`\`
+\`\`\`\`
+
+This pattern lets prose explain how to author fenced blocks without rendering them.
+
+The same shape appears in any documentation that teaches markdown or MDX syntax.
+
+It is also used when one tool's output happens to include backtick-delimited regions.
+
+Comparing the two formats requires both sides to treat the inner lines as plain text.
+
+Otherwise the markdown extractor will consume the inner markers as real delimiters.
+
+That asymmetry produces missing segments even though the two sources carry equal text.
+
+Extracting the markdown side must respect the opener length and look for a matching close.
+
+A four-backtick opener can only be terminated by a four-or-more-backtick closing line.`;
+
+    const url = 'http://mcp-nested-fence.local/docs/page';
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-nested-fence.local');
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
+    expect(pageResults[0].missingSegments).toBe(0);
+  });
+
+  it('allows a 3-backtick fence to be closed by a longer backtick run', async () => {
+    // CommonMark allows the closer to be longer than the opener. Markdown
+    // syntax inside the block must still be shielded from later stripping.
+    const html = `<html><body><main>
+      <p>The block below is a regular three-backtick fence with a longer closing run.</p>
+      <p>Both formats should preserve every line inside it as literal text content.</p>
+      <pre><code># Heading inside a code block stays as literal text
+- list item inside a code block stays as literal text
+&gt; blockquote inside a code block stays as literal text</code></pre>
+      <p>Heading-like content inside the fenced block must not be stripped on either side.</p>
+      <p>The same applies to list bullets and blockquote markers that look like markdown syntax.</p>
+      <p>This shape appears whenever an author chose a longer run for visual symmetry reasons.</p>
+      <p>The closer can have any number of backticks above the opener length, with optional spaces.</p>
+      <p>Trailing whitespace on the closer line is also tolerated by the underlying CommonMark spec.</p>
+      <p>Authors sometimes pad closers with extra backticks to make blocks visually distinct.</p>
+      <p>The parity check should treat all of those variations as equivalent fenced regions.</p>
+    </main></body></html>`;
+
+    const markdown = `The block below is a regular three-backtick fence with a longer closing run.
+
+Both formats should preserve every line inside it as literal text content.
+
+\`\`\`
+# Heading inside a code block stays as literal text
+- list item inside a code block stays as literal text
+> blockquote inside a code block stays as literal text
+\`\`\`\`
+
+Heading-like content inside the fenced block must not be stripped on either side.
+
+The same applies to list bullets and blockquote markers that look like markdown syntax.
+
+This shape appears whenever an author chose a longer run for visual symmetry reasons.
+
+The closer can have any number of backticks above the opener length, with optional spaces.
+
+Trailing whitespace on the closer line is also tolerated by the underlying CommonMark spec.
+
+Authors sometimes pad closers with extra backticks to make blocks visually distinct.
+
+The parity check should treat all of those variations as equivalent fenced regions.`;
+
+    const url = 'http://mcp-longer-closer.local/docs/page';
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-longer-closer.local');
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
+    expect(pageResults[0].missingSegments).toBe(0);
+  });
+
+  it('handles deeply nested fences with strictly decreasing backtick runs', async () => {
+    // 5/4/3 nesting. Each level's closer must match its own opener length;
+    // guards against regressions that special-case any single run length.
+    const html = `<html><body><main>
+      <p>The following demonstrates a three-level nest with five, four, and three backticks.</p>
+      <p>All inner backtick lines must reach the reader as literal text on both sides.</p>
+      <pre><code>\`\`\`\`level-two filename="middle.md"
+\`\`\`level-three filename="inner.txt"
+innermost body line that is long enough to count
+\`\`\`
+\`\`\`\`</code></pre>
+      <p>Authors use this pattern when the example itself is meta and contains other examples.</p>
+      <p>Each layer must independently survive segmentation and comparison without leaks.</p>
+      <p>The outermost fence opens and closes with five backticks to dominate every inner run.</p>
+      <p>The middle fence uses four backticks because its content includes triple-backtick lines.</p>
+      <p>The innermost three-backtick fence is just a normal code block at the bottom of the nest.</p>
+      <p>Removing any layer would change the literal text and is therefore not equivalent content.</p>
+      <p>This test guards against regressions that special-case any single backtick run length.</p>
+    </main></body></html>`;
+
+    const markdown = `The following demonstrates a three-level nest with five, four, and three backticks.
+
+All inner backtick lines must reach the reader as literal text on both sides.
+
+\`\`\`\`\`level-one filename="outer.mdx"
+\`\`\`\`level-two filename="middle.md"
+\`\`\`level-three filename="inner.txt"
+innermost body line that is long enough to count
+\`\`\`
+\`\`\`\`
+\`\`\`\`\`
+
+Authors use this pattern when the example itself is meta and contains other examples.
+
+Each layer must independently survive segmentation and comparison without leaks.
+
+The outermost fence opens and closes with five backticks to dominate every inner run.
+
+The middle fence uses four backticks because its content includes triple-backtick lines.
+
+The innermost three-backtick fence is just a normal code block at the bottom of the nest.
+
+Removing any layer would change the literal text and is therefore not equivalent content.
+
+This test guards against regressions that special-case any single backtick run length.`;
+
+    const url = 'http://mcp-deep-nest.local/docs/page';
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-deep-nest.local');
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
+    expect(pageResults[0].missingSegments).toBe(0);
+  });
 });
