@@ -327,8 +327,13 @@ function extractMarkdownText(markdown: string): string {
   // Replace entire fenced blocks (``` ... ```) with placeholders so
   // heading/link/emphasis/blockquote regexes don't modify literal content
   // that the HTML side preserves as-is inside <pre><code> tags.
+  //
+  // Per CommonMark §4.5, a fence opens with N>=3 backticks and closes only
+  // on a run of >=N. Capture the opener so the close-side backreference
+  // matches; otherwise nested example fences (4-backtick outer, 3-backtick
+  // inner) get mis-paired and inner markers leak out as text.
   const codeBlocks: string[] = [];
-  text = text.replace(/^```[^`\n]*\n([\s\S]*?)^```\s*$/gm, (_match, content) => {
+  text = text.replace(/^(`{3,})[^`\n]*\n([\s\S]*?)^\1`*\s*$/gm, (_match, _opener, content) => {
     const idx = codeBlocks.length;
     codeBlocks.push(content);
     return `\x00BLOCK${idx}\x00`;
