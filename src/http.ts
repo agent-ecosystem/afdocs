@@ -11,7 +11,9 @@ interface RateLimitedHttpClientOptions {
   requestDelay: number;
   requestTimeout: number;
   maxConcurrency: number;
+  /** Canonical base URL to find in bodies (origin, or origin plus a path prefix). */
   canonicalOrigin?: string;
+  /** Value to replace it with: the target origin, or the full target base for a path-prefix canonical. */
   targetOrigin?: string;
 }
 
@@ -24,9 +26,13 @@ function escapeRegExp(s: string): string {
 export function createHttpClient(options: RateLimitedHttpClientOptions): HttpClient {
   let lastRequestTime = 0;
   let activeRequests = 0;
+  // Match the canonical base only at a URL boundary: end-of-string or one of these
+  // delimiters. `)` and `,` are included so URLs inside markdown links `[x](url)` and
+  // prose `url, next` rewrite; the rare tradeoff is a path segment like `/docs,2024`
+  // being treated as the `/docs` prefix.
   const originPattern =
     options.canonicalOrigin && options.targetOrigin
-      ? new RegExp(escapeRegExp(options.canonicalOrigin) + '(?=[/\\s"\'\\]>]|$)', 'g')
+      ? new RegExp(escapeRegExp(options.canonicalOrigin) + '(?=[/?#\\s"\'\\]),>]|$)', 'g')
       : null;
 
   async function waitForSlot(): Promise<void> {
@@ -81,7 +87,11 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
             if (/text|xml|json|markdown/.test(ct)) {
               const body = await response.text();
               originPattern.lastIndex = 0;
-              const rewritten = body.replace(originPattern, options.targetOrigin);
+              // Use a function replacer so `$` in the target (e.g. a preview path
+              // containing `$'` or `$&`) is inserted literally, not interpreted as a
+              // String.replace replacement pattern.
+              const target = options.targetOrigin;
+              const rewritten = body.replace(originPattern, () => target);
               return {
                 ok: response.ok,
                 status: response.status,

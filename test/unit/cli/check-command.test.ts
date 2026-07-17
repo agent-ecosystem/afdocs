@@ -758,7 +758,115 @@ describe('check command config integration', () => {
     await new Promise((r) => setTimeout(r, 100));
 
     const stderr = stderrSpy.mock.calls.map((c) => c[0]).join('');
-    expect(stderr).toContain('same as the target origin');
+    expect(stderr).toContain('same as the target');
+    expect(stderr).toContain('no effect');
+
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('warns when origin-only --canonical-origin matches target whose URL has a path', async () => {
+    server.use(
+      http.get('http://cmd-canon-path.local/docs/llms.txt', () =>
+        HttpResponse.text(VALID_LLMS_TXT),
+      ),
+      http.get('http://cmd-canon-path.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const { run } = await import('../../../src/cli/index.js');
+    await run([
+      'node',
+      'afdocs',
+      'check',
+      'http://cmd-canon-path.local/docs',
+      '--canonical-origin',
+      'http://cmd-canon-path.local',
+      '--checks',
+      'llms-txt-exists',
+      '--request-delay',
+      '0',
+    ]);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join('');
+    // Origin-only canonical == target origin → no effect, even though target has a path.
+    expect(stderr).toContain('no effect');
+
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('does not suppress --canonical-origin when same origin but different sub-path', async () => {
+    server.use(
+      http.get('http://cmd-canon-subpath.local/preview/llms.txt', () =>
+        HttpResponse.text(VALID_LLMS_TXT),
+      ),
+      http.get(
+        'http://cmd-canon-subpath.local/llms.txt',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+      http.get(
+        'http://cmd-canon-subpath.local/docs/llms.txt',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const { run } = await import('../../../src/cli/index.js');
+    await run([
+      'node',
+      'afdocs',
+      'check',
+      'http://cmd-canon-subpath.local/preview',
+      '--canonical-origin',
+      'http://cmd-canon-subpath.local/aws/en',
+      '--checks',
+      'llms-txt-exists',
+      '--request-delay',
+      '0',
+    ]);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join('');
+    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join('');
+    expect(stderr).not.toContain('no effect');
+    expect(stdout).toContain('llms-txt-exists');
+
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('warns when a path-prefix --canonical-origin equals the target base', async () => {
+    server.use(
+      http.get('http://cmd-canon-eq.local/docs/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
+      http.get('http://cmd-canon-eq.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const { run } = await import('../../../src/cli/index.js');
+    await run([
+      'node',
+      'afdocs',
+      'check',
+      'http://cmd-canon-eq.local/docs',
+      '--canonical-origin',
+      'http://cmd-canon-eq.local/docs',
+      '--checks',
+      'llms-txt-exists',
+      '--request-delay',
+      '0',
+    ]);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join('');
+    // Path-prefix canonical resolves to the same base as the target → no-op rewrite.
     expect(stderr).toContain('no effect');
 
     stdoutSpy.mockRestore();

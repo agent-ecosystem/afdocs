@@ -93,7 +93,7 @@ Override default runner options. All fields are optional:
 | `requestTimeout`        | `30000`     | Timeout for individual HTTP requests in milliseconds                                                     |
 | `preferredLocale`       | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)                                               |
 | `preferredVersion`      | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`)                                                   |
-| `canonicalOrigin`       |             | The production domain your content links to                                                              |
+| `canonicalOrigin`       |             | The production base URL (origin, or origin plus a path prefix) your content links to                     |
 | `llmsTxtUrl`            |             | Explicit llms.txt URL to use as canonical (overrides the discovery heuristic; see CLI docs)              |
 | `thresholds.pass`       | `50000`     | Page size pass threshold in characters                                                                   |
 | `thresholds.fail`       | `100000`    | Page size fail threshold in characters                                                                   |

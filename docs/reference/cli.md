@@ -156,11 +156,11 @@ The same option is available in `agent-docs.config.yml` as `options.urlPathPatte
 
 ### Request behavior
 
-| Flag                       | Default | Description                                 |
-| -------------------------- | ------- | ------------------------------------------- |
-| `--max-concurrency <n>`    | `3`     | Maximum concurrent HTTP requests            |
-| `--request-delay <ms>`     | `200`   | Delay between requests in milliseconds      |
-| `--canonical-origin <url>` |         | The production domain your content links to |
+| Flag                       | Default | Description                                                                          |
+| -------------------------- | ------- | ------------------------------------------------------------------------------------ |
+| `--max-concurrency <n>`    | `3`     | Maximum concurrent HTTP requests                                                     |
+| `--request-delay <ms>`     | `200`   | Delay between requests in milliseconds                                               |
+| `--canonical-origin <url>` |         | The production base URL (origin, or origin plus a path prefix) your content links to |
 
 AFDocs enforces delays between requests and caps concurrent connections to avoid overloading your server. Adjust these if you need gentler or faster runs:
 
@@ -172,11 +172,17 @@ afdocs check https://docs.example.com --request-delay 500 --max-concurrency 1
 afdocs check https://docs.example.com --request-delay 50 --max-concurrency 10
 ```
 
-Use `--canonical-origin` when your site's URLs in `sitemap.xml` and `llms.txt` don't match the domain you're testing, such as preview deployments or localhost.
+Use `--canonical-origin` when your site's URLs in `sitemap.xml` and `llms.txt` don't match the base URL you're testing, such as preview deployments or localhost. It accepts either a bare origin or an origin plus a path prefix:
+
+- **Origin only** — rewrites every URL on that host, regardless of path.
+- **Origin plus a path prefix** — rewrites only URLs under that prefix, remapping them to the base URL you pass to `check` (the prefixes need not match).
 
 ```bash
-# Test a preview deployment
+# Origin only: rewrite all example.com URLs to the preview host
 afdocs check https://preview-xyz-example.app/docs --canonical-origin https://example.com
+
+# Path prefix: production docs live under /docs, but your preview serves them under /preview
+afdocs check http://localhost:3000/preview --canonical-origin https://example.com/docs
 ```
 
 ### llms.txt selection
