@@ -1,6 +1,7 @@
 import { registerCheck } from '../registry.js';
 import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
 import type { CheckContext, CheckResult } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 type PageClassification = 'accessible' | 'auth-required' | 'soft-auth-gate' | 'auth-redirect';
 
@@ -153,7 +154,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'fail',
-      message: `Could not fetch any pages to check authentication${fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : ''}`,
+      message: t('check.auth-gate-detection.error_none', {
+        suffix: fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '',
+      }),
       details: {
         totalPages,
         testedPages: results.length,
@@ -175,18 +178,24 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
 
   let status: 'pass' | 'warn' | 'fail';
   let message: string;
-  const suffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
-  const pageLabel = sampled ? 'sampled pages' : 'pages';
+  const suffix = fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '';
+  const pageLabel = sampled ? t('common.sampled_pages') : t('common.pages');
 
   if (gatedCount === 0) {
     status = 'pass';
-    message = `All ${accessible.length} ${pageLabel} are publicly accessible${suffix}`;
+    message = t('check.auth-gate-detection.pass', { count: accessible.length, pageLabel, suffix });
   } else if (accessible.length > 0 && gatedCount > 0) {
     status = 'warn';
-    message = `${gatedCount} of ${tested.length} ${pageLabel} require authentication (${accessible.length} accessible)${suffix}`;
+    message = t('check.auth-gate-detection.warn', {
+      gated: gatedCount,
+      total: tested.length,
+      pageLabel,
+      accessible: accessible.length,
+      suffix,
+    });
   } else {
     status = 'fail';
-    message = `All ${tested.length} ${pageLabel} require authentication${suffix}`;
+    message = t('check.auth-gate-detection.fail', { total: tested.length, pageLabel, suffix });
   }
 
   return {

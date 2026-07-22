@@ -1,5 +1,6 @@
 import { registerCheck } from '../registry.js';
 import type { CheckContext, CheckResult } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 interface AuthGateDetails {
   accessible?: number;
@@ -30,7 +31,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message: 'auth-gate-detection did not run',
+      message: t('check.auth-alternative-access.skip_dep_missing'),
     };
   }
 
@@ -39,7 +40,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message: 'All docs pages are publicly accessible; no alternative access paths needed',
+      message: t('check.auth-alternative-access.pass_public'),
     };
   }
 
@@ -48,7 +49,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message: `auth-gate-detection ${authResult.status === 'error' ? 'errored' : 'was skipped'}; cannot assess alternative access`,
+      message: t('check.auth-alternative-access.skip_dep_status', {
+        status: authResult.status === 'error' ? 'errored' : 'was skipped',
+      }),
     };
   }
 
@@ -70,8 +73,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message:
-        'auth-gate-detection failed due to fetch errors, not detected auth responses; cannot assess alternative access',
+      message: t('check.auth-alternative-access.skip_fetch_errors'),
     };
   }
 
@@ -114,15 +116,17 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   }
 
   // Determine status
-  const manualOnlyNote =
-    'Some access paths cannot be detected automatically: bundled SDK docs, CLI doc commands, and MCP servers';
+  const manualOnlyNote = t('check.auth-alternative-access.manual_note');
 
   let status: 'pass' | 'warn' | 'fail';
   let message: string;
 
   if (detectedPaths.length === 0) {
     status = 'fail';
-    message = `No alternative access paths detected for ${gatedCount} auth-gated pages. ${manualOnlyNote}`;
+    message = t('check.auth-alternative-access.fail_none', {
+      gated: gatedCount,
+      note: manualOnlyNote,
+    });
   } else {
     // Pass if we found a full-content path (llms.txt + markdown, or most pages accessible).
     // Warn if we only found partial paths (llms.txt alone is just an index, not content).
@@ -139,8 +143,12 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     const pathSummary = detectedPaths.map((p) => p.type).join(', ');
     message =
       status === 'pass'
-        ? `Alternative access detected (${pathSummary}) for site with ${gatedCount} auth-gated pages`
-        : `Partial alternative access detected (${pathSummary}) for site with ${gatedCount} auth-gated pages. ${manualOnlyNote}`;
+        ? t('check.auth-alternative-access.pass', { paths: pathSummary, gated: gatedCount })
+        : t('check.auth-alternative-access.warn_partial', {
+            paths: pathSummary,
+            gated: gatedCount,
+            note: manualOnlyNote,
+          });
   }
 
   return {

@@ -3,6 +3,7 @@ import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
 import { htmlToMarkdown } from '../../helpers/html-to-markdown.js';
 import { fetchPage } from '../../helpers/fetch-page.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 interface PagePositionResult {
   url: string;
@@ -233,7 +234,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'fail',
-      message: `Could not fetch any pages to analyze${fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : ''}`,
+      message: t('check.content-start-position.error_none', {
+        suffix: fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '',
+      }),
       details: {
         totalPages,
         testedPages: results.length,
@@ -250,21 +253,38 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const maxPercent = Math.max(...percents);
 
   const overallStatus = worstStatus(successful.map((r) => r.status));
-  const pageLabel = wasSampled ? 'sampled pages' : 'pages';
+  const pageLabel = wasSampled ? t('common.sampled_pages') : t('common.pages');
 
   const passBucket = successful.filter((r) => r.status === 'pass').length;
   const warnBucket = successful.filter((r) => r.status === 'warn').length;
   const failBucket = successful.filter((r) => r.status === 'fail').length;
 
-  const suffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
+  const suffix = fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '';
 
   let message: string;
   if (overallStatus === 'pass') {
-    message = `Content starts within first 10% on all ${successful.length} ${pageLabel} (median ${medianPercent}%)${suffix}`;
+    message = t('check.content-start-position.pass', {
+      total: successful.length,
+      pageLabel,
+      median: medianPercent,
+      suffix,
+    });
   } else if (overallStatus === 'warn') {
-    message = `${warnBucket} of ${successful.length} ${pageLabel} have content starting at 10–50% (worst ${maxPercent}%)${suffix}`;
+    message = t('check.content-start-position.warn', {
+      warn: warnBucket,
+      total: successful.length,
+      pageLabel,
+      worst: maxPercent,
+      suffix,
+    });
   } else {
-    message = `${failBucket} of ${successful.length} ${pageLabel} have content starting past 50% (worst ${maxPercent}%)${suffix}`;
+    message = t('check.content-start-position.fail', {
+      failCount: failBucket,
+      total: successful.length,
+      pageLabel,
+      worst: maxPercent,
+      suffix,
+    });
   }
 
   return {

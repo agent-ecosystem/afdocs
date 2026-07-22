@@ -13,6 +13,7 @@ import {
 } from '../../constants.js';
 import picomatch from 'picomatch';
 import type { CheckContext, CheckResult } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 /**
  * Normalize a URL to a canonical path for comparison.
@@ -334,7 +335,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message: 'No page URLs found in llms.txt',
+      message: t('check.llms-txt-coverage.skip_no_pages'),
     };
   }
 
@@ -369,8 +370,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message:
-        'No sitemap found; cannot assess llms.txt coverage without a sitemap as ground truth',
+      message: t('check.llms-txt-coverage.skip_no_sitemap'),
       details: { sitemapWarnings },
     };
   }
@@ -380,7 +380,10 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message: `Sitemap has ${sitemapUrls.length} URLs but none are under the docs path prefix (${baseUrlPath || '/'})`,
+      message: t('check.llms-txt-coverage.skip_prefix', {
+        count: sitemapUrls.length,
+        prefix: baseUrlPath || '/',
+      }),
       details: {
         totalSitemapUrls: sitemapUrls.length,
         baseUrlPath: baseUrlPath || '/',
@@ -504,21 +507,29 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   // 8. Build message
   const parts: string[] = [];
   if (overallStatus === 'pass') {
-    parts.push(`llms.txt covers ${coveragePct}% of ${sitemapDocPages} sitemap doc pages`);
+    parts.push(
+      t('check.llms-txt-coverage.pass', { coverage: coveragePct, total: sitemapDocPages }),
+    );
   } else {
     parts.push(
-      `llms.txt covers ${coveredCount}/${sitemapDocPages} sitemap doc pages (${coveragePct}%); ${missingFromLlmsTxt.length} missing`,
+      t('check.llms-txt-coverage.nonpass', {
+        covered: coveredCount,
+        total: sitemapDocPages,
+        coverage: coveragePct,
+        missing: missingFromLlmsTxt.length,
+      }),
     );
   }
   if (omittedSubtreeCount > 0) {
     parts.push(
-      `${walkResult.omittedTxtUrls.length} nested indexes omitted (${omittedSubtreeCount} sitemap pages excluded)`,
+      t('check.llms-txt-coverage.omitted', {
+        indexes: walkResult.omittedTxtUrls.length,
+        pages: omittedSubtreeCount,
+      }),
     );
   }
   if (unmatchedLlmsTxtUrls.length > 0) {
-    parts.push(
-      `${unmatchedLlmsTxtUrls.length} llms.txt links not in sitemap (may indicate stale links or incomplete sitemap)`,
-    );
+    parts.push(t('check.llms-txt-coverage.unmatched', { count: unmatchedLlmsTxtUrls.length }));
   }
 
   const message = parts.join('; ');

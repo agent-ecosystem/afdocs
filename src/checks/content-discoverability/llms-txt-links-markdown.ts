@@ -4,6 +4,7 @@ import { filterByPathPrefix, getPathFilterBase } from '../../helpers/get-page-ur
 import { getLlmsTxtFilesForAnalysis } from '../../helpers/llms-txt.js';
 import { toMdUrls } from '../../helpers/to-md-urls.js';
 import { looksLikeMarkdown } from '../../helpers/detect-markdown.js';
+import { linkLabel, resultSuffix, t } from '../../i18n/index.js';
 import type { CheckContext, CheckResult } from '../../types.js';
 
 interface LinkMarkdownResult {
@@ -33,7 +34,7 @@ async function checkLlmsTxtLinksMarkdown(ctx: CheckContext): Promise<CheckResult
       id: 'llms-txt-links-markdown',
       category: 'content-discoverability',
       status: 'skip',
-      message: 'No llms.txt files to check links for',
+      message: t('check.llms-txt-links-markdown.skip_none'),
       dependsOn: ['llms-txt-exists'],
     };
   }
@@ -75,8 +76,12 @@ async function checkLlmsTxtLinksMarkdown(ctx: CheckContext): Promise<CheckResult
       category: 'content-discoverability',
       status: 'skip',
       message: filteredOut
-        ? `llms.txt contains ${allExtractedUrls.size} link${allExtractedUrls.size === 1 ? '' : 's'}, but none are under ${baseUrlPath}`
-        : 'No HTTP(S) links found in llms.txt',
+        ? t('check.llms-txt-links-resolve.skip_filtered', {
+            count: allExtractedUrls.size,
+            plural: allExtractedUrls.size === 1 ? '' : 's',
+            path: baseUrlPath,
+          })
+        : t('check.llms-txt-links-resolve.skip_no_http'),
     };
   }
 
@@ -193,10 +198,8 @@ async function checkLlmsTxtLinksMarkdown(ctx: CheckContext): Promise<CheckResult
   const fetchErrors = results.filter((r) => r.error).length;
   const rateLimited = results.filter((r) => r.status === 429).length;
 
-  const linkLabel = wasSampled ? 'sampled links' : 'links';
-  const suffix =
-    (fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '') +
-    (rateLimited > 0 ? `; ${rateLimited} rate-limited (HTTP 429)` : '');
+  const label = linkLabel(wasSampled);
+  const suffix = resultSuffix({ fetchErrors, rateLimited });
 
   const crossNote =
     crossOriginLinks.length > 0
@@ -222,7 +225,7 @@ async function checkLlmsTxtLinksMarkdown(ctx: CheckContext): Promise<CheckResult
       id: 'llms-txt-links-markdown',
       category: 'content-discoverability',
       status: 'skip',
-      message: `All ${totalLinks} links are external; cannot assess markdown support`,
+      message: t('check.llms-txt-links-markdown.skip_external', { total: totalLinks }),
       details,
     };
   }
@@ -232,7 +235,14 @@ async function checkLlmsTxtLinksMarkdown(ctx: CheckContext): Promise<CheckResult
       id: 'llms-txt-links-markdown',
       category: 'content-discoverability',
       status: 'pass',
-      message: `${markdownLinks}/${results.length} same-origin ${linkLabel} point to markdown content (${Math.round(markdownRate * 100)}%)${suffix}${crossNote}`,
+      message: t('check.llms-txt-links-markdown.pass', {
+        markdown: markdownLinks,
+        total: results.length,
+        linkLabel: label,
+        rate: Math.round(markdownRate * 100),
+        suffix,
+        crossNote,
+      }),
       details,
     };
   }
@@ -242,7 +252,11 @@ async function checkLlmsTxtLinksMarkdown(ctx: CheckContext): Promise<CheckResult
       id: 'llms-txt-links-markdown',
       category: 'content-discoverability',
       status: 'warn',
-      message: `Same-origin links point to HTML, but ${mdVariantsAvailable} have .md variants available${suffix}${crossNote}`,
+      message: t('check.llms-txt-links-markdown.warn_variants', {
+        count: mdVariantsAvailable,
+        suffix,
+        crossNote,
+      }),
       details,
     };
   }
@@ -251,7 +265,7 @@ async function checkLlmsTxtLinksMarkdown(ctx: CheckContext): Promise<CheckResult
     id: 'llms-txt-links-markdown',
     category: 'content-discoverability',
     status: 'fail',
-    message: `Same-origin links point to HTML and no markdown alternatives detected${suffix}${crossNote}`,
+    message: t('check.llms-txt-links-markdown.fail', { suffix, crossNote }),
     details,
   };
 }

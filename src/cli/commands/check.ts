@@ -6,6 +6,7 @@ import { formatScorecard } from '../formatters/scorecard.js';
 import type { PageConfigEntry, RunnerOptions, SamplingStrategy } from '../../types.js';
 import { findConfig, validatePages } from '../../helpers/config.js';
 import { validateRunnerOptions } from '../../validation.js';
+import { resolveLang, setLang } from '../../i18n/index.js';
 
 // Ensure all checks are registered
 import '../../checks/index.js';
@@ -33,6 +34,11 @@ export function registerCheckCommand(program: Command): void {
     )
     .option('--doc-locale <code>', 'Preferred locale for URL discovery (e.g. en, fr, ja)')
     .option('--doc-version <version>', 'Preferred version for URL discovery (e.g. v3, 2.x, latest)')
+    .option(
+      '--lang <code>',
+      'Output language for messages/resolutions/diagnostics (en or zh; also AFDOCS_LANG)',
+      process.env.AFDOCS_LANG ?? 'en',
+    )
     .option('--pass-threshold <n>', 'Pass threshold in characters')
     .option('--fail-threshold <n>', 'Fail threshold in characters')
     .option('-v, --verbose', 'Show per-page details for checks with issues')
@@ -262,6 +268,9 @@ export function registerCheckCommand(program: Command): void {
               .filter(Boolean)
           : (config?.options?.parityExclusions ?? undefined);
 
+      const lang = resolveLang((opts.lang as string | undefined) ?? process.env.AFDOCS_LANG);
+      setLang(lang);
+
       const runnerOptions: Partial<RunnerOptions> = {
         checkIds,
         skipCheckIds,
@@ -270,6 +279,7 @@ export function registerCheckCommand(program: Command): void {
         maxLinksToTest,
         samplingStrategy: sampling,
         curatedPages,
+        lang,
         thresholds: {
           pass: passThreshold,
           fail: failThreshold,

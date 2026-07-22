@@ -1,6 +1,7 @@
 import { registerCheck } from '../registry.js';
 import { selectCanonicalLlmsTxt } from '../../helpers/llms-txt.js';
 import { isCrossHostRedirect } from '../../helpers/to-md-urls.js';
+import { t } from '../../i18n/index.js';
 import type { CheckContext, CheckResult, DiscoveredFile } from '../../types.js';
 
 /**
@@ -136,8 +137,8 @@ async function checkLlmsTxtExists(ctx: CheckContext): Promise<CheckResult> {
   const rateLimited = checkedUrls.filter((u) => u.status === 429).length;
 
   const suffix =
-    (fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '') +
-    (rateLimited > 0 ? `; ${rateLimited} rate-limited (HTTP 429)` : '');
+    (fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '') +
+    (rateLimited > 0 ? t('common.rate_limited_suffix', { count: rateLimited }) : '');
 
   // Pick the canonical llms.txt — the one downstream checks should use as the
   // single source of truth for sampling links, measuring size, validating
@@ -193,11 +194,19 @@ async function checkLlmsTxtExists(ctx: CheckContext): Promise<CheckResult> {
   if (discovered.length === 0) {
     const redirectNote =
       redirectedOrigins.length > 0
-        ? `; candidates redirected cross-host to ${redirectedOrigins.join(', ')} (agents can't follow cross-host redirects)`
+        ? t('check.llms-txt-exists.redirect_note', { origins: redirectedOrigins.join(', ') })
         : '';
     const message = explicitUrl
-      ? `No llms.txt found at the URL specified via --llms-txt-url (${explicitUrl})${redirectNote}${suffix}`
-      : `No llms.txt found at any candidate location (${candidates.join(', ')})${redirectNote}${suffix}`;
+      ? t('check.llms-txt-exists.fail_explicit', {
+          url: explicitUrl,
+          redirectNote,
+          suffix,
+        })
+      : t('check.llms-txt-exists.fail_candidates', {
+          candidates: candidates.join(', '),
+          redirectNote,
+          suffix,
+        });
     return {
       id: 'llms-txt-exists',
       category: 'content-discoverability',
@@ -214,7 +223,7 @@ async function checkLlmsTxtExists(ctx: CheckContext): Promise<CheckResult> {
       id: 'llms-txt-exists',
       category: 'content-discoverability',
       status: 'warn',
-      message: `llms.txt found but only reachable via cross-host redirect (agents may not follow it)${suffix}`,
+      message: t('check.llms-txt-exists.warn_cross_host', { suffix }),
       details,
     };
   }
@@ -231,13 +240,16 @@ async function checkLlmsTxtExists(ctx: CheckContext): Promise<CheckResult> {
   // can see at a glance which one drives the rest of the report.
   let message: string;
   if (explicitUrl && canonical) {
-    message = `llms.txt found at ${canonical.url} (specified via --llms-txt-url)`;
+    message = t('check.llms-txt-exists.pass_explicit', { url: canonical.url });
   } else if (discovered.length === 1) {
-    message = `llms.txt found at ${discovered[0].url}`;
+    message = t('check.llms-txt-exists.pass_single', { url: discovered[0].url });
   } else if (canonical) {
-    message = `llms.txt found at ${discovered.length} locations; using ${canonical.url} as canonical`;
+    message = t('check.llms-txt-exists.pass_multi_canonical', {
+      count: discovered.length,
+      url: canonical.url,
+    });
   } else {
-    message = `llms.txt found at ${discovered.length} location(s)`;
+    message = t('check.llms-txt-exists.pass_multi', { count: discovered.length });
   }
 
   return {

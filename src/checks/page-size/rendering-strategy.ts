@@ -3,6 +3,7 @@ import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
 import { fetchPage } from '../../helpers/fetch-page.js';
 import { analyzeRendering, type RenderingAnalysis } from '../../helpers/detect-rendering.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 interface PageRenderingResult {
   url: string;
@@ -102,12 +103,12 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const fetchErrors = results.filter((r) => r.error).length;
 
   if (successful.length === 0) {
-    const suffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
+    const suffix = fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '';
     return {
       id,
       category,
       status: 'fail',
-      message: `Could not fetch any pages to analyze${suffix}`,
+      message: t('check.rendering-strategy.error_none', { suffix }),
       details: {
         totalPages,
         testedPages: results.length,
@@ -123,7 +124,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const sparse = successful.filter((r) => r.status === 'warn');
   const ok = successful.filter((r) => r.status === 'pass');
   const overallStatus = worstStatus(successful.map((r) => r.status));
-  const pageLabel = wasSampled ? 'sampled pages' : 'pages';
+  const pageLabel = wasSampled ? t('common.sampled_pages') : t('common.pages');
 
   // Identify the framework from the first failing page for the message
   const firstShell = spaShells[0];
@@ -131,26 +132,36 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     ? ` (${firstShell.analysis.spaMarker.replace('id="', '').replace('"', '')} detected)`
     : '';
 
+  const fetchNote =
+    fetchErrors > 0 ? t('check.rendering-strategy.fetch_note', { count: fetchErrors }) : '';
+  const sparseNote =
+    spaShells.length > 0 && sparse.length > 0
+      ? t('check.rendering-strategy.sparse_note', { sparse: sparse.length })
+      : '';
+
   let message: string;
   if (overallStatus === 'pass') {
-    message = `All ${successful.length} ${pageLabel} contain server-rendered content`;
+    message = t('check.rendering-strategy.pass', {
+      total: successful.length,
+      pageLabel,
+      fetchNote,
+    });
   } else if (spaShells.length > 0) {
-    message =
-      `${spaShells.length} of ${successful.length} ${pageLabel} appear to be ` +
-      `client-side rendered SPA shells${frameworkHint}; ` +
-      `agents using HTTP fetches will see no content`;
-    if (sparse.length > 0) {
-      message += `; ${sparse.length} more have page structure but little substantive content`;
-    }
+    message = t('check.rendering-strategy.fail_spa', {
+      spa: spaShells.length,
+      total: successful.length,
+      pageLabel,
+      frameworkHint,
+      sparseNote,
+      fetchNote,
+    });
   } else {
-    message =
-      `${sparse.length} of ${successful.length} ${pageLabel} have server-rendered ` +
-      `page structure but little substantive content; agents will see headings ` +
-      `and navigation but not the page's actual documentation`;
-  }
-
-  if (fetchErrors > 0) {
-    message += `; ${fetchErrors} failed to fetch`;
+    message = t('check.rendering-strategy.warn_sparse', {
+      sparse: sparse.length,
+      total: successful.length,
+      pageLabel,
+      fetchNote,
+    });
   }
 
   return {

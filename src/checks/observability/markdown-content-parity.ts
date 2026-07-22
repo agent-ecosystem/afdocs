@@ -4,6 +4,7 @@ import { fetchPage } from '../../helpers/fetch-page.js';
 import { toHtmlUrl } from '../../helpers/to-md-urls.js';
 import { DEFAULT_PARITY_PASS_THRESHOLD, DEFAULT_PARITY_WARN_THRESHOLD } from '../../constants.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 /** Minimum character length for a text segment to be considered meaningful. */
 const MIN_SEGMENT_LENGTH = 20;
@@ -607,7 +608,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message: 'No pages with markdown versions available to compare',
+      message: t('check.markdown-content-parity.skip_none'),
     };
   }
 
@@ -688,7 +689,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'fail',
-      message: `Could not fetch HTML for any pages to compare${fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : ''}`,
+      message: t('check.markdown-content-parity.error_none', {
+        suffix: fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '',
+      }),
       details: {
         pagesCompared: 0,
         fetchErrors,
@@ -705,15 +708,28 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     successful.length > 0
       ? Math.round(successful.reduce((sum, r) => sum + r.missingPercent, 0) / successful.length)
       : 0;
-  const suffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
+  const suffix = fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '';
 
   let message: string;
   if (overallStatus === 'pass') {
-    message = `All ${successful.length} pages have equivalent markdown and HTML content (avg ${avgMissingPercent}% missing)${suffix}`;
+    message = t('check.markdown-content-parity.pass', {
+      total: successful.length,
+      avg: avgMissingPercent,
+      suffix,
+    });
   } else if (overallStatus === 'warn') {
-    message = `${warnBucket} of ${successful.length} pages have minor content differences between markdown and HTML${suffix}`;
+    message = t('check.markdown-content-parity.warn', {
+      warn: warnBucket,
+      total: successful.length,
+      suffix,
+    });
   } else {
-    message = `${failBucket} of ${successful.length} pages have substantive content differences between markdown and HTML (avg ${avgMissingPercent}% missing)${suffix}`;
+    message = t('check.markdown-content-parity.fail', {
+      failCount: failBucket,
+      total: successful.length,
+      avg: avgMissingPercent,
+      suffix,
+    });
   }
 
   return {

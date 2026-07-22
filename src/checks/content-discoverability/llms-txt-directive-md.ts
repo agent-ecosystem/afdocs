@@ -3,6 +3,7 @@ import { looksLikeMarkdown } from '../../helpers/detect-markdown.js';
 import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
 import { toMdUrls, toHtmlUrl } from '../../helpers/to-md-urls.js';
 import type { CheckContext, CheckResult } from '../../types.js';
+import { pageLabel, t } from '../../i18n/index.js';
 
 interface DirectiveResult {
   url: string;
@@ -143,7 +144,10 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'fail',
-      message: `Could not fetch markdown for any of ${results.length} pages${fetchErrors > 0 ? `; ${fetchErrors} had no markdown version` : ''}`,
+      message: t('check.llms-txt-directive-md.error_none', {
+        count: results.length,
+        suffix: fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '',
+      }),
       details: {
         totalPages,
         testedPages: results.length,
@@ -160,21 +164,42 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
 
   let status: 'pass' | 'warn' | 'fail';
   let message: string;
-  const pageLabel = sampled ? 'sampled pages' : 'pages';
-  const suffix = fetchErrors > 0 ? `; ${fetchErrors} had no markdown version` : '';
+  const label = pageLabel(sampled);
+  const suffix =
+    fetchErrors > 0 ? t('check.llms-txt-directive-md.no_md_suffix', { count: fetchErrors }) : '';
 
   if (found.length === 0) {
     status = 'fail';
-    message = `No llms.txt directive found in markdown of any of ${tested.length} ${pageLabel}${suffix}`;
+    message = t('check.llms-txt-directive-md.fail_none', {
+      count: tested.length,
+      pageLabel: label,
+      suffix,
+    });
   } else if (buried.length > 0 && nearTop.length === 0) {
     status = 'warn';
-    message = `llms.txt directive found in markdown of ${found.length} of ${tested.length} ${pageLabel}, but buried deep in the page (past ${Math.round(DEEP_THRESHOLD * 100)}%)${suffix}`;
+    message = t('check.llms-txt-directive-md.warn_buried', {
+      found: found.length,
+      total: tested.length,
+      pageLabel: label,
+      suffix,
+    });
   } else if (notFound.length > 0) {
     status = 'warn';
-    message = `llms.txt directive found in markdown of ${found.length} of ${tested.length} ${pageLabel} (${notFound.length} missing)${suffix}`;
+    message = t('check.llms-txt-directive-md.warn_partial', {
+      found: found.length,
+      total: tested.length,
+      pageLabel: label,
+      missing: notFound.length,
+      suffix,
+    });
   } else {
     status = 'pass';
-    message = `llms.txt directive found in markdown of all ${tested.length} ${pageLabel}${nearTop.length > 0 ? ', near the top of content' : ''}${suffix}`;
+    message = t('check.llms-txt-directive-md.pass', {
+      total: tested.length,
+      pageLabel: label,
+      nearTop: nearTop.length > 0 ? t('check.llms-txt-directive-md.near_top') : '',
+      suffix,
+    });
   }
 
   return {

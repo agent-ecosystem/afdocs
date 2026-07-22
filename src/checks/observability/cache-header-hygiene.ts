@@ -1,6 +1,7 @@
 import { registerCheck } from '../registry.js';
 import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
 import type { CheckContext, CheckResult, CheckStatus, DiscoveredFile } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 interface CacheResult {
   url: string;
@@ -196,7 +197,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'fail',
-      message: `Could not fetch any endpoints to check cache headers${fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : ''}`,
+      message: t('check.cache-header-hygiene.error_none', {
+        suffix: fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '',
+      }),
       details: {
         testedEndpoints: results.length,
         fetchErrors,
@@ -210,15 +213,23 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const passBucket = successful.filter((r) => r.status === 'pass').length;
   const warnBucket = successful.filter((r) => r.status === 'warn').length;
   const failBucket = successful.filter((r) => r.status === 'fail').length;
-  const suffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
+  const suffix = fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '';
 
   let message: string;
   if (overallStatus === 'pass') {
-    message = `All ${successful.length} endpoints have appropriate cache headers${suffix}`;
+    message = t('check.cache-header-hygiene.pass', { total: successful.length, suffix });
   } else if (overallStatus === 'warn') {
-    message = `${warnBucket} of ${successful.length} endpoints have moderate cache lifetimes (1–24 hours)${suffix}`;
+    message = t('check.cache-header-hygiene.warn', {
+      warn: warnBucket,
+      total: successful.length,
+      suffix,
+    });
   } else {
-    message = `${failBucket} of ${successful.length} endpoints have aggressive caching or missing cache headers${suffix}`;
+    message = t('check.cache-header-hygiene.fail', {
+      failCount: failBucket,
+      total: successful.length,
+      suffix,
+    });
   }
 
   return {

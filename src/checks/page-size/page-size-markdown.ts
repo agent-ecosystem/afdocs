@@ -1,6 +1,7 @@
 import { registerCheck } from '../registry.js';
 import { getMarkdownContent } from '../../helpers/get-markdown-content.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 interface PageSizeResult {
   url: string;
@@ -39,7 +40,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message: 'Site does not serve markdown; skipping markdown size check',
+      message: t('check.page-size-markdown.skip_no_md'),
     };
   }
 
@@ -78,7 +79,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     });
 
   if (pageResults.length === 0) {
-    return { id, category, status: 'skip', message: 'No markdown pages available to measure' };
+    return { id, category, status: 'skip', message: t('check.page-size-markdown.skip_none') };
   }
 
   const sizes = pageResults.map((r) => r.characters).sort((a, b) => a - b);
@@ -91,15 +92,34 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
 
   const overallStatus = worstStatus(pageResults.map((r) => r.status));
   const sampled = mdResult.mode === 'standalone'; // standalone always samples via discoverAndSamplePages
-  const pageLabel = sampled ? 'sampled pages' : 'pages';
+  const pageLabel = sampled ? t('common.sampled_pages') : t('common.pages');
 
   let message: string;
   if (overallStatus === 'pass') {
-    message = `All ${pageResults.length} ${pageLabel} under ${formatSize(passThreshold)} chars (median ${formatSize(median)}, max ${formatSize(max)})`;
+    message = t('check.page-size-markdown.pass', {
+      total: pageResults.length,
+      pageLabel,
+      pass: formatSize(passThreshold),
+      median: formatSize(median),
+      max: formatSize(max),
+    });
   } else if (overallStatus === 'warn') {
-    message = `${warnBucket} of ${pageResults.length} ${pageLabel} between ${formatSize(passThreshold)}–${formatSize(failThreshold)} chars (max ${formatSize(max)})`;
+    message = t('check.page-size-markdown.warn', {
+      warn: warnBucket,
+      total: pageResults.length,
+      pageLabel,
+      pass: formatSize(passThreshold),
+      fail: formatSize(failThreshold),
+      max: formatSize(max),
+    });
   } else {
-    message = `${failBucket} of ${pageResults.length} ${pageLabel} exceed ${formatSize(failThreshold)} chars (max ${formatSize(max)})`;
+    message = t('check.page-size-markdown.fail', {
+      failCount: failBucket,
+      total: pageResults.length,
+      pageLabel,
+      fail: formatSize(failThreshold),
+      max: formatSize(max),
+    });
   }
 
   return {

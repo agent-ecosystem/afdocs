@@ -3,6 +3,7 @@ import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
 import { htmlToMarkdown } from '../../helpers/html-to-markdown.js';
 import { fetchPage } from '../../helpers/fetch-page.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 interface PageSizeResult {
   url: string;
@@ -86,12 +87,12 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const rateLimited = results.filter((r) => r.error && r.error.includes('429')).length;
 
   if (successful.length === 0) {
-    const suffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
+    const suffix = fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '';
     return {
       id,
       category,
       status: 'fail',
-      message: `Could not fetch any pages to measure${suffix}`,
+      message: t('check.page-size-html.error_none', { suffix }),
       details: {
         totalPages,
         testedPages: results.length,
@@ -115,23 +116,50 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   );
 
   const overallStatus = worstStatus(successful.map((r) => r.status));
-  const pageLabel = wasSampled ? 'sampled pages' : 'pages';
+  const pageLabel = wasSampled ? t('common.sampled_pages') : t('common.pages');
 
   const passBucket = successful.filter((r) => r.status === 'pass').length;
   const warnBucket = successful.filter((r) => r.status === 'warn').length;
   const failBucket = successful.filter((r) => r.status === 'fail').length;
 
   const suffix =
-    (fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '') +
-    (rateLimited > 0 ? `; ${rateLimited} rate-limited (HTTP 429)` : '');
+    (fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '') +
+    (rateLimited > 0 ? t('common.rate_limited_suffix', { count: rateLimited }) : '');
 
   let message: string;
   if (overallStatus === 'pass') {
-    message = `All ${successful.length} ${pageLabel} under ${formatSize(passThreshold)} chars (median ${formatSize(medianHtml)} HTML → ${formatSize(median)} markdown (${avgRatio}% boilerplate))${suffix}`;
+    message = t('check.page-size-html.pass', {
+      total: successful.length,
+      pageLabel,
+      pass: formatSize(passThreshold),
+      medianHtml: formatSize(medianHtml),
+      medianMd: formatSize(median),
+      avgRatio,
+      suffix,
+    });
   } else if (overallStatus === 'warn') {
-    message = `${warnBucket} of ${successful.length} ${pageLabel} convert to ${formatSize(passThreshold)}–${formatSize(failThreshold)} chars (max ${formatSize(maxHtml)} HTML → ${formatSize(max)} markdown (${avgRatio}% boilerplate))${suffix}`;
+    message = t('check.page-size-html.warn', {
+      warn: warnBucket,
+      total: successful.length,
+      pageLabel,
+      pass: formatSize(passThreshold),
+      fail: formatSize(failThreshold),
+      maxHtml: formatSize(maxHtml),
+      maxMd: formatSize(max),
+      avgRatio,
+      suffix,
+    });
   } else {
-    message = `${failBucket} of ${successful.length} ${pageLabel} convert to over ${formatSize(failThreshold)} chars (max ${formatSize(maxHtml)} HTML → ${formatSize(max)} markdown (${avgRatio}% boilerplate))${suffix}`;
+    message = t('check.page-size-html.fail', {
+      failCount: failBucket,
+      total: successful.length,
+      pageLabel,
+      fail: formatSize(failThreshold),
+      maxHtml: formatSize(maxHtml),
+      maxMd: formatSize(max),
+      avgRatio,
+      suffix,
+    });
   }
 
   return {

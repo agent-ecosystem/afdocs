@@ -1,6 +1,7 @@
 import { registerCheck } from '../registry.js';
 import { getMarkdownContent } from '../../helpers/get-markdown-content.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 interface FenceIssue {
   line: number;
@@ -173,14 +174,19 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
         id,
         category,
         status: 'skip',
-        message: 'Site does not serve markdown content; nothing to analyze',
+        message: t('check.markdown-code-fence-validity.skip_no_md'),
       };
     }
     const hint =
       mdResult.mode === 'standalone'
         ? '; try running with markdown-url-support or content-negotiation checks'
         : '';
-    return { id, category, status: 'skip', message: `No markdown content found${hint}` };
+    return {
+      id,
+      category,
+      status: 'skip',
+      message: t('check.markdown-code-fence-validity.skip_none', { hint }),
+    };
   }
 
   const results: PageFenceResult[] = mdResult.pages.map(({ url, content, source }) => {
@@ -198,8 +204,11 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
 
   const message =
     overallStatus === 'pass'
-      ? `All ${totalFences} code fences properly closed across ${results.length} pages`
-      : `${unclosedCount} unclosed code fences found across ${results.length} pages`;
+      ? t('check.markdown-code-fence-validity.pass', { fences: totalFences, pages: results.length })
+      : t('check.markdown-code-fence-validity.fail', {
+          count: unclosedCount,
+          pages: results.length,
+        });
 
   return {
     id,

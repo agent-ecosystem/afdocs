@@ -1,5 +1,6 @@
 import { registerCheck } from '../registry.js';
 import { getLlmsTxtFilesForAnalysis } from '../../helpers/llms-txt.js';
+import { t } from '../../i18n/index.js';
 import type { CheckContext, CheckResult } from '../../types.js';
 
 async function checkLlmsTxtSize(ctx: CheckContext): Promise<CheckResult> {
@@ -11,7 +12,7 @@ async function checkLlmsTxtSize(ctx: CheckContext): Promise<CheckResult> {
       id: 'llms-txt-size',
       category: 'content-discoverability',
       status: 'skip',
-      message: 'No llms.txt files to measure',
+      message: t('check.llms-txt-size.skip_none'),
       dependsOn: ['llms-txt-exists'],
     };
   }
@@ -28,13 +29,16 @@ async function checkLlmsTxtSize(ctx: CheckContext): Promise<CheckResult> {
 
   // Use the worst-case (largest) file for the overall status
   const maxSize = Math.max(...sizes.map((s) => s.characters));
+  const size = maxSize.toLocaleString();
+  const pass = passThreshold.toLocaleString();
+  const fail = failThreshold.toLocaleString();
 
   if (maxSize <= passThreshold) {
     return {
       id: 'llms-txt-size',
       category: 'content-discoverability',
       status: 'pass',
-      message: `llms.txt is ${maxSize.toLocaleString()} characters (under ${passThreshold.toLocaleString()} threshold)`,
+      message: t('check.llms-txt-size.pass', { size, pass }),
       details,
     };
   }
@@ -44,7 +48,7 @@ async function checkLlmsTxtSize(ctx: CheckContext): Promise<CheckResult> {
       id: 'llms-txt-size',
       category: 'content-discoverability',
       status: 'warn',
-      message: `llms.txt is ${maxSize.toLocaleString()} characters (between ${passThreshold.toLocaleString()} and ${failThreshold.toLocaleString()}; consider splitting)`,
+      message: t('check.llms-txt-size.warn', { size, pass, fail }),
       details,
     };
   }
@@ -53,7 +57,7 @@ async function checkLlmsTxtSize(ctx: CheckContext): Promise<CheckResult> {
     id: 'llms-txt-size',
     category: 'content-discoverability',
     status: 'fail',
-    message: `llms.txt is ${maxSize.toLocaleString()} characters (exceeds ${failThreshold.toLocaleString()} threshold; will be truncated by most agents)`,
+    message: t('check.llms-txt-size.fail', { size, fail }),
     details,
   };
 }

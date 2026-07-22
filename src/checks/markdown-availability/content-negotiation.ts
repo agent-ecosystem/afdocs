@@ -3,6 +3,7 @@ import { looksLikeMarkdown, looksLikeHtml } from '../../helpers/detect-markdown.
 import { isSoft404Body } from '../../helpers/detect-soft-404.js';
 import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
 import { isNonPageUrl, isMdUrl, toHtmlUrl } from '../../helpers/to-md-urls.js';
+import { pageLabel, t } from '../../i18n/index.js';
 import type { CheckContext, CheckResult } from '../../types.js';
 
 type Classification = 'markdown-with-correct-type' | 'markdown-with-wrong-type' | 'html';
@@ -128,10 +129,10 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const fetchErrors = testedResults.filter((r) => r.error).length;
   const rateLimited = testedResults.filter((r) => r.status === 429).length;
 
-  const pageLabel = wasSampled ? 'sampled pages' : 'pages';
+  const label = pageLabel(wasSampled);
   const suffix =
-    (fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '') +
-    (rateLimited > 0 ? `; ${rateLimited} rate-limited (HTTP 429)` : '') +
+    (fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '') +
+    (rateLimited > 0 ? t('common.rate_limited_suffix', { count: rateLimited }) : '') +
     (softErrorCount > 0 ? `; ${softErrorCount} returned error pages` : '') +
     (normalizedCount > 0 ? `; ${normalizedCount} .md URLs normalized` : '');
 
@@ -157,7 +158,13 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'pass',
-      message: `${markdownWithCorrectType}/${testedResults.length} ${pageLabel} support content negotiation (${negotiationRate}%)${suffix}`,
+      message: t('check.content-negotiation.pass', {
+        correct: markdownWithCorrectType,
+        total: testedResults.length,
+        pageLabel: label,
+        rate: negotiationRate,
+        suffix,
+      }),
       details,
     };
   }
@@ -167,7 +174,12 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'warn',
-      message: `Content negotiation partially supported: ${markdownWithCorrectType} correct type, ${markdownWithWrongType} wrong type, ${htmlOnly} HTML only${suffix}`,
+      message: t('check.content-negotiation.warn', {
+        correct: markdownWithCorrectType,
+        wrong: markdownWithWrongType,
+        htmlOnly,
+        suffix,
+      }),
       details,
     };
   }
@@ -176,7 +188,11 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     id,
     category,
     status: 'fail',
-    message: `Server ignores Accept: text/markdown header (0/${testedResults.length} ${pageLabel} return markdown)${suffix}`,
+    message: t('check.content-negotiation.fail', {
+      total: testedResults.length,
+      pageLabel: label,
+      suffix,
+    }),
     details,
   };
 }

@@ -65,6 +65,9 @@ export interface CuratedPageEntry {
 /** A page in the config `pages` array: either a bare URL string or an object with url + tag. */
 export type PageConfigEntry = string | CuratedPageEntry;
 
+/** Output language for user-facing messages (independent of preferredLocale). */
+export type OutputLang = 'en' | 'zh';
+
 export interface CheckOptions {
   /** Maximum concurrent HTTP requests within a single check. */
   maxConcurrency: number;
@@ -78,6 +81,11 @@ export interface CheckOptions {
   samplingStrategy: SamplingStrategy;
   /** Size thresholds. */
   thresholds: SizeThresholds;
+  /**
+   * Output language for check messages, resolutions, and diagnostics.
+   * Independent of preferredLocale (which only affects URL discovery).
+   */
+  lang?: OutputLang;
   /** Preferred locale for URL discovery (e.g. 'en', 'fr', 'ja'). Overrides auto-detection from baseUrl. */
   preferredLocale?: string;
   /** Preferred version for URL discovery (e.g. 'v3', '2.x', 'latest'). Overrides auto-detection from baseUrl. */

@@ -1,6 +1,7 @@
 import type { CheckResult, ReportResult } from '../types.js';
 import type { Diagnostic, DiagnosticSeverity } from './types.js';
 import { MIN_PAGES_FOR_SCORING } from '../constants.js';
+import { t } from '../i18n/index.js';
 
 interface DiagnosticDefinition {
   id: string;
@@ -16,7 +17,7 @@ interface DiagnosticDefinition {
     triggered: Set<string>,
     report: ReportResult,
   ) => string;
-  resolution: string;
+  resolution: () => string;
 }
 
 // Evaluated in this order (dependency order matters)
@@ -34,18 +35,8 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
 
       return cn?.status !== 'pass' && directiveHtml?.status !== 'pass';
     },
-    message: () =>
-      'Your site serves markdown at .md URLs, but agents have no way to ' +
-      'discover this. No agent-facing directive points to your llms.txt, ' +
-      'and the server does not support content negotiation. Most agents ' +
-      'will default to the HTML path and never benefit from your markdown ' +
-      'support.',
-    resolution:
-      'Add a directive near the top of each docs page pointing to your ' +
-      'llms.txt, and implement content negotiation for Accept: text/markdown. ' +
-      'The directive is the primary discovery mechanism (it reaches all ' +
-      'agents); content negotiation provides a fast path for agents that ' +
-      'request markdown by default.',
+    message: () => t('diagnostic.markdown-undiscoverable.message'),
+    resolution: () => t('diagnostic.markdown-undiscoverable.resolution'),
   },
 
   {
@@ -60,17 +51,8 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
 
       return cn?.status === 'pass' && directiveHtml?.status !== 'pass';
     },
-    message: () =>
-      'Your site serves markdown and supports content negotiation, but ' +
-      'has no agent-facing directive on HTML pages pointing to llms.txt. ' +
-      'Agents that send Accept: text/markdown (Claude Code, Cursor, ' +
-      'OpenCode) get markdown automatically, but the majority of agents ' +
-      'fetch HTML by default and have no signal to try the markdown path.',
-    resolution:
-      'Add a directive near the top of each docs page pointing to your ' +
-      'llms.txt. If your site serves markdown, mention that in the ' +
-      'directive too. The directive reaches all agents, not just the ones ' +
-      'that request markdown by default.',
+    message: () => t('diagnostic.markdown-partially-discoverable.message'),
+    resolution: () => t('diagnostic.markdown-partially-discoverable.resolution'),
   },
 
   {
@@ -88,18 +70,12 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       const maxSize = Math.max(...sizes.map((s) => s.characters ?? 0), 0);
       const visiblePct = maxSize > 0 ? Math.round((100_000 / maxSize) * 100) : 0;
 
-      return (
-        `Your llms.txt is ${maxSize.toLocaleString()} characters. Agents ` +
-        `see roughly the first 100,000 characters (${visiblePct}% of the ` +
-        "file). Links, structure, and freshness beyond that point don't " +
-        'affect agent experience. Quality checks on the invisible portion ' +
-        'are discounted in the score.'
-      );
+      return t('diagnostic.truncated-index.message', {
+        size: maxSize.toLocaleString(),
+        visiblePct,
+      });
     },
-    resolution:
-      'Split into a root index linking to section-level llms.txt files, ' +
-      "each under 50,000 characters. See the spec's progressive disclosure " +
-      'recommendation.',
+    resolution: () => t('diagnostic.truncated-index.resolution'),
   },
 
   {
@@ -131,21 +107,12 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       const mdSupport = results.get('markdown-url-support');
       const mdNote =
         mdSupport?.status === 'pass'
-          ? ' Your markdown path still works for agents that can discover it.'
-          : ' Agents currently have no alternative path to content on affected pages.';
+          ? t('diagnostic.spa-shell-html-invalid.md_note_ok')
+          : t('diagnostic.spa-shell-html-invalid.md_note_bad');
 
-      return (
-        `${spaShells} of ${total} sampled pages are client-side-rendered ` +
-        'shells: the HTML response contains a framework root element but no ' +
-        'documentation content. Agents using HTTP fetches receive empty pages. ' +
-        'Page size and content structure scores for the HTML path are ' +
-        `discounted because they are partially measuring shells rather than content.${mdNote}`
-      );
+      return t('diagnostic.spa-shell-html-invalid.message', { spaShells, total, mdNote });
     },
-    resolution:
-      'Enable server-side rendering or static generation for affected page ' +
-      'types. If only specific page templates use client-side content ' +
-      'loading, target those templates rather than rebuilding the entire site.',
+    resolution: () => t('diagnostic.spa-shell-html-invalid.resolution'),
   },
 
   {
@@ -180,26 +147,12 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       const mdSupport = results.get('markdown-url-support');
       const mdNote =
         mdSupport?.status === 'pass'
-          ? ' Your markdown path still works for agents that can discover it.'
-          : ' Agents have no alternative path on affected pages, so any missing content is invisible.';
+          ? t('diagnostic.sparse-content-html.md_note_ok')
+          : t('diagnostic.sparse-content-html.md_note_bad');
 
-      return (
-        `${sparseContent} of ${total} sampled pages render server-side but ` +
-        'have unusually short body content. The HTML response contains real ' +
-        'content (headings and visible text), just less than the threshold ' +
-        'for a full documentation page. This is often legitimate (short ' +
-        'reference pages, integration one-liners, glossary entries), but ' +
-        'can also indicate a renderer that is not emitting full content. ' +
-        'Page size scoring on the HTML path is discounted for these ' +
-        `pages.${mdNote}`
-      );
+      return t('diagnostic.sparse-content-html.message', { sparseContent, total, mdNote });
     },
-    resolution:
-      'Verify the affected pages render their full content server-side. If ' +
-      'the pages are intentionally brief, no action is needed; this is ' +
-      'informational. If content is missing, check whether your renderer ' +
-      'is emitting paragraphs, lists, and code blocks server-side rather ' +
-      'than hydrating them client-side.',
+    resolution: () => t('diagnostic.sparse-content-html.resolution'),
   },
 
   {
@@ -241,20 +194,12 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
 
       const llmsReason =
         exists?.status === 'fail'
-          ? 'There is no llms.txt for navigation'
-          : `The llms.txt exists but only ${resolveRate ?? 0}% of links resolve, making it effectively unusable`;
+          ? t('diagnostic.no-viable-path.llms_missing')
+          : t('diagnostic.no-viable-path.llms_broken', { resolveRate: resolveRate ?? 0 });
 
-      return (
-        `Agents have no effective way to access your documentation. ${llmsReason}, ` +
-        'there is no discoverable markdown path, and the HTML responses either ' +
-        "don't contain content or weren't tested. This is the lowest-possible " +
-        'agent accessibility state.'
-      );
+      return t('diagnostic.no-viable-path.message', { llmsReason });
     },
-    resolution:
-      'The single highest-impact action is creating an llms.txt at your ' +
-      'site root with working links. If your site uses client-side rendering, ' +
-      'enabling server-side rendering is the second priority.',
+    resolution: () => t('diagnostic.no-viable-path.resolution'),
   },
 
   {
@@ -265,16 +210,8 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       const authAlt = results.get('auth-alternative-access');
       return authGate?.status === 'fail' && authAlt?.status === 'fail';
     },
-    message: () =>
-      'Your documentation requires authentication, and no alternative ' +
-      'access paths were detected. Agents that encounter your docs will ' +
-      'fall back on training data or seek secondary sources that may be ' +
-      'inaccurate.',
-    resolution:
-      'Consider providing a public llms.txt as a navigational index, ' +
-      'ungating API references and integration guides, or shipping docs ' +
-      'with your SDK/package. See the spec\'s "Making Private Docs ' +
-      'Agent-Accessible" section for options ordered by implementation effort.',
+    message: () => t('diagnostic.auth-no-alternative.message'),
+    resolution: () => t('diagnostic.auth-no-alternative.resolution'),
   },
 
   {
@@ -298,17 +235,9 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       const d = results.get('page-size-html')?.details;
       const failBucket = (d?.failBucket as number) ?? 0;
 
-      return (
-        `${failBucket} pages exceed agent truncation limits on the HTML ` +
-        'path, and there is no discoverable markdown path for agents to ' +
-        'get smaller representations. Agents will silently receive ' +
-        'truncated content on these pages.'
-      );
+      return t('diagnostic.page-size-no-markdown-escape.message', { failBucket });
     },
-    resolution:
-      'Either reduce HTML page sizes (break large pages, reduce inline ' +
-      'CSS/JS), or provide markdown versions and ensure agents can discover ' +
-      'them via content negotiation or an llms.txt directive.',
+    resolution: () => t('diagnostic.page-size-no-markdown-escape.resolution'),
   },
 
   // --- run-level diagnostics (don't depend on other diagnostics) ---
@@ -327,19 +256,17 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
     },
     message: (_results, _triggered, report) => {
       const n = report.testedPages ?? 0;
-      const pageWord = n === 1 ? 'page was' : 'pages were';
-      return (
-        `Only ${n} ${pageWord} discovered and tested (minimum ${MIN_PAGES_FOR_SCORING} ` +
-        'needed for reliable scoring). Page-level category scores (page size, ' +
-        'content structure, URL stability, etc.) may not represent the site. ' +
-        'These categories are marked as N/A in the score.'
-      );
+      const pageWord =
+        n === 1
+          ? t('diagnostic.single-page-sample.page_was')
+          : t('diagnostic.single-page-sample.pages_were');
+      return t('diagnostic.single-page-sample.message', {
+        n,
+        pageWord,
+        min: MIN_PAGES_FOR_SCORING,
+      });
     },
-    resolution:
-      'If your site has an llms.txt, ensure it contains working links so ' +
-      'the tool can discover more pages. If testing a preview deployment, ' +
-      'use --canonical-origin to rewrite cross-origin llms.txt links. You ' +
-      'can also provide specific pages with --urls.',
+    resolution: () => t('diagnostic.single-page-sample.resolution'),
   },
 
   {
@@ -359,16 +286,9 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       const crossOrigin = d?.crossOrigin as { total?: number; dominantOrigin?: string } | undefined;
       const total = crossOrigin?.total ?? 0;
       const dominant = crossOrigin?.dominantOrigin ?? 'an external origin';
-      return (
-        `All ${total} links in your llms.txt point to ${dominant}, not ` +
-        'the origin being tested. This typically happens when testing a ' +
-        'preview or staging deployment whose llms.txt still references the ' +
-        'production domain. Page discovery falls back to a single page.'
-      );
+      return t('diagnostic.cross-origin-llms-txt.message', { total, dominant });
     },
-    resolution:
-      'Use --canonical-origin <production-origin> to rewrite cross-origin ' +
-      'links during testing. For example: --canonical-origin https://docs.example.com',
+    resolution: () => t('diagnostic.cross-origin-llms-txt.resolution'),
   },
 
   {
@@ -394,15 +314,9 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
         }
       }
       const urlNote = urls.length > 0 ? ` (${urls.join(', ')})` : '';
-      return (
-        `A gzipped sitemap was skipped during URL discovery${urlNote}. ` +
-        'If this is the only sitemap source, it may have reduced the number ' +
-        'of pages discovered for testing.'
-      );
+      return t('diagnostic.gzipped-sitemap-skipped.message', { urlNote });
     },
-    resolution:
-      'Provide an uncompressed sitemap.xml alongside the gzipped version, ' +
-      'or supply specific pages via --urls for targeted testing.',
+    resolution: () => t('diagnostic.gzipped-sitemap-skipped.resolution'),
   },
 
   {
@@ -440,15 +354,9 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
         totalRateLimited += rl;
       }
       const pct = totalTested > 0 ? Math.round((totalRateLimited / totalTested) * 100) : 0;
-      return (
-        `${pct}% of tested URLs returned HTTP 429 (rate limited). Check ` +
-        'results may be unreliable because rate-limited requests are not ' +
-        'retried indefinitely.'
-      );
+      return t('diagnostic.rate-limiting-severe.message', { pct });
     },
-    resolution:
-      'Increase --request-delay to slow down requests, or contact the site ' +
-      'operator to allowlist your IP or user-agent for testing.',
+    resolution: () => t('diagnostic.rate-limiting-severe.resolution'),
   },
 ];
 
@@ -470,7 +378,7 @@ export function evaluateDiagnostics(
         id: def.id,
         severity: def.severity,
         message: def.message(results, triggered, report),
-        resolution: def.resolution,
+        resolution: def.resolution(),
       });
     }
   }

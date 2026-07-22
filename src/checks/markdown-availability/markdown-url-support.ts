@@ -2,6 +2,7 @@ import { registerCheck } from '../registry.js';
 import { looksLikeMarkdown } from '../../helpers/detect-markdown.js';
 import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
 import { toMdUrls } from '../../helpers/to-md-urls.js';
+import { pageLabel, resultSuffix, t } from '../../i18n/index.js';
 import type { CheckContext, CheckResult } from '../../types.js';
 
 interface PageResult {
@@ -187,10 +188,8 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const fetchErrors = testedResults.filter((r) => r.error).length;
   const rateLimited = testedResults.filter((r) => r.status === 429).length;
 
-  const pageLabel = wasSampled ? 'sampled pages' : 'pages';
-  const suffix =
-    (fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '') +
-    (rateLimited > 0 ? `; ${rateLimited} rate-limited (HTTP 429)` : '');
+  const label = pageLabel(wasSampled);
+  const suffix = resultSuffix({ fetchErrors, rateLimited });
 
   const details: Record<string, unknown> = {
     totalPages,
@@ -211,7 +210,13 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'pass',
-      message: `${mdSupported}/${testedResults.length} ${pageLabel} support .md URLs (${supportRate}%)${suffix}`,
+      message: t('check.markdown-url-support.pass', {
+        supported: mdSupported,
+        total: testedResults.length,
+        pageLabel: label,
+        rate: supportRate,
+        suffix,
+      }),
       details,
     };
   }
@@ -221,7 +226,13 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'warn',
-      message: `${mdSupported}/${testedResults.length} ${pageLabel} support .md URLs (${supportRate}%); inconsistent support${suffix}`,
+      message: t('check.markdown-url-support.warn', {
+        supported: mdSupported,
+        total: testedResults.length,
+        pageLabel: label,
+        rate: supportRate,
+        suffix,
+      }),
       details,
     };
   }
@@ -230,7 +241,11 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     id,
     category,
     status: 'fail',
-    message: `No ${pageLabel} support .md URLs (0/${testedResults.length} tested)${suffix}`,
+    message: t('check.markdown-url-support.fail', {
+      pageLabel: label,
+      total: testedResults.length,
+      suffix,
+    }),
     details,
   };
 }

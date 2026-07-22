@@ -3,6 +3,7 @@ import { LINK_RESOLVE_THRESHOLD } from '../../constants.js';
 import { extractMarkdownLinks } from './llms-txt-valid.js';
 import { filterByPathPrefix, getPathFilterBase } from '../../helpers/get-page-urls.js';
 import { getLlmsTxtFilesForAnalysis } from '../../helpers/llms-txt.js';
+import { linkLabel, resultSuffix, t } from '../../i18n/index.js';
 import type { CheckContext, CheckResult } from '../../types.js';
 
 interface LinkCheckResult {
@@ -21,7 +22,7 @@ async function checkLlmsTxtLinksResolve(ctx: CheckContext): Promise<CheckResult>
       id: 'llms-txt-links-resolve',
       category: 'content-discoverability',
       status: 'skip',
-      message: 'No llms.txt files to check links for',
+      message: t('check.llms-txt-links-resolve.skip_none'),
       dependsOn: ['llms-txt-exists'],
     };
   }
@@ -49,8 +50,12 @@ async function checkLlmsTxtLinksResolve(ctx: CheckContext): Promise<CheckResult>
       category: 'content-discoverability',
       status: 'skip',
       message: filteredOut
-        ? `llms.txt contains ${allLinks.size} link${allLinks.size === 1 ? '' : 's'}, but none are under ${baseUrlPath}`
-        : 'No HTTP(S) links found in llms.txt',
+        ? t('check.llms-txt-links-resolve.skip_filtered', {
+            count: allLinks.size,
+            plural: allLinks.size === 1 ? '' : 's',
+            path: baseUrlPath,
+          })
+        : t('check.llms-txt-links-resolve.skip_no_http'),
     };
   }
 
@@ -142,10 +147,11 @@ async function checkLlmsTxtLinksResolve(ctx: CheckContext): Promise<CheckResult>
   const crossRateLimited = crossResults.filter((r) => r.status === 429).length;
 
   const totalLinks = allLinks.size;
-  const linkLabel = wasSampled ? 'sampled links' : 'links';
-  const sameSuffix =
-    (sameFetchErrors > 0 ? `; ${sameFetchErrors} failed to fetch` : '') +
-    (sameRateLimited > 0 ? `; ${sameRateLimited} rate-limited (HTTP 429)` : '');
+  const label = linkLabel(wasSampled);
+  const sameSuffix = resultSuffix({
+    fetchErrors: sameFetchErrors,
+    rateLimited: sameRateLimited,
+  });
 
   const crossNote =
     crossBroken.length > 0
@@ -216,8 +222,15 @@ async function checkLlmsTxtLinksResolve(ctx: CheckContext): Promise<CheckResult>
       category: 'content-discoverability',
       status: allResolved ? 'pass' : 'warn',
       message: allResolved
-        ? `All ${crossResults.length} links are external and resolve (${totalLinks} total links)`
-        : `All links are external; ${crossResolved}/${crossResults.length} resolve (${crossBroken.length} failed; may be bot-detection or rate-limiting)`,
+        ? t('check.llms-txt-links-resolve.pass_external', {
+            count: crossResults.length,
+            total: totalLinks,
+          })
+        : t('check.llms-txt-links-resolve.warn_external', {
+            resolved: crossResolved,
+            total: crossResults.length,
+            broken: crossBroken.length,
+          }),
       details,
     };
   }
@@ -227,9 +240,13 @@ async function checkLlmsTxtLinksResolve(ctx: CheckContext): Promise<CheckResult>
       id: 'llms-txt-links-resolve',
       category: 'content-discoverability',
       status: crossBroken.length > 0 ? 'warn' : 'pass',
-      message:
-        `All ${sameResults.length} same-origin ${linkLabel} resolve (${totalLinks} total links)${sameSuffix}` +
+      message: t('check.llms-txt-links-resolve.pass', {
+        sameCount: sameResults.length,
+        linkLabel: label,
+        total: totalLinks,
+        suffix: sameSuffix,
         crossNote,
+      }),
       details,
     };
   }
@@ -239,9 +256,15 @@ async function checkLlmsTxtLinksResolve(ctx: CheckContext): Promise<CheckResult>
       id: 'llms-txt-links-resolve',
       category: 'content-discoverability',
       status: 'warn',
-      message:
-        `${sameResolved}/${sameResults.length} same-origin ${linkLabel} resolve (${Math.round(sameResolveRate * 100)}%); ${sameBroken.length} broken${sameSuffix}` +
+      message: t('check.llms-txt-links-resolve.warn', {
+        resolved: sameResolved,
+        sameCount: sameResults.length,
+        linkLabel: label,
+        rate: Math.round(sameResolveRate * 100),
+        broken: sameBroken.length,
+        suffix: sameSuffix,
         crossNote,
+      }),
       details,
     };
   }
@@ -250,9 +273,15 @@ async function checkLlmsTxtLinksResolve(ctx: CheckContext): Promise<CheckResult>
     id: 'llms-txt-links-resolve',
     category: 'content-discoverability',
     status: 'fail',
-    message:
-      `Only ${sameResolved}/${sameResults.length} same-origin ${linkLabel} resolve (${Math.round(sameResolveRate * 100)}%); ${sameBroken.length} broken${sameSuffix}` +
+    message: t('check.llms-txt-links-resolve.fail', {
+      resolved: sameResolved,
+      sameCount: sameResults.length,
+      linkLabel: label,
+      rate: Math.round(sameResolveRate * 100),
+      broken: sameBroken.length,
+      suffix: sameSuffix,
       crossNote,
+    }),
     details,
   };
 }

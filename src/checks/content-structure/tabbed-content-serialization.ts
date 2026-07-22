@@ -6,6 +6,7 @@ import { detectTabGroups } from '../../helpers/detect-tabs.js';
 import { toMdUrls } from '../../helpers/to-md-urls.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
 import type { DetectedTabGroup } from '../../helpers/detect-tabs.js';
+import { t } from '../../i18n/index.js';
 
 interface TabbedPageResult {
   url: string;
@@ -169,12 +170,12 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const fetchErrors = results.filter((r) => r.error).length;
 
   if (successful.length === 0) {
-    const suffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
+    const suffix = fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '';
     return {
       id,
       category,
       status: 'fail',
-      message: `Could not fetch any pages to analyze${suffix}`,
+      message: t('check.tabbed-content-serialization.error_none', { suffix }),
       details: {
         totalPages,
         testedPages: results.length,
@@ -189,23 +190,37 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const pagesWithTabs = successful.filter((r) => r.tabGroups.length > 0);
   const totalGroupsFound = successful.reduce((sum, r) => sum + r.tabGroups.length, 0);
   const overallStatus = worstStatus(successful.map((r) => r.status));
-  const pageLabel = wasSampled ? 'sampled pages' : 'pages';
+  const pageLabel = wasSampled ? t('common.sampled_pages') : t('common.pages');
 
   let message: string;
   if (totalGroupsFound === 0) {
-    message = `No tabbed content detected across ${successful.length} ${pageLabel}`;
+    message = t('check.tabbed-content-serialization.pass_none', {
+      total: successful.length,
+      pageLabel,
+    });
   } else if (overallStatus === 'pass') {
-    message = `${totalGroupsFound} tab group(s) across ${pagesWithTabs.length} of ${successful.length} ${pageLabel}; all serialize under 50K chars`;
+    message = t('check.tabbed-content-serialization.pass', {
+      groups: totalGroupsFound,
+      pages: pagesWithTabs.length,
+      total: successful.length,
+      pageLabel,
+    });
   } else if (overallStatus === 'warn') {
     const worst = Math.max(...successful.map((r) => r.totalTabbedChars));
-    message = `${totalGroupsFound} tab group(s) found; worst page serializes to ${formatSize(worst)} chars (50K–100K)`;
+    message = t('check.tabbed-content-serialization.warn', {
+      groups: totalGroupsFound,
+      size: formatSize(worst),
+    });
   } else {
     const worst = Math.max(...successful.map((r) => r.totalTabbedChars));
-    message = `${totalGroupsFound} tab group(s) found; worst page serializes to ${formatSize(worst)} chars (over 100K)`;
+    message = t('check.tabbed-content-serialization.fail', {
+      groups: totalGroupsFound,
+      size: formatSize(worst),
+    });
   }
 
   if (fetchErrors > 0) {
-    message += `; ${fetchErrors} failed to fetch`;
+    message += t('common.fetch_errors_suffix', { count: fetchErrors });
   }
 
   return {

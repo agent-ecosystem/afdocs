@@ -1,5 +1,6 @@
 import { registerCheck } from '../registry.js';
 import { getLlmsTxtFilesForAnalysis } from '../../helpers/llms-txt.js';
+import { t } from '../../i18n/index.js';
 import type { CheckContext, CheckResult } from '../../types.js';
 
 interface ValidationResult {
@@ -56,7 +57,7 @@ async function checkLlmsTxtValid(ctx: CheckContext): Promise<CheckResult> {
       id: 'llms-txt-valid',
       category: 'content-discoverability',
       status: 'skip',
-      message: 'No llms.txt files to validate',
+      message: t('check.llms-txt-valid.skip_none'),
       dependsOn: ['llms-txt-exists'],
     };
   }
@@ -75,8 +76,7 @@ async function checkLlmsTxtValid(ctx: CheckContext): Promise<CheckResult> {
       id: 'llms-txt-valid',
       category: 'content-discoverability',
       status: 'pass',
-      message:
-        'llms.txt follows the proposed structure (H1, blockquote, heading-delimited link sections)',
+      message: t('check.llms-txt-valid.pass'),
       details,
     };
   }
@@ -90,7 +90,7 @@ async function checkLlmsTxtValid(ctx: CheckContext): Promise<CheckResult> {
       id: 'llms-txt-valid',
       category: 'content-discoverability',
       status: 'warn',
-      message: `llms.txt contains parseable links but doesn't fully follow the proposed structure: ${issuesSummary}`,
+      message: t('check.llms-txt-valid.warn', { issues: issuesSummary }),
       details,
     };
   }
@@ -99,7 +99,7 @@ async function checkLlmsTxtValid(ctx: CheckContext): Promise<CheckResult> {
     id: 'llms-txt-valid',
     category: 'content-discoverability',
     status: 'fail',
-    message: 'llms.txt exists but contains no parseable links',
+    message: t('check.llms-txt-valid.fail'),
     details,
   };
 }

@@ -3,6 +3,7 @@ import { DEFAULT_OPTIONS, SPEC_BASE_URL } from './constants.js';
 import { createHttpClient } from './http.js';
 import { getChecksSorted } from './checks/registry.js';
 import { validateRunnerOptions } from './validation.js';
+import { resolveLang, setLang, t } from './i18n/index.js';
 
 /**
  * Normalize dependsOn to the internal format: array of OR-groups.
@@ -82,6 +83,7 @@ export async function runChecks(
   baseUrl: string,
   options?: Partial<RunnerOptions>,
 ): Promise<ReportResult> {
+  setLang(resolveLang(options?.lang));
   const ctx = createContext(baseUrl, options);
   const allChecks = getChecksSorted();
   const checkIds = options?.checkIds;
@@ -115,7 +117,7 @@ export async function runChecks(
         id: check.id,
         category: check.category,
         status: 'skip',
-        message: 'Check skipped (excluded via --skip-checks)',
+        message: t('runner.skip_excluded'),
       });
       continue;
     }
@@ -133,7 +135,7 @@ export async function runChecks(
           id: check.id,
           category: check.category,
           status: 'skip',
-          message: 'Skipped: dependency check did not pass',
+          message: t('runner.skip_dependency'),
           dependsOn: normalized.flat(),
         };
         results.push(result);
@@ -151,7 +153,9 @@ export async function runChecks(
         id: check.id,
         category: check.category,
         status: 'error',
-        message: `Check error: ${err instanceof Error ? err.message : String(err)}`,
+        message: t('runner.check_error', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       };
       results.push(result);
       ctx.previousResults.set(check.id, result);

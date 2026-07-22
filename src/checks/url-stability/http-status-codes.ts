@@ -2,6 +2,7 @@ import { registerCheck } from '../registry.js';
 import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
 import { SOFT_404_PATTERNS } from '../../helpers/detect-soft-404.js';
 import type { CheckContext, CheckResult } from '../../types.js';
+import { pageLabel, t } from '../../i18n/index.js';
 
 interface StatusCodeResult {
   url: string;
@@ -116,7 +117,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'fail',
-      message: `Could not test any URLs${fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : ''}`,
+      message: t('check.http-status-codes.error_none', {
+        suffix: fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '',
+      }),
       details: {
         totalPages,
         testedPages: results.length,
@@ -128,8 +131,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     };
   }
 
-  const pageLabel = sampled ? 'sampled pages' : 'pages';
-  const fetchSuffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
+  const label = pageLabel(sampled);
+  const fetchSuffix =
+    fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '';
   const indetSuffix =
     indeterminate.length > 0 ? `; ${indeterminate.length} indeterminate (HTTP 202/5xx)` : '';
   const suffix = `${fetchSuffix}${indetSuffix}`;
@@ -140,13 +144,22 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     // Every response was indeterminate (e.g. all 202 or 5xx). We can't say
     // whether the site handles bad URLs correctly.
     status = 'warn';
-    message = `Could not determine bad-URL handling: all ${indeterminate.length} ${pageLabel} returned indeterminate responses${fetchSuffix}`;
+    message = t('check.http-status-codes.warn_indeterminate', {
+      count: indeterminate.length,
+      pageLabel: label,
+      suffix: fetchSuffix,
+    });
   } else if (soft404s.length > 0) {
     status = 'fail';
-    message = `${soft404s.length} of ${determinate} ${pageLabel} return 200 for non-existent URLs (soft 404)${suffix}`;
+    message = t('check.http-status-codes.fail_soft404', {
+      soft404s: soft404s.length,
+      determinate,
+      pageLabel: label,
+      suffix,
+    });
   } else {
     status = 'pass';
-    message = `All ${determinate} ${pageLabel} return proper error codes for bad URLs${suffix}`;
+    message = t('check.http-status-codes.pass', { determinate, pageLabel: label, suffix });
   }
 
   return {

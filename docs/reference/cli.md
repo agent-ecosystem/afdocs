@@ -115,10 +115,11 @@ afdocs check https://docs.example.com --max-links 100
 
 ### URL discovery
 
-| Flag                      | Default     | Description                                                      |
-| ------------------------- | ----------- | ---------------------------------------------------------------- |
-| `--doc-locale <code>`     | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)       |
-| `--doc-version <version>` | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`, `latest`) |
+| Flag                      | Default     | Description                                                                                         |
+| ------------------------- | ----------- | --------------------------------------------------------------------------------------------------- |
+| `--doc-locale <code>`     | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)                                          |
+| `--lang <code>`           | `en`        | Output language for check messages, resolutions, and diagnostics (`en` or `zh`; also `AFDOCS_LANG`) |
+| `--doc-version <version>` | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`, `latest`)                                    |
 
 When `afdocs` discovers pages from a sitemap or `llms.txt`, it automatically filters out duplicate locale and version variants so you get a representative sample of unique content.
 
@@ -133,6 +134,9 @@ Use the flags when the base URL doesn't contain locale or version segments but t
 ```bash
 # Prefer French locale during discovery
 afdocs check https://docs.example.com --doc-locale fr
+
+# Chinese output for messages / resolutions / diagnostics (JSON-friendly for localized UIs)
+afdocs check https://docs.example.com --format json --score --lang zh
 
 # Prefer a specific version
 afdocs check https://docs.example.com --doc-version v3

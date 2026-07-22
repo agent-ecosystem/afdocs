@@ -3,6 +3,7 @@ import { parse } from 'node-html-parser';
 import { registerCheck } from '../registry.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
 import type { DetectedTabGroup } from '../../helpers/detect-tabs.js';
+import { t } from '../../i18n/index.js';
 
 interface TabbedPageResult {
   url: string;
@@ -95,7 +96,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message: 'Skipped: tabbed-content-serialization did not run',
+      message: t('check.section-header-quality.skip_dep'),
     };
   }
 
@@ -107,7 +108,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'pass',
-      message: 'No tabbed content found; header quality check not applicable',
+      message: t('check.section-header-quality.skip_no_tabs'),
     };
   }
 
@@ -235,7 +236,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'pass',
-      message: 'Tab groups have fewer than 2 panels; header quality check not applicable',
+      message: t('check.section-header-quality.skip_few_panels'),
     };
   }
 
@@ -248,7 +249,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'skip',
-      message: `${pagesWithGroups.length} page(s) with tabs found, but no section headers inside tab panels to evaluate`,
+      message: t('check.section-header-quality.skip_no_headers', { pages: pagesWithGroups.length }),
     };
   }
 
@@ -287,7 +288,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   // Build a page-oriented message for docs teams
   let message: string;
   if (affectedPages.size === 0) {
-    message = `${pagesWithHeaders.size} page(s) with tab headers checked; headers include variant context`;
+    message = t('check.section-header-quality.pass', { pages: pagesWithHeaders.size });
   } else {
     // Find the most-repeated cross-group header for a concrete example
     const worstHeader =
@@ -300,7 +301,11 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       `don't distinguish between variants`;
 
     if (worstHeader) {
-      message = `${pageSummary} (e.g. "${worstHeader.header}" repeats across ${worstHeader.groupCount} tab groups)`;
+      message = t('check.section-header-quality.issue', {
+        summary: pageSummary,
+        header: worstHeader.header,
+        groups: worstHeader.groupCount,
+      });
     } else {
       message = pageSummary;
     }

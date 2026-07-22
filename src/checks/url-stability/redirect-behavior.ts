@@ -2,6 +2,7 @@ import { registerCheck } from '../registry.js';
 import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
 import { isCrossHostRedirect } from '../../helpers/to-md-urls.js';
 import type { CheckContext, CheckResult } from '../../types.js';
+import { t } from '../../i18n/index.js';
 
 interface RedirectResult {
   url: string;
@@ -87,7 +88,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       id,
       category,
       status: 'fail',
-      message: `Could not test any URLs${fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : ''}`,
+      message: t('check.redirect-behavior.error_none', {
+        suffix: fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '',
+      }),
       details: {
         totalPages,
         testedPages: results.length,
@@ -109,28 +112,43 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     status = 'pass';
   }
 
-  const pageLabel = sampled ? 'sampled pages' : 'pages';
-  const suffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
+  const pageLabel = sampled ? t('common.sampled_pages') : t('common.pages');
+  const suffix = fetchErrors > 0 ? t('common.fetch_errors_suffix', { count: fetchErrors }) : '';
 
   let message: string;
   if (status === 'pass') {
     const redirectCount = sameHost.length;
     if (redirectCount === 0) {
-      message = `No redirects detected across ${tested.length} ${pageLabel}${suffix}`;
+      message = t('check.redirect-behavior.pass_none', { total: tested.length, pageLabel, suffix });
     } else {
-      message = `All ${redirectCount} redirect(s) across ${tested.length} ${pageLabel} are same-host HTTP redirects${suffix}`;
+      message = t('check.redirect-behavior.pass_same_host', {
+        redirects: redirectCount,
+        total: tested.length,
+        pageLabel,
+        suffix,
+      });
     }
   } else if (status === 'warn') {
-    message = `${crossHost.length} of ${tested.length} ${pageLabel} use cross-host redirects${suffix}`;
+    message = t('check.redirect-behavior.warn_cross_host', {
+      crossHost: crossHost.length,
+      total: tested.length,
+      pageLabel,
+      suffix,
+    });
   } else {
     const parts: string[] = [];
     if (jsRedirects.length > 0) {
-      parts.push(`${jsRedirects.length} JavaScript redirect(s)`);
+      parts.push(t('check.redirect-behavior.part_js', { count: jsRedirects.length }));
     }
     if (crossHost.length > 0) {
-      parts.push(`${crossHost.length} cross-host redirect(s)`);
+      parts.push(t('check.redirect-behavior.part_cross_host', { count: crossHost.length }));
     }
-    message = `${parts.join(' and ')} detected across ${tested.length} ${pageLabel}${suffix}`;
+    message = t('check.redirect-behavior.fail_mixed', {
+      parts: parts.join(t('check.redirect-behavior.and')),
+      total: tested.length,
+      pageLabel,
+      suffix,
+    });
   }
 
   return {
