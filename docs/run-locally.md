@@ -15,6 +15,20 @@ npm run dev
 npx afdocs check http://localhost:3000
 ```
 
+## Pick a safe port
+
+AFDocs fetches pages with Node's built-in `fetch`, which implements the
+WHATWG fetch spec, including its [bad port list](https://fetch.spec.whatwg.org/#port-blocking). Requests to a blocked port are refused before they reach the network, so if your dev server happens to be on one, every check reports a fetch error ("fetch failed", status 0) even though the server is running and `curl` works fine.
+
+The common dev ports (3000, 4321, 5173, 8080, and Hugo's 1313) are all safe. The traps are ports reserved for other protocols that look reasonable for a dev server, like 1719 and 1720 (H.323), 6000 (X11), or 6667 (IRC).
+
+If AFDocs reports fetch errors on every check while the site loads fine in your browser or with `curl`, check the port before debugging anything else. Moving the dev server to another port is the whole fix:
+
+```bash
+hugo server -p 1721   # not 1719
+npx afdocs check http://localhost:1721
+```
+
 ## Single-page mode
 
 When working on a specific page, skip discovery and check just that page:
