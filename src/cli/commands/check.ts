@@ -298,7 +298,14 @@ export function registerCheckCommand(program: Command): void {
         process.stderr.write(`Warning: ${warn.message}\n`);
       }
 
-      const report = await runChecks(url, runnerOptions);
+      let report;
+      try {
+        report = await runChecks(url, runnerOptions);
+      } catch (err) {
+        process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+        process.exitCode = 1;
+        return;
+      }
 
       let output: string;
       if (format === 'json') {

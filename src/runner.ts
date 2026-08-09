@@ -3,6 +3,7 @@ import { DEFAULT_OPTIONS, SPEC_BASE_URL } from './constants.js';
 import { createHttpClient } from './http.js';
 import { getChecksSorted } from './checks/registry.js';
 import { validateRunnerOptions } from './validation.js';
+import { getBlockedPort, blockedPortMessage } from './helpers/blocked-ports.js';
 
 /**
  * Normalize dependsOn to the internal format: array of OR-groups.
@@ -59,6 +60,14 @@ export function createContext(baseUrl: string, options?: Partial<RunnerOptions>)
   const merged = { ...DEFAULT_OPTIONS, ...options };
   baseUrl = normalizeUrl(baseUrl);
   const url = new URL(baseUrl);
+
+  // Fail fast when the target port is on the WHATWG fetch bad port list:
+  // undici would refuse every request, turning one port choice into a wall
+  // of opaque "fetch failed" errors.
+  const blockedPort = getBlockedPort(baseUrl);
+  if (blockedPort !== null) {
+    throw new Error(blockedPortMessage(blockedPort));
+  }
 
   return {
     baseUrl: baseUrl.replace(/\/$/, ''),
