@@ -81,6 +81,16 @@ describe('createContext URL normalization', () => {
     );
   });
 
+  it('throws an actionable error when the target port is fetch-blocked', () => {
+    expect(() => createContext('http://localhost:1719')).toThrow(/blocked-port list/);
+    expect(() => createContext('http://localhost:1719')).toThrow(/1719/);
+  });
+
+  it('does not throw for safe local dev ports', () => {
+    expect(() => createContext('http://localhost:1313')).not.toThrow();
+    expect(() => createContext('http://localhost:5173')).not.toThrow();
+  });
+
   it('normalizes bare domain in canonicalOrigin', () => {
     const ctx = createContext('https://preview.example.com', {
       canonicalOrigin: 'example.com',
