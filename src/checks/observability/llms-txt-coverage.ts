@@ -163,13 +163,15 @@ export function detectLocalePosition(urls: string[]): number | null {
     }
   }
 
-  // Second pass: single locale code confirmed by structural duplication.
-  // With ISO 639-1 validation, a single code is meaningful when stripping it
-  // produces paths that match unprefixed URLs in the same set.
+  // Second pass: locale codes below the coverage threshold, confirmed by
+  // structural duplication: stripping a code must produce paths that match
+  // unprefixed URLs in the same set. This catches multi-locale sites whose
+  // default locale is unprefixed and whose translations are a minority of
+  // the sitemap (e.g. /fr/, /ja/, /ko/, /es/ at 40% of URLs), as well as
+  // the single-locale case.
   for (const [pos, counts] of positionCounts) {
-    if (counts.size !== 1) continue;
-    const [code] = counts.keys();
-    if (hasStructuralDuplication(urls, pos, code)) {
+    const codes = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([code]) => code);
+    if (codes.some((code) => hasStructuralDuplication(urls, pos, code))) {
       return pos;
     }
   }
@@ -397,22 +399,41 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const localePosition = detectLocalePosition(scopedSitemapUrls);
 
   if (localePosition !== null) {
-    const llmsLocale = getDominantSegment(llmsTxtUrls, localePosition);
-    if (llmsLocale) {
-      detectedLocale = llmsLocale;
+    const preferred = ctx.options.preferredLocale?.toLowerCase();
+    if (preferred) {
+      // Explicit locale (--doc-locale / config preferredLocale) wins over
+      // inference from llms.txt URLs.
+      const byPreferred = filterByLocale(scopedSitemapUrls, preferred, localePosition);
       const before = scopedSitemapUrls.length;
-      scopedSitemapUrls = filterByLocale(scopedSitemapUrls, llmsLocale, localePosition);
-      localeFiltered = scopedSitemapUrls.length < before;
-    } else {
-      // llms.txt may cover the unprefixed default locale (no /en/, /de/, etc.).
-      // If most llms.txt URLs lack locale codes at the detected position,
-      // filter the sitemap to only unprefixed URLs.
-      const withLocale = llmsTxtUrls.filter((u) => hasLocaleCodeAt(u, localePosition!)).length;
-      if (withLocale < llmsTxtUrls.length * 0.5) {
-        const before = scopedSitemapUrls.length;
+      if (byPreferred.length > 0) {
+        scopedSitemapUrls = byPreferred;
+        localeFiltered = scopedSitemapUrls.length < before;
+        if (localeFiltered) detectedLocale = preferred;
+      } else {
+        // No URLs carry the preferred locale as a prefix, so it must be the
+        // unprefixed default locale: drop the locale-prefixed translations.
         scopedSitemapUrls = filterToUnprefixedLocale(scopedSitemapUrls, localePosition);
         localeFiltered = scopedSitemapUrls.length < before;
         if (localeFiltered) detectedLocale = 'default';
+      }
+    } else {
+      const llmsLocale = getDominantSegment(llmsTxtUrls, localePosition);
+      if (llmsLocale) {
+        detectedLocale = llmsLocale;
+        const before = scopedSitemapUrls.length;
+        scopedSitemapUrls = filterByLocale(scopedSitemapUrls, llmsLocale, localePosition);
+        localeFiltered = scopedSitemapUrls.length < before;
+      } else {
+        // llms.txt may cover the unprefixed default locale (no /en/, /de/, etc.).
+        // If most llms.txt URLs lack locale codes at the detected position,
+        // filter the sitemap to only unprefixed URLs.
+        const withLocale = llmsTxtUrls.filter((u) => hasLocaleCodeAt(u, localePosition!)).length;
+        if (withLocale < llmsTxtUrls.length * 0.5) {
+          const before = scopedSitemapUrls.length;
+          scopedSitemapUrls = filterToUnprefixedLocale(scopedSitemapUrls, localePosition);
+          localeFiltered = scopedSitemapUrls.length < before;
+          if (localeFiltered) detectedLocale = 'default';
+        }
       }
     }
   }

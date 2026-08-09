@@ -6,6 +6,7 @@ import { createContext } from '../../../src/runner.js';
 import type { DiscoveredFile } from '../../../src/types.js';
 import { mockSitemapNotFound } from '../../helpers/mock-sitemap-not-found.js';
 import {
+  detectLocalePosition,
   hasLocaleCodeAt,
   filterToUnprefixedLocale,
   compileExclusionMatcher,
@@ -47,9 +48,14 @@ function makeSitemapIndex(sitemapUrls: string[]): string {
 /**
  * Create a test context with llms-txt-exists populated.
  */
-function makeCtx(host: string, llmsTxtUrls: string[], basePath = '') {
+function makeCtx(
+  host: string,
+  llmsTxtUrls: string[],
+  basePath = '',
+  options: Record<string, unknown> = {},
+) {
   const baseUrl = `http://${host}${basePath}`;
-  const ctx = createContext(baseUrl, { requestDelay: 0 });
+  const ctx = createContext(baseUrl, { requestDelay: 0, ...options });
   const content = makeLlmsTxt(llmsTxtUrls);
   const discovered: DiscoveredFile[] = [
     { url: `http://${host}/llms.txt`, content, status: 200, redirected: false },
@@ -674,6 +680,158 @@ describe('llms-txt-coverage', () => {
     expect(result.details?.localeFiltered).toBe(true);
   });
 
+  test('filters minority-locale translations when localized URLs are under 50% of the sitemap', async () => {
+    const host = 'minority-locale.local';
+    // Datadog-style: default English is unprefixed, four translated locales
+    // collectively cover well under half the sitemap.
+    const llmsPages = [
+      `http://${host}/docs/getting-started`,
+      `http://${host}/docs/api-reference`,
+      `http://${host}/docs/guides`,
+      `http://${host}/docs/integrations`,
+      `http://${host}/docs/dashboards`,
+      `http://${host}/docs/alerts`,
+    ];
+
+    // 6 unprefixed + 4 localized (40% of 10 URLs, four distinct codes)
+    const sitemapPages = [
+      ...llmsPages,
+      `http://${host}/docs/fr/getting-started`,
+      `http://${host}/docs/ja/api-reference`,
+      `http://${host}/docs/ko/guides`,
+      `http://${host}/docs/es/integrations`,
+    ];
+
+    const ctx = makeCtx(host, llmsPages, '/docs');
+
+    server.use(
+      http.get(
+        `http://${host}/robots.txt`,
+        () => new HttpResponse(`Sitemap: http://${host}/sitemap.xml`, { status: 200 }),
+      ),
+      http.get(
+        `http://${host}/sitemap.xml`,
+        () =>
+          new HttpResponse(makeSitemap(sitemapPages), {
+            headers: { 'content-type': 'application/xml' },
+          }),
+      ),
+    );
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details?.sitemapDocPages).toBe(6);
+    expect(result.details?.localeFiltered).toBe(true);
+    expect(result.details?.detectedLocale).toBe('default');
+  });
+
+  test('does not filter locale-like path segments without structural duplication', async () => {
+    const host = 'topic-segments.local';
+    // "it" is a valid ISO 639-1 code but here it's a topic segment (IT docs)
+    // with no unprefixed twins, so it must stay in the denominator.
+    const llmsPages = [
+      `http://${host}/docs/getting-started`,
+      `http://${host}/docs/api-reference`,
+      `http://${host}/docs/it/service-management`,
+      `http://${host}/docs/it/asset-tracking`,
+    ];
+
+    const ctx = makeCtx(host, llmsPages, '/docs');
+
+    server.use(
+      http.get(
+        `http://${host}/robots.txt`,
+        () => new HttpResponse(`Sitemap: http://${host}/sitemap.xml`, { status: 200 }),
+      ),
+      http.get(
+        `http://${host}/sitemap.xml`,
+        () =>
+          new HttpResponse(makeSitemap(llmsPages), {
+            headers: { 'content-type': 'application/xml' },
+          }),
+      ),
+    );
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details?.sitemapDocPages).toBe(4);
+    expect(result.details?.localeFiltered).toBeUndefined();
+  });
+
+  test('honors explicit preferredLocale when filtering locale-prefixed URLs', async () => {
+    const host = 'preferred-locale.local';
+    const frPages = [
+      `http://${host}/docs/fr/getting-started`,
+      `http://${host}/docs/fr/api-reference`,
+      `http://${host}/docs/fr/guides`,
+    ];
+    const sitemapPages = [
+      `http://${host}/docs/getting-started`,
+      `http://${host}/docs/api-reference`,
+      `http://${host}/docs/guides`,
+      ...frPages,
+    ];
+
+    const ctx = makeCtx(host, frPages, '/docs', { preferredLocale: 'fr' });
+
+    server.use(
+      http.get(
+        `http://${host}/robots.txt`,
+        () => new HttpResponse(`Sitemap: http://${host}/sitemap.xml`, { status: 200 }),
+      ),
+      http.get(
+        `http://${host}/sitemap.xml`,
+        () =>
+          new HttpResponse(makeSitemap(sitemapPages), {
+            headers: { 'content-type': 'application/xml' },
+          }),
+      ),
+    );
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details?.sitemapDocPages).toBe(3);
+    expect(result.details?.localeFiltered).toBe(true);
+    expect(result.details?.detectedLocale).toBe('fr');
+  });
+
+  test('treats preferredLocale with no prefixed URLs as the unprefixed default', async () => {
+    const host = 'preferred-default.local';
+    const llmsPages = [
+      `http://${host}/docs/getting-started`,
+      `http://${host}/docs/api-reference`,
+      `http://${host}/docs/guides`,
+    ];
+    const sitemapPages = [
+      ...llmsPages,
+      `http://${host}/docs/fr/getting-started`,
+      `http://${host}/docs/fr/api-reference`,
+      `http://${host}/docs/fr/guides`,
+    ];
+
+    const ctx = makeCtx(host, llmsPages, '/docs', { preferredLocale: 'en' });
+
+    server.use(
+      http.get(
+        `http://${host}/robots.txt`,
+        () => new HttpResponse(`Sitemap: http://${host}/sitemap.xml`, { status: 200 }),
+      ),
+      http.get(
+        `http://${host}/sitemap.xml`,
+        () =>
+          new HttpResponse(makeSitemap(sitemapPages), {
+            headers: { 'content-type': 'application/xml' },
+          }),
+      ),
+    );
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details?.sitemapDocPages).toBe(3);
+    expect(result.details?.localeFiltered).toBe(true);
+    expect(result.details?.detectedLocale).toBe('default');
+  });
+
   test('uses effectiveOrigin for sitemap discovery and scoping', async () => {
     const oldHost = 'old-host.local';
     const newHost = 'new-host.local';
@@ -773,6 +931,53 @@ describe('llms-txt-coverage', () => {
     // Only 2 doc pages remain after excluding /docs/blog and /docs/pricing
     expect(result.details?.sitemapDocPages).toBe(2);
     expect(result.details?.excludedNonDocPages).toBe(3);
+  });
+});
+
+describe('detectLocalePosition', () => {
+  test('detects locale position when locale URLs are the majority', () => {
+    const urls = [
+      'http://x.com/docs/en/intro',
+      'http://x.com/docs/en/api',
+      'http://x.com/docs/de/intro',
+      'http://x.com/docs/de/api',
+      'http://x.com/docs/changelog',
+    ];
+    expect(detectLocalePosition(urls)).toBe(1);
+  });
+
+  test('detects minority multi-locale prefixes via structural duplication', () => {
+    // 6 unprefixed + 4 localized (40%): below the majority threshold, but
+    // stripping each locale code produces paths matching unprefixed URLs.
+    const urls = [
+      'http://x.com/docs/intro',
+      'http://x.com/docs/api',
+      'http://x.com/docs/guides',
+      'http://x.com/docs/integrations',
+      'http://x.com/docs/dashboards',
+      'http://x.com/docs/alerts',
+      'http://x.com/docs/fr/intro',
+      'http://x.com/docs/ja/api',
+      'http://x.com/docs/ko/guides',
+      'http://x.com/docs/es/integrations',
+    ];
+    expect(detectLocalePosition(urls)).toBe(1);
+  });
+
+  test('returns null for minority locale-like codes without structural duplication', () => {
+    // "it" is a valid ISO 639-1 code but has no unprefixed twins here.
+    const urls = [
+      'http://x.com/docs/intro',
+      'http://x.com/docs/api',
+      'http://x.com/docs/it/service-management',
+      'http://x.com/docs/it/asset-tracking',
+    ];
+    expect(detectLocalePosition(urls)).toBeNull();
+  });
+
+  test('returns null when no locale codes appear', () => {
+    const urls = ['http://x.com/docs/intro', 'http://x.com/docs/api'];
+    expect(detectLocalePosition(urls)).toBeNull();
   });
 });
 
