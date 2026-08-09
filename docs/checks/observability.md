@@ -52,6 +52,14 @@ options:
     - '**/release-notes/**' # quote patterns starting with *
 ```
 
+### Locale handling
+
+Multi-locale sites usually list only one language in `llms.txt`, so localized sitemap URLs would otherwise read as missing coverage. The check detects locale-prefixed paths (like `/fr/` or `/docs/ja/`) and compares `llms.txt` against a single locale:
+
+- When locale prefixes cover most of the sitemap, the prefix position is detected directly.
+- When translations are a minority of the sitemap (an unprefixed default language plus a few translated locales), the check confirms the prefixes by structural duplication: stripping a locale code must produce paths that match unprefixed URLs.
+- `--doc-locale <code>` (or `preferredLocale` in config) overrides detection. If the sitemap has no URLs prefixed with that locale, it is treated as the unprefixed default and the localized variants are excluded.
+
 ### How to fix
 
 **If this check warns or fails**, regenerate `llms.txt` from your sitemap or build pipeline. The best long-term fix is generating `llms.txt` at build time, so every deployment automatically includes an up-to-date index. Run with `--verbose` to see which pages are missing. If the missing pages are intentionally excluded, use `--coverage-exclusions` or adjust thresholds.
