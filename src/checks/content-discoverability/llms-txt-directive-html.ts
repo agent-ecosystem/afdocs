@@ -82,7 +82,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     const batchResults = await Promise.all(
       batch.map(async (url): Promise<DirectiveResult> => {
         try {
-          const htmlUrl = toHtmlUrl(url);
+          const htmlUrl = toHtmlUrl(url, ctx.options.urlPathPattern);
           const response = await ctx.http.fetch(htmlUrl);
           if (!response.ok) {
             return { url: htmlUrl, found: false, error: `HTTP ${response.status}` };

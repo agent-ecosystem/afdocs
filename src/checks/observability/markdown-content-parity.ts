@@ -625,7 +625,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       batch.map(async ({ url, markdownContent, markdownSource }): Promise<PageParityResult> => {
         try {
           // Fetch the HTML version of the page
-          const htmlUrl = toHtmlUrl(url);
+          const htmlUrl = toHtmlUrl(url, ctx.options.urlPathPattern);
           const page = await fetchPage(ctx, htmlUrl);
 
           if (page.status >= 400) {

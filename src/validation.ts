@@ -1,5 +1,5 @@
-import type { RunnerOptions, SamplingStrategy } from './types.js';
-import { VALID_SAMPLING_STRATEGIES } from './constants.js';
+import type { RunnerOptions, SamplingStrategy, UrlPathPattern } from './types.js';
+import { VALID_SAMPLING_STRATEGIES, VALID_URL_PATH_PATTERNS } from './constants.js';
 import { getAllChecks } from './checks/registry.js';
 
 export interface ValidationIssue {
@@ -167,6 +167,17 @@ export function validateRunnerOptions(options: Partial<RunnerOptions>): Validati
     errors.push({
       field: 'samplingStrategy',
       message: `Invalid sampling strategy "${options.samplingStrategy}". Must be one of: ${VALID_SAMPLING_STRATEGIES.join(', ')}`,
+    });
+  }
+
+  // URL path pattern enum
+  if (
+    options.urlPathPattern !== undefined &&
+    !VALID_URL_PATH_PATTERNS.includes(options.urlPathPattern as UrlPathPattern)
+  ) {
+    errors.push({
+      field: 'urlPathPattern',
+      message: `Invalid URL path pattern "${options.urlPathPattern}". Must be one of: ${VALID_URL_PATH_PATTERNS.join(', ')}`,
     });
   }
 

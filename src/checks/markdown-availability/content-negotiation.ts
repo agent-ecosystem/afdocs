@@ -45,7 +45,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
         // Pre-request: normalize .md/.mdx URLs to their canonical HTML form (#33).
         // Testing content negotiation against a .md URL is meaningless because the
         // server already serves markdown at that path by definition.
-        const fetchUrl = isMdUrl(url) ? toHtmlUrl(url) : url;
+        const fetchUrl = isMdUrl(url) ? toHtmlUrl(url, ctx.options.urlPathPattern) : url;
         const testedUrl = fetchUrl !== url ? fetchUrl : undefined;
 
         try {

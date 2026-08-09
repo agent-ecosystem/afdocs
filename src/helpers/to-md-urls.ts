@@ -1,4 +1,5 @@
 import { isSameSite } from './host-equivalence.js';
+import type { UrlPathPattern } from '../types.js';
 
 /**
  * Returns true if the two URLs have different hosts (i.e. a cross-host redirect).
@@ -35,16 +36,32 @@ export function isNonPageUrl(url: string): boolean {
 }
 
 /**
- * Convert a .md or .mdx URL back to its canonical HTML equivalent.
- * Inverts the transforms from toMdUrls():
- *   /docs/guide.md       -> /docs/guide
- *   /docs/guide/index.md -> /docs/guide/
- *   /docs/guide.mdx      -> /docs/guide
+ * Convert a .md or .mdx URL to its canonical page URL equivalent, according
+ * to the site's URL path pattern:
+ * - 'clean' (default) strips the extension, inverting the transforms from
+ *   toMdUrls():
+ *     /docs/guide.md       -> /docs/guide
+ *     /docs/guide/index.md -> /docs/guide/
+ *     /docs/guide.mdx      -> /docs/guide
+ * - 'html' replaces the extension for sites that serve real filenames:
+ *     /docs/guide.md       -> /docs/guide.html
+ * - 'md' keeps the .md URL as the canonical page URL.
  * If the URL doesn't end in .md/.mdx, return it unchanged.
  */
-export function toHtmlUrl(url: string): string {
+export function toHtmlUrl(url: string, pattern: UrlPathPattern = 'clean'): string {
+  if (pattern === 'md') return url;
   try {
     const parsed = new URL(url);
+    if (pattern === 'html') {
+      if (/\.mdx?$/i.test(parsed.pathname)) {
+        // Strip the markdown extension first so `.html.md` URLs don't
+        // become `.html.html`.
+        const stripped = parsed.pathname.replace(/\.mdx?$/i, '');
+        parsed.pathname = /\.html?$/i.test(stripped) ? stripped : stripped + '.html';
+        return parsed.toString();
+      }
+      return url;
+    }
     if (parsed.pathname.endsWith('/index.md') || parsed.pathname.endsWith('/index.mdx')) {
       parsed.pathname = parsed.pathname.replace(/\/index\.mdx?$/, '/');
       return parsed.toString();

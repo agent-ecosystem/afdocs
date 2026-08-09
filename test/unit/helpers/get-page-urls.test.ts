@@ -2414,6 +2414,55 @@ describe('originalMdUrls (issue #77)', () => {
     );
   });
 
+  it('maps .md links to .html page URLs with urlPathPattern "html" (issue #95)', async () => {
+    const ctx = createContext('http://test95a.local', { requestDelay: 0, urlPathPattern: 'html' });
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test95a.local/docs/auth.md): Auth
+`;
+    const discovered: DiscoveredFile[] = [
+      { url: 'http://test95a.local/llms.txt', content, status: 200, redirected: false },
+    ];
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: { discoveredFiles: discovered },
+    });
+    mockSitemapNotFound(server, 'http://test95a.local');
+
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toContain('http://test95a.local/docs/auth.html');
+    expect(result.originalMdUrls!['http://test95a.local/docs/auth.html']).toBe(
+      'http://test95a.local/docs/auth.md',
+    );
+  });
+
+  it('keeps .md links as page URLs with urlPathPattern "md" (issue #95)', async () => {
+    const ctx = createContext('http://test95b.local', { requestDelay: 0, urlPathPattern: 'md' });
+    const content = `# Docs
+> Summary
+## Links
+- [Auth](http://test95b.local/docs/auth.md): Auth
+`;
+    const discovered: DiscoveredFile[] = [
+      { url: 'http://test95b.local/llms.txt', content, status: 200, redirected: false },
+    ];
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: { discoveredFiles: discovered },
+    });
+    mockSitemapNotFound(server, 'http://test95b.local');
+
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toContain('http://test95b.local/docs/auth.md');
+  });
+
   it('does not populate originalMdUrls for sitemap-only discovery', async () => {
     const ctx = createContext('http://test77d.local', { requestDelay: 0 });
     ctx.previousResults.set('llms-txt-exists', {

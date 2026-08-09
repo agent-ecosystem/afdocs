@@ -4,7 +4,7 @@ import { getLlmsTxtFilesForAnalysis, selectCanonicalLlmsTxt } from './llms-txt.j
 import { isNonPageUrl, isMdUrl, toHtmlUrl } from './to-md-urls.js';
 import { isSameSite } from './host-equivalence.js';
 import { isLocaleSegment, hasStructuralDuplication } from './locale-codes.js';
-import type { CheckContext, DiscoveredFile } from '../types.js';
+import type { CheckContext, DiscoveredFile, UrlPathPattern } from '../types.js';
 
 /**
  * Extract `<loc>` URLs from a sitemap XML string.
@@ -54,7 +54,7 @@ export async function getUrlsFromCachedLlmsTxtWithOriginals(
   const existsResult = ctx.previousResults.get('llms-txt-exists');
   const discovered = getLlmsTxtFilesForAnalysis(existsResult);
 
-  const entries = extractLinksFromLlmsTxtFiles(discovered);
+  const entries = extractLinksFromLlmsTxtFiles(discovered, ctx.options.urlPathPattern);
   const result = await walkAggregateLinksWithOriginals(ctx, entries);
   return {
     pageUrls: result.pageUrls.map((p) => p.url),
@@ -68,7 +68,7 @@ export async function getUrlsFromCachedLlmsTxtWithOmitted(
   const existsResult = ctx.previousResults.get('llms-txt-exists');
   const discovered = getLlmsTxtFilesForAnalysis(existsResult);
 
-  const entries = extractLinksFromLlmsTxtFiles(discovered);
+  const entries = extractLinksFromLlmsTxtFiles(discovered, ctx.options.urlPathPattern);
   const result = await walkAggregateLinksWithOriginals(ctx, entries);
   return {
     pageUrls: result.pageUrls.map((p) => p.url),
@@ -93,9 +93,12 @@ function collectOriginalMdUrls(pages: DiscoveredPageUrl[]): Record<string, strin
  * returned alongside as `originalMdUrl` so that markdown-availability checks
  * can still test the URL the site explicitly published (issue #77).
  */
-function normalizePageUrl(url: string): { url: string; originalMdUrl?: string } {
+function normalizePageUrl(
+  url: string,
+  pattern?: UrlPathPattern,
+): { url: string; originalMdUrl?: string } {
   if (isMdUrl(url)) {
-    return { url: toHtmlUrl(url), originalMdUrl: url };
+    return { url: toHtmlUrl(url, pattern), originalMdUrl: url };
   }
   return { url };
 }
@@ -105,14 +108,17 @@ interface DiscoveredPageUrl {
   originalMdUrl?: string;
 }
 
-function extractLinksFromLlmsTxtFiles(files: DiscoveredFile[]): DiscoveredPageUrl[] {
+function extractLinksFromLlmsTxtFiles(
+  files: DiscoveredFile[],
+  pattern?: UrlPathPattern,
+): DiscoveredPageUrl[] {
   // Map normalized URL → originalMdUrl. A given page may appear in llms.txt
   // both as `/page.md` and `/page` (HTML); we keep the .md form so downstream
   // markdown checks have a known-good URL to test.
   const seen = new Map<string, string | undefined>();
 
   function record(rawUrl: string) {
-    const { url, originalMdUrl } = normalizePageUrl(rawUrl);
+    const { url, originalMdUrl } = normalizePageUrl(rawUrl, pattern);
     const existing = seen.get(url);
     if (existing === undefined && originalMdUrl) {
       seen.set(url, originalMdUrl);
@@ -205,7 +211,7 @@ async function walkAggregateLinksWithOriginals(
         status: response.status,
         redirected: response.redirected,
       };
-      const subEntries = extractLinksFromLlmsTxtFiles([subFile]);
+      const subEntries = extractLinksFromLlmsTxtFiles([subFile], ctx.options.urlPathPattern);
 
       for (const subEntry of subEntries) {
         try {
@@ -275,7 +281,7 @@ async function fetchLlmsTxtUrls(
 
   const canonical = selectCanonicalLlmsTxt(discovered, ctx.baseUrl);
   const filesForAnalysis = canonical ? [canonical] : [];
-  const entries = extractLinksFromLlmsTxtFiles(filesForAnalysis);
+  const entries = extractLinksFromLlmsTxtFiles(filesForAnalysis, ctx.options.urlPathPattern);
   const result = await walkAggregateLinksWithOriginals(ctx, entries);
   return {
     pageUrls: result.pageUrls.map((p) => p.url),

@@ -58,7 +58,7 @@ async function fetchMarkdown(
   ctx: CheckContext,
   pageUrl: string,
 ): Promise<{ text: string; url: string } | null> {
-  const htmlUrl = toHtmlUrl(pageUrl);
+  const htmlUrl = toHtmlUrl(pageUrl, ctx.options.urlPathPattern);
   const mdCandidates = toMdUrls(htmlUrl);
 
   for (const mdUrl of mdCandidates) {
