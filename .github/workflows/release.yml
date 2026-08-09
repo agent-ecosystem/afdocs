@@ -15,13 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Pinned to 22.22.1 because 22.22.2 ships npm 10.9.7 which crashes
-      # during self-upgrade to npm 11.x ("Cannot find module 'promise-retry'").
-      # Fixed in npm 10.9.8 (npm/cli#9152) but not yet released in a Node 22.x
-      # build. Track nodejs/node#62463 — once 22.22.3+ ships, switch back to 22.
       - uses: actions/setup-node@v6
         with:
-          node-version: '22.22.1'
+          node-version: '22'
           registry-url: https://registry.npmjs.org
           cache: npm
 
