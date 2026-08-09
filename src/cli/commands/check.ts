@@ -3,7 +3,12 @@ import { normalizeUrl, runChecks } from '../../runner.js';
 import { formatText } from '../formatters/text.js';
 import { formatJson } from '../formatters/json.js';
 import { formatScorecard } from '../formatters/scorecard.js';
-import type { PageConfigEntry, RunnerOptions, SamplingStrategy } from '../../types.js';
+import type {
+  PageConfigEntry,
+  RunnerOptions,
+  SamplingStrategy,
+  UrlPathPattern,
+} from '../../types.js';
 import { findConfig, validatePages } from '../../helpers/config.js';
 import { validateRunnerOptions } from '../../validation.js';
 
@@ -30,6 +35,10 @@ export function registerCheckCommand(program: Command): void {
     .option(
       '--urls <urls>',
       'Comma-separated page URLs for curated scoring (implies --sampling curated)',
+    )
+    .option(
+      '--url-path-pattern <pattern>',
+      'How llms.txt .md links map to page URLs: clean (strip extension, default), html (replace with .html), or md (keep .md)',
     )
     .option('--doc-locale <code>', 'Preferred locale for URL discovery (e.g. en, fr, ja)')
     .option('--doc-version <version>', 'Preferred version for URL discovery (e.g. v3, 2.x, latest)')
@@ -187,6 +196,8 @@ export function registerCheckCommand(program: Command): void {
         process.stderr.write(`Running checks on ${target}...\n`);
       }
 
+      const urlPathPattern =
+        (opts.urlPathPattern as string | undefined) ?? config?.options?.urlPathPattern;
       const preferredLocale =
         (opts.docLocale as string | undefined) ?? config?.options?.preferredLocale;
       const preferredVersion =
@@ -274,6 +285,7 @@ export function registerCheckCommand(program: Command): void {
           pass: passThreshold,
           fail: failThreshold,
         },
+        ...(urlPathPattern && { urlPathPattern: urlPathPattern as UrlPathPattern }),
         ...(preferredLocale && { preferredLocale }),
         ...(preferredVersion && { preferredVersion }),
         ...(canonicalOrigin && { canonicalOrigin }),

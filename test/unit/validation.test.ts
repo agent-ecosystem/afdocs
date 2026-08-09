@@ -272,6 +272,23 @@ describe('validateRunnerOptions', () => {
     }
   });
 
+  describe('enum: urlPathPattern', () => {
+    it('rejects invalid pattern', () => {
+      const result = validateRunnerOptions({
+        urlPathPattern: 'dotphp' as RunnerOptions['urlPathPattern'],
+      });
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].field).toBe('urlPathPattern');
+      expect(result.errors[0].message).toContain('clean');
+    });
+
+    for (const pattern of ['clean', 'html', 'md'] as const) {
+      it(`accepts "${pattern}"`, () => {
+        expect(validateRunnerOptions({ urlPathPattern: pattern }).valid).toBe(true);
+      });
+    }
+  });
+
   describe('constraint: curated requires pages', () => {
     it('errors for curated with no curatedPages', () => {
       const result = validateRunnerOptions({ samplingStrategy: 'curated' });

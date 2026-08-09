@@ -122,6 +122,52 @@ describe('toHtmlUrl', () => {
   it('returns malformed URLs unchanged', () => {
     expect(toHtmlUrl('not-a-url')).toBe('not-a-url');
   });
+
+  describe('html pattern', () => {
+    it('replaces .md with .html', () => {
+      expect(toHtmlUrl('https://example.com/docs/guide.md', 'html')).toBe(
+        'https://example.com/docs/guide.html',
+      );
+    });
+
+    it('replaces .mdx with .html', () => {
+      expect(toHtmlUrl('https://example.com/docs/guide.mdx', 'html')).toBe(
+        'https://example.com/docs/guide.html',
+      );
+    });
+
+    it('does not double the extension for .html.md URLs', () => {
+      expect(toHtmlUrl('https://example.com/docs/guide.html.md', 'html')).toBe(
+        'https://example.com/docs/guide.html',
+      );
+    });
+
+    it('converts index.md to index.html', () => {
+      expect(toHtmlUrl('https://example.com/docs/guide/index.md', 'html')).toBe(
+        'https://example.com/docs/guide/index.html',
+      );
+    });
+
+    it('returns non-.md URLs unchanged', () => {
+      expect(toHtmlUrl('https://example.com/docs/guide', 'html')).toBe(
+        'https://example.com/docs/guide',
+      );
+    });
+  });
+
+  describe('md pattern', () => {
+    it('keeps .md URLs as-is', () => {
+      expect(toHtmlUrl('https://example.com/docs/guide.md', 'md')).toBe(
+        'https://example.com/docs/guide.md',
+      );
+    });
+
+    it('keeps index.md URLs as-is', () => {
+      expect(toHtmlUrl('https://example.com/docs/guide/index.md', 'md')).toBe(
+        'https://example.com/docs/guide/index.md',
+      );
+    });
+  });
 });
 
 describe('isMdUrl', () => {

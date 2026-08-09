@@ -57,6 +57,16 @@ export interface CheckContext {
 
 export type SamplingStrategy = 'random' | 'deterministic' | 'curated' | 'none';
 
+/**
+ * How llms.txt `.md`/`.mdx` links map to the site's page URLs:
+ * - 'clean': strip the extension (`/guide.md` → `/guide`). Default.
+ * - 'html': replace the extension (`/guide.md` → `/guide.html`) for sites
+ *   that serve real filenames.
+ * - 'md': keep the `.md` URL as the canonical page URL for sites that serve
+ *   markdown files directly.
+ */
+export type UrlPathPattern = 'clean' | 'html' | 'md';
+
 export interface CuratedPageEntry {
   url: string;
   tag?: string;
@@ -78,6 +88,8 @@ export interface CheckOptions {
   samplingStrategy: SamplingStrategy;
   /** Size thresholds. */
   thresholds: SizeThresholds;
+  /** How llms.txt .md links map to page URLs. Default 'clean' (strip the extension). */
+  urlPathPattern?: UrlPathPattern;
   /** Preferred locale for URL discovery (e.g. 'en', 'fr', 'ja'). Overrides auto-detection from baseUrl. */
   preferredLocale?: string;
   /** Preferred version for URL discovery (e.g. 'v3', '2.x', 'latest'). Overrides auto-detection from baseUrl. */

@@ -115,10 +115,11 @@ afdocs check https://docs.example.com --max-links 100
 
 ### URL discovery
 
-| Flag                      | Default     | Description                                                      |
-| ------------------------- | ----------- | ---------------------------------------------------------------- |
-| `--doc-locale <code>`     | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)       |
-| `--doc-version <version>` | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`, `latest`) |
+| Flag                           | Default     | Description                                                         |
+| ------------------------------ | ----------- | ------------------------------------------------------------------- |
+| `--doc-locale <code>`          | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)          |
+| `--doc-version <version>`      | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`, `latest`)    |
+| `--url-path-pattern <pattern>` | `clean`     | How llms.txt `.md` links map to page URLs: `clean`, `html`, or `md` |
 
 When `afdocs` discovers pages from a sitemap or `llms.txt`, it automatically filters out duplicate locale and version variants so you get a representative sample of unique content.
 
@@ -140,6 +141,18 @@ afdocs check https://docs.example.com --doc-version v3
 # Both together
 afdocs check https://docs.example.com --doc-locale ja --doc-version 2.x
 ```
+
+When llms.txt links end in `.md`, `afdocs` derives each page's canonical URL from the link. The default (`clean`) strips the extension (`/guide.md` → `/guide`), which matches sites with extensionless URLs. If your site serves real filenames, that derived URL may 404 or redirect and skew results. Use `--url-path-pattern` to match your site's URL structure:
+
+```bash
+# Site serves .html pages: /guide.md → /guide.html
+afdocs check https://docs.example.com --url-path-pattern html
+
+# Site serves markdown files directly: /guide.md stays /guide.md
+afdocs check https://docs.example.com --url-path-pattern md
+```
+
+The same option is available in `agent-docs.config.yml` as `options.urlPathPattern`.
 
 ### Request behavior
 

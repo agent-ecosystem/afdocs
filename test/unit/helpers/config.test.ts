@@ -427,6 +427,27 @@ describe('findConfig', () => {
     expect(config?.options?.samplingStrategy).toBe('deterministic');
   });
 
+  it('throws on invalid urlPathPattern in config', async () => {
+    await mkdir(TMP_DIR, { recursive: true });
+    await writeFile(
+      resolve(TMP_DIR, 'agent-docs.config.yml'),
+      ['url: https://example.com', 'options:', '  urlPathPattern: dotphp', ''].join('\n'),
+    );
+
+    await expect(findConfig(undefined, TMP_DIR)).rejects.toThrow('urlPathPattern');
+  });
+
+  it('accepts valid urlPathPattern in config', async () => {
+    await mkdir(TMP_DIR, { recursive: true });
+    await writeFile(
+      resolve(TMP_DIR, 'agent-docs.config.yml'),
+      ['url: https://example.com', 'options:', '  urlPathPattern: html', ''].join('\n'),
+    );
+
+    const config = await findConfig(undefined, TMP_DIR);
+    expect(config?.options?.urlPathPattern).toBe('html');
+  });
+
   it('throws when checks is not a string array', async () => {
     await mkdir(TMP_DIR, { recursive: true });
     await writeFile(

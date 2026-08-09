@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { AgentDocsConfig, PageConfigEntry } from '../types.js';
 import { validateNumber } from '../validation.js';
-import { VALID_SAMPLING_STRATEGIES } from '../constants.js';
+import { VALID_SAMPLING_STRATEGIES, VALID_URL_PATH_PATTERNS } from '../constants.js';
 
 const CONFIG_FILENAMES = ['agent-docs.config.yml', 'agent-docs.config.yaml'];
 
@@ -86,6 +86,16 @@ function validateOptions(options: Record<string, unknown>, source: string): void
   ) {
     throw new Error(
       `${source}: options.samplingStrategy must be one of: ${VALID_SAMPLING_STRATEGIES.join(', ')}`,
+    );
+  }
+  if (
+    options.urlPathPattern != null &&
+    !VALID_URL_PATH_PATTERNS.includes(
+      options.urlPathPattern as string as (typeof VALID_URL_PATH_PATTERNS)[number],
+    )
+  ) {
+    throw new Error(
+      `${source}: options.urlPathPattern must be one of: ${VALID_URL_PATH_PATTERNS.join(', ')}`,
     );
   }
   for (const [field, constraints] of NUMERIC_OPTION_RULES) {
