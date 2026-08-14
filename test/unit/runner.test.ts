@@ -58,6 +58,13 @@ describe('normalizeCanonical', () => {
     );
   });
 
+  it('strips repeated trailing slashes', () => {
+    expect(normalizeCanonical('https://prod.example.com/docs//')).toBe(
+      'https://prod.example.com/docs',
+    );
+    expect(normalizeCanonical('https://prod.example.com//')).toBe('https://prod.example.com');
+  });
+
   it('drops query and fragment', () => {
     expect(normalizeCanonical('https://prod.example.com/docs?x=1#h')).toBe(
       'https://prod.example.com/docs',

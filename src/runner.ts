@@ -51,7 +51,7 @@ export function normalizeUrl(url: string): string {
  */
 export function normalizeCanonical(raw: string): string {
   const parsed = new URL(raw);
-  return `${parsed.origin}${parsed.pathname}`.replace(/\/$/, '');
+  return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '');
 }
 
 export function createContext(baseUrl: string, options?: Partial<RunnerOptions>): CheckContext {
