@@ -332,12 +332,21 @@ function extractMarkdownText(markdown: string): string {
   // on a run of >=N. Capture the opener so the close-side backreference
   // matches; otherwise nested example fences (4-backtick outer, 3-backtick
   // inner) get mis-paired and inner markers leak out as text.
+  //
+  // Per CommonMark §4.5, a fence may be indented 0–3 spaces (list items
+  // produced by Turndown indent fences by 4 spaces, which is still a valid
+  // CommonMark indented code fence inside a list continuation). The leading
+  // spaces are stripped from the opener match so the backreference on the
+  // closer still works.
   const codeBlocks: string[] = [];
-  text = text.replace(/^(`{3,})[^`\n]*\n([\s\S]*?)^\1`*\s*$/gm, (_match, _opener, content) => {
-    const idx = codeBlocks.length;
-    codeBlocks.push(content);
-    return `\x00BLOCK${idx}\x00`;
-  });
+  text = text.replace(
+    /^ {0,3}(`{3,})[^`\n]*\n([\s\S]*?)^ {0,3}\1`*\s*$/gm,
+    (_match, _opener, content) => {
+      const idx = codeBlocks.length;
+      codeBlocks.push(content);
+      return `\x00BLOCK${idx}\x00`;
+    },
+  );
 
   // Step 2: Protect inline code spans from subsequent stripping.
   // Replace `...` with placeholders so link/emphasis regexes don't
