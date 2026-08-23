@@ -177,6 +177,8 @@ Use `--canonical-origin` when your site's URLs in `sitemap.xml` and `llms.txt` d
 - **Origin only** — rewrites every URL on that host, regardless of path.
 - **Origin plus a path prefix** — rewrites only URLs under that prefix, remapping them to the base URL you pass to `check` (the prefixes need not match).
 
+Avoid a canonical base that is a path-prefix of the target base itself (for example, previews served under the production docs path): URLs in fetched content that already point at the target would be rewritten again. AFDocs prints a warning when it detects this overlap.
+
 ```bash
 # Origin only: rewrite all example.com URLs to the preview host
 afdocs check https://preview-xyz-example.app/docs --canonical-origin https://example.com

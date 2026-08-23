@@ -256,6 +256,30 @@ describe('createHttpClient', () => {
       expect(text).toContain('frag https://preview.local#top');
     });
 
+    it('rewrites a sitemap <loc> entry ending exactly at the canonical base', async () => {
+      const body = [
+        '<urlset>',
+        '<url><loc>https://prod.example.com/docs</loc></url>',
+        '<url><loc>https://prod.example.com/docs/guide</loc></url>',
+        '</urlset>',
+      ].join('\n');
+      globalThis.fetch = vi.fn(async () => makeTextResponse(body, { contentType: 'text/xml' }));
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        canonicalOrigin: 'https://prod.example.com/docs',
+        targetOrigin: 'https://preview.local/preview',
+      });
+      const text = await (await client.fetch('http://preview.local/sitemap.xml')).text();
+
+      // The landing-page entry ends at the prefix with `<` next; it must rewrite too.
+      expect(text).toContain('<loc>https://preview.local/preview</loc>');
+      expect(text).toContain('<loc>https://preview.local/preview/guide</loc>');
+      expect(text).not.toContain('prod.example.com');
+    });
+
     it('returns the same rewritten body on multiple text() calls', async () => {
       const body = 'Link: https://prod.example.com/page';
       globalThis.fetch = vi.fn(async () => makeTextResponse(body, { contentType: 'text/plain' }));

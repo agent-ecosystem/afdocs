@@ -225,6 +225,15 @@ export function registerCheckCommand(program: Command): void {
               `Warning: --canonical-origin "${canonicalOrigin}" is the same as the target. The flag has no effect.\n`,
             );
             canonicalOrigin = undefined;
+          } else if (
+            canonicalHasSubPath &&
+            normalizeCanonical(url).startsWith(`${canonicalOrigin}/`)
+          ) {
+            // Prefix rewriting can't tell a production URL from one already pointing
+            // at the target, so self-referencing URLs in content get re-prefixed.
+            process.stderr.write(
+              `Warning: --canonical-origin "${canonicalOrigin}" is a path-prefix of the target base. URLs in fetched content that already point at the target will be rewritten again (doubled path segments).\n`,
+            );
           }
         } catch {
           canonicalOrigin = normalized;

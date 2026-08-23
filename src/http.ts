@@ -29,10 +29,12 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
   // Match the canonical base only at a URL boundary: end-of-string or one of these
   // delimiters. `)` and `,` are included so URLs inside markdown links `[x](url)` and
   // prose `url, next` rewrite; the rare tradeoff is a path segment like `/docs,2024`
-  // being treated as the `/docs` prefix.
+  // being treated as the `/docs` prefix. `<` is included so a URL ending exactly at
+  // the canonical base rewrites when an XML closing tag follows (`<loc>url</loc>` in
+  // sitemaps); a literal `<` can never appear in a valid URL, so it is unambiguous.
   const originPattern =
     options.canonicalOrigin && options.targetOrigin
-      ? new RegExp(escapeRegExp(options.canonicalOrigin) + '(?=[/?#\\s"\'\\]),>]|$)', 'g')
+      ? new RegExp(escapeRegExp(options.canonicalOrigin) + '(?=[/?#\\s"\'\\]),<>]|$)', 'g')
       : null;
 
   async function waitForSlot(): Promise<void> {
