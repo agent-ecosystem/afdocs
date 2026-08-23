@@ -332,12 +332,21 @@ function extractMarkdownText(markdown: string): string {
   // on a run of >=N. Capture the opener so the close-side backreference
   // matches; otherwise nested example fences (4-backtick outer, 3-backtick
   // inner) get mis-paired and inner markers leak out as text.
+  //
+  // Fences inside list items are indented by the list marker width (e.g.
+  // Turndown indents them 4 spaces under "1.  item"), so the opener may not
+  // sit at column 0. Capture the opener's indentation and require the closer
+  // at the same indent plus the 0-3 spaces of slack CommonMark allows, so a
+  // more deeply indented literal ``` inside the block can't close it early.
   const codeBlocks: string[] = [];
-  text = text.replace(/^(`{3,})[^`\n]*\n([\s\S]*?)^\1`*\s*$/gm, (_match, _opener, content) => {
-    const idx = codeBlocks.length;
-    codeBlocks.push(content);
-    return `\x00BLOCK${idx}\x00`;
-  });
+  text = text.replace(
+    /^( *)(`{3,})[^`\n]*\n([\s\S]*?)^\1 {0,3}\2`*\s*$/gm,
+    (_match, _indent, _opener, content) => {
+      const idx = codeBlocks.length;
+      codeBlocks.push(content);
+      return `\x00BLOCK${idx}\x00`;
+    },
+  );
 
   // Step 2: Protect inline code spans from subsequent stripping.
   // Replace `...` with placeholders so link/emphasis regexes don't

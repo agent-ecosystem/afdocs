@@ -2658,4 +2658,89 @@ This test guards against regressions that special-case any single backtick run l
     const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
     expect(pageResults[0].missingSegments).toBe(0);
   });
+
+  it('protects fenced code blocks indented inside list items', async () => {
+    // Turndown indents fenced code blocks by 4 spaces when they appear inside
+    // numbered list items. Without this fix, the code fence regex (which
+    // required backticks at column 0) failed to match, leaving the YAML list
+    // lines unprotected. The list-marker stripper then removed the leading
+    // "- " from lines like "- db_data:/var/lib/postgresql/data", so the HTML
+    // segment "- db_data:/var/lib/postgresql/data" had no match in the
+    // stripped markdown text.
+    const html = `<html><body><main>
+      <h1>Install with Docker</h1>
+      <p>Use the steps below to install FusionAuth using Docker Compose.</p>
+      <ol>
+        <li>
+          <p>Download the configuration files from the repository.</p>
+          <p>Full docker-compose.yml example:</p>
+          <pre><code class="language-yaml">services:
+  db:
+    image: postgres:16.0-bookworm
+    volumes:
+      <span class="token punctuation">-</span> db_data<span class="token punctuation">:</span>/var/lib/postgresql/data
+  fusionauth:
+    image: fusionauth/fusionauth-app:latest
+    volumes:
+      <span class="token punctuation">-</span> fusionauth_config<span class="token punctuation">:</span>/usr/local/fusionauth/config
+      <span class="token punctuation">-</span> \${FUSIONAUTH_LOCAL_KICKSTART_DIRECTORY}<span class="token punctuation">:</span>/usr/local/fusionauth/kickstart
+volumes:
+  db_data<span class="token punctuation">:</span>
+  fusionauth_config<span class="token punctuation">:</span>
+</code></pre>
+        </li>
+        <li>
+          <p>Start the services with docker compose up.</p>
+          <p>The first startup may take several minutes while images download.</p>
+        </li>
+      </ol>
+    </main></body></html>`;
+
+    const markdown = `# Install with Docker
+
+Use the steps below to install FusionAuth using Docker Compose.
+
+1.  Download the configuration files from the repository.
+
+    Full docker-compose.yml example:
+
+    \`\`\`yaml
+    services:
+      db:
+        image: postgres:16.0-bookworm
+        volumes:
+          - db_data:/var/lib/postgresql/data
+      fusionauth:
+        image: fusionauth/fusionauth-app:latest
+        volumes:
+          - fusionauth_config:/usr/local/fusionauth/config
+          - \${FUSIONAUTH_LOCAL_KICKSTART_DIRECTORY}:/usr/local/fusionauth/kickstart
+    volumes:
+      db_data:
+      fusionauth_config:
+    \`\`\`
+
+2.  Start the services with docker compose up.
+
+    The first startup may take several minutes while images download.`;
+
+    const url = 'http://mcp-indented-fence.local/docs/docker';
+
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-indented-fence.local');
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
+    expect(pageResults[0].missingSegments).toBe(0);
+  });
 });
