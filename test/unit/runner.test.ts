@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { createContext, normalizeUrl, runChecks } from '../../src/runner.js';
+import { createContext, normalizeCanonical, normalizeUrl, runChecks } from '../../src/runner.js';
 import { registerCheck } from '../../src/checks/registry.js';
 import '../../src/checks/index.js';
 import { mockSitemapNotFound } from '../helpers/mock-sitemap-not-found.js';
@@ -33,6 +33,42 @@ describe('normalizeUrl', () => {
   it('is case-insensitive for scheme detection', () => {
     expect(normalizeUrl('HTTPS://example.com')).toBe('HTTPS://example.com');
     expect(normalizeUrl('Http://example.com')).toBe('Http://example.com');
+  });
+});
+
+describe('normalizeCanonical', () => {
+  it('lowercases the host', () => {
+    expect(normalizeCanonical('https://PROD.Example.com')).toBe('https://prod.example.com');
+  });
+
+  it('drops default ports', () => {
+    expect(normalizeCanonical('https://prod.example.com:443')).toBe('https://prod.example.com');
+    expect(normalizeCanonical('http://prod.example.com:80')).toBe('http://prod.example.com');
+  });
+
+  it('preserves a non-default port', () => {
+    expect(normalizeCanonical('https://prod.example.com:8080')).toBe(
+      'https://prod.example.com:8080',
+    );
+  });
+
+  it('preserves a sub-path but strips the trailing slash', () => {
+    expect(normalizeCanonical('https://prod.example.com/aws/en/')).toBe(
+      'https://prod.example.com/aws/en',
+    );
+  });
+
+  it('strips repeated trailing slashes', () => {
+    expect(normalizeCanonical('https://prod.example.com/docs//')).toBe(
+      'https://prod.example.com/docs',
+    );
+    expect(normalizeCanonical('https://prod.example.com//')).toBe('https://prod.example.com');
+  });
+
+  it('drops query and fragment', () => {
+    expect(normalizeCanonical('https://prod.example.com/docs?x=1#h')).toBe(
+      'https://prod.example.com/docs',
+    );
   });
 });
 
@@ -103,6 +139,105 @@ describe('createContext URL normalization', () => {
       llmsTxtUrl: 'example.com/llms.txt',
     });
     expect(ctx.options.llmsTxtUrl).toBe('https://example.com/llms.txt');
+  });
+});
+
+describe('createContext canonicalOrigin targetOrigin wiring', () => {
+  it('rewrites canonical origin when canonicalOrigin has no sub-path', async () => {
+    const body = 'See https://prod.example.com/docs/guide';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      url: 'http://preview.local/docs/guide',
+      redirected: false,
+      text: async () => body,
+    })) as unknown as typeof fetch;
+
+    try {
+      const ctx = createContext('http://preview.local', {
+        canonicalOrigin: 'https://prod.example.com',
+      });
+      const text = await (await ctx.http.fetch('http://preview.local/docs/guide')).text();
+      expect(text).toBe('See http://preview.local/docs/guide');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('rewrites canonical base when canonicalOrigin has a sub-path', async () => {
+    const body = 'See https://prod.example.com/aws/en/docs/guide';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      url: 'http://preview.local/preview/docs/guide',
+      redirected: false,
+      text: async () => body,
+    })) as unknown as typeof fetch;
+
+    try {
+      const ctx = createContext('http://preview.local/preview', {
+        canonicalOrigin: 'https://prod.example.com/aws/en',
+      });
+      const text = await (await ctx.http.fetch('http://preview.local/preview/docs/guide')).text();
+      expect(text).toBe('See http://preview.local/preview/docs/guide');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('rewrites when a sub-path canonicalOrigin has a trailing slash', async () => {
+    const body = 'See https://prod.example.com/aws/en/docs/guide';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      url: 'http://preview.local/preview/docs/guide',
+      redirected: false,
+      text: async () => body,
+    })) as unknown as typeof fetch;
+
+    try {
+      const ctx = createContext('http://preview.local/preview', {
+        canonicalOrigin: 'https://prod.example.com/aws/en/',
+      });
+      const text = await (await ctx.http.fetch('http://preview.local/preview/docs/guide')).text();
+      expect(text).toBe('See http://preview.local/preview/docs/guide');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('rewrites when canonicalOrigin host is mixed-case (host is normalized)', async () => {
+    const body = 'See https://prod.example.com/docs/guide?x=1 and https://prod.example.com/a#h';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      url: 'http://preview.local/x',
+      redirected: false,
+      text: async () => body,
+    })) as unknown as typeof fetch;
+
+    try {
+      const ctx = createContext('http://preview.local', {
+        canonicalOrigin: 'https://PROD.example.com',
+      });
+      const text = await (await ctx.http.fetch('http://preview.local/x')).text();
+      // Host normalized to lowercase so the rewrite matches; query/fragment boundaries match too.
+      expect(text).toBe('See http://preview.local/docs/guide?x=1 and http://preview.local/a#h');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

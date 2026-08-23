@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { normalizeUrl, runChecks } from '../../runner.js';
+import { normalizeCanonical, normalizeUrl, runChecks } from '../../runner.js';
 import { formatText } from '../formatters/text.js';
 import { formatJson } from '../formatters/json.js';
 import { formatScorecard } from '../formatters/scorecard.js';
@@ -73,7 +73,7 @@ export function registerCheckCommand(program: Command): void {
     )
     .option(
       '--canonical-origin <url>',
-      'The production domain your content links to (for preview/staging testing)',
+      'The production base URL (origin, or origin plus a path prefix) your content links to, rewritten to the target for preview/staging testing',
     )
     .option(
       '--llms-txt-url <url>',
@@ -209,13 +209,31 @@ export function registerCheckCommand(program: Command): void {
       if (rawCanonical) {
         const normalized = normalizeUrl(rawCanonical);
         try {
-          canonicalOrigin = new URL(normalized).origin;
-          const targetOrigin = new URL(url).origin;
-          if (canonicalOrigin === targetOrigin) {
+          const parsedCanonical = new URL(normalized);
+          // Normalize identically to createContext so the warning reflects the value used.
+          canonicalOrigin = normalizeCanonical(normalized);
+          // The flag has no effect when the canonical resolves to what the rewrite would
+          // produce anyway: for a sub-path canonical that's the full target base; for an
+          // origin-only canonical it's just the target origin (the path is untouched).
+          const parsedTarget = new URL(url);
+          const canonicalHasSubPath = parsedCanonical.pathname !== '/';
+          const noEffect = canonicalHasSubPath
+            ? canonicalOrigin === normalizeCanonical(url)
+            : parsedCanonical.origin === parsedTarget.origin;
+          if (noEffect) {
             process.stderr.write(
-              `Warning: --canonical-origin "${canonicalOrigin}" is the same as the target origin. The flag has no effect.\n`,
+              `Warning: --canonical-origin "${canonicalOrigin}" is the same as the target. The flag has no effect.\n`,
             );
             canonicalOrigin = undefined;
+          } else if (
+            canonicalHasSubPath &&
+            normalizeCanonical(url).startsWith(`${canonicalOrigin}/`)
+          ) {
+            // Prefix rewriting can't tell a production URL from one already pointing
+            // at the target, so self-referencing URLs in content get re-prefixed.
+            process.stderr.write(
+              `Warning: --canonical-origin "${canonicalOrigin}" is a path-prefix of the target base. URLs in fetched content that already point at the target will be rewritten again (doubled path segments).\n`,
+            );
           }
         } catch {
           canonicalOrigin = normalized;

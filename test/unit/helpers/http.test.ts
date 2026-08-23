@@ -191,6 +191,95 @@ describe('createHttpClient', () => {
       expect(text).toContain('https://prod.example.com.evil.com/phishing');
     });
 
+    it('does not match a longer sub-path that starts with the canonical base', async () => {
+      const body = [
+        'https://prod.example.com/docs/guide',
+        'https://prod.example.com/docsearch/index',
+      ].join('\n');
+      globalThis.fetch = vi.fn(async () => makeTextResponse(body, { contentType: 'text/plain' }));
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        canonicalOrigin: 'https://prod.example.com/docs',
+        targetOrigin: 'https://preview.local/preview',
+      });
+      const response = await client.fetch('http://preview.local/preview');
+      const text = await response.text();
+
+      expect(text).toContain('https://preview.local/preview/guide');
+      // /docsearch must NOT be rewritten by a /docs canonical.
+      expect(text).toContain('https://prod.example.com/docsearch/index');
+    });
+
+    it('inserts a target containing $ literally (no replacement-pattern interpretation)', async () => {
+      const body = 'link https://prod.example.com/docs/guide tail';
+      globalThis.fetch = vi.fn(async () => makeTextResponse(body, { contentType: 'text/plain' }));
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        canonicalOrigin: 'https://prod.example.com/docs',
+        targetOrigin: "http://preview.local/a$'b$&c$`d",
+      });
+      const text = await (await client.fetch('http://preview.local/x')).text();
+
+      expect(text).toBe("link http://preview.local/a$'b$&c$`d/guide tail");
+    });
+
+    it('rewrites base URLs terminated by ) , ? or # (markdown links, prose)', async () => {
+      const body = [
+        '[docs](https://prod.example.com)',
+        'see https://prod.example.com, then',
+        'query https://prod.example.com?a=1',
+        'frag https://prod.example.com#top',
+      ].join('\n');
+      globalThis.fetch = vi.fn(async () =>
+        makeTextResponse(body, { contentType: 'text/markdown' }),
+      );
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        canonicalOrigin: 'https://prod.example.com',
+        targetOrigin: 'https://preview.local',
+      });
+      const text = await (await client.fetch('http://preview.local/x')).text();
+
+      expect(text).not.toContain('prod.example.com');
+      expect(text).toContain('[docs](https://preview.local)');
+      expect(text).toContain('see https://preview.local, then');
+      expect(text).toContain('query https://preview.local?a=1');
+      expect(text).toContain('frag https://preview.local#top');
+    });
+
+    it('rewrites a sitemap <loc> entry ending exactly at the canonical base', async () => {
+      const body = [
+        '<urlset>',
+        '<url><loc>https://prod.example.com/docs</loc></url>',
+        '<url><loc>https://prod.example.com/docs/guide</loc></url>',
+        '</urlset>',
+      ].join('\n');
+      globalThis.fetch = vi.fn(async () => makeTextResponse(body, { contentType: 'text/xml' }));
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        canonicalOrigin: 'https://prod.example.com/docs',
+        targetOrigin: 'https://preview.local/preview',
+      });
+      const text = await (await client.fetch('http://preview.local/sitemap.xml')).text();
+
+      // The landing-page entry ends at the prefix with `<` next; it must rewrite too.
+      expect(text).toContain('<loc>https://preview.local/preview</loc>');
+      expect(text).toContain('<loc>https://preview.local/preview/guide</loc>');
+      expect(text).not.toContain('prod.example.com');
+    });
+
     it('returns the same rewritten body on multiple text() calls', async () => {
       const body = 'Link: https://prod.example.com/page';
       globalThis.fetch = vi.fn(async () => makeTextResponse(body, { contentType: 'text/plain' }));

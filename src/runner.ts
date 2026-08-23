@@ -42,6 +42,18 @@ export function normalizeUrl(url: string): string {
   return url;
 }
 
+/**
+ * Normalize a canonical/base URL for the http.ts rewrite regex, which is literal and
+ * case-sensitive: lowercase the host and drop default ports (via URL.origin) while
+ * preserving any sub-path, then strip the trailing slash so it matches path segments.
+ * Must be applied identically to the canonical value and the target base it is compared
+ * against. Assumes `raw` is already scheme-qualified (see normalizeUrl).
+ */
+export function normalizeCanonical(raw: string): string {
+  const parsed = new URL(raw);
+  return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '');
+}
+
 export function createContext(baseUrl: string, options?: Partial<RunnerOptions>): CheckContext {
   if (options) {
     if (options.canonicalOrigin) {
@@ -60,6 +72,18 @@ export function createContext(baseUrl: string, options?: Partial<RunnerOptions>)
   const merged = { ...DEFAULT_OPTIONS, ...options };
   baseUrl = normalizeUrl(baseUrl);
   const url = new URL(baseUrl);
+  const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
+
+  // Normalize the canonical value once, here, so CLI and direct createContext() callers
+  // behave identically. Keep merged.canonicalOrigin in sync with the value wired below.
+  let canonicalOrigin: string | undefined;
+  if (merged.canonicalOrigin) {
+    canonicalOrigin = normalizeCanonical(merged.canonicalOrigin);
+    merged.canonicalOrigin = canonicalOrigin;
+  }
+
+  // A sub-path canonical rewrites to the full preview base; origin-only swaps origins.
+  const canonicalHasSubPath = Boolean(canonicalOrigin && new URL(canonicalOrigin).pathname !== '/');
 
   // Fail fast when the target port is on the WHATWG fetch bad port list:
   // undici would refuse every request, turning one port choice into a wall
@@ -70,15 +94,19 @@ export function createContext(baseUrl: string, options?: Partial<RunnerOptions>)
   }
 
   return {
-    baseUrl: baseUrl.replace(/\/$/, ''),
+    baseUrl: normalizedBaseUrl,
     origin: url.origin,
     previousResults: new Map(),
     http: createHttpClient({
       requestDelay: merged.requestDelay,
       requestTimeout: merged.requestTimeout,
       maxConcurrency: merged.maxConcurrency,
-      canonicalOrigin: merged.canonicalOrigin,
-      targetOrigin: merged.canonicalOrigin ? url.origin : undefined,
+      canonicalOrigin,
+      targetOrigin: canonicalOrigin
+        ? canonicalHasSubPath
+          ? normalizedBaseUrl
+          : url.origin
+        : undefined,
     }),
     options: merged,
     pageCache: new Map(),

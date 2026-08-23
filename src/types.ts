@@ -94,7 +94,12 @@ export interface CheckOptions {
   preferredLocale?: string;
   /** Preferred version for URL discovery (e.g. 'v3', '2.x', 'latest'). Overrides auto-detection from baseUrl. */
   preferredVersion?: string;
-  /** Canonical origin to rewrite in fetched content (for preview/staging testing). */
+  /**
+   * Canonical base URL to rewrite in fetched content (for preview/staging testing).
+   * Accepts an origin (`https://prod.example.com`) or an origin plus a path prefix
+   * (`https://prod.example.com/docs`); when a path prefix is given, matching URLs are
+   * rewritten to the full target base.
+   */
   canonicalOrigin?: string;
   /** Pass threshold for llms-txt-coverage (0–100). Default 95. */
   coveragePassThreshold?: number;

@@ -101,7 +101,7 @@ Some checks may behave differently against a local server:
 
 When you build your site locally, generated files like `llms.txt` and `sitemap.xml` typically contain your production domain. AFDocs sees URLs pointing to `https://docs.example.com` but you're testing `http://localhost:3000`, so origin comparisons fail and checks like `llms-txt-coverage` report 0% coverage.
 
-Use `--canonical-origin` to tell AFDocs which production domain to rewrite:
+Use `--canonical-origin` to tell AFDocs which production base URL (origin, or origin plus a path prefix) to rewrite:
 
 ```bash
 npm run build
