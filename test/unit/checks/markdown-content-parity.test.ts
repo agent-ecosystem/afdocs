@@ -2691,6 +2691,7 @@ volumes:
         </li>
         <li>
           <p>Start the services with docker compose up.</p>
+          <p>The first startup may take several minutes while images download.</p>
         </li>
       </ol>
     </main></body></html>`;
@@ -2719,7 +2720,9 @@ Use the steps below to install FusionAuth using Docker Compose.
       fusionauth_config:
     \`\`\`
 
-2.  Start the services with docker compose up.`;
+2.  Start the services with docker compose up.
+
+    The first startup may take several minutes while images download.`;
 
     const url = 'http://mcp-indented-fence.local/docs/docker';
 
