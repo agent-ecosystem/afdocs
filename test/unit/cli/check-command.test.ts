@@ -1089,4 +1089,113 @@ describe('check command config integration', () => {
 
     writeSpy.mockRestore();
   });
+
+  it('writes per-check progress lines to stderr', async () => {
+    server.use(
+      http.get('http://cmd-progress.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
+      http.get(
+        'http://cmd-progress.local/docs/llms.txt',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const { run } = await import('../../../src/cli/index.js');
+    await run([
+      'node',
+      'afdocs',
+      'check',
+      'http://cmd-progress.local',
+      '--checks',
+      'llms-txt-exists',
+      '--request-delay',
+      '0',
+    ]);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join('');
+    expect(stderr).toContain('[1/1] llms-txt-exists... ');
+    expect(stderr).toContain('done (');
+
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('--quiet suppresses the banner and progress lines', async () => {
+    server.use(
+      http.get('http://cmd-quiet.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
+      http.get(
+        'http://cmd-quiet.local/docs/llms.txt',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const { run } = await import('../../../src/cli/index.js');
+    await run([
+      'node',
+      'afdocs',
+      'check',
+      'http://cmd-quiet.local',
+      '--checks',
+      'llms-txt-exists',
+      '--request-delay',
+      '0',
+      '--quiet',
+    ]);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join('');
+    expect(stderr).not.toContain('Running checks on');
+    expect(stderr).not.toContain('[1/1]');
+
+    // The report itself still goes to stdout
+    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join('');
+    expect(stdout).toContain('llms-txt-exists');
+
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('keeps stdout parseable in json format while progress goes to stderr', async () => {
+    server.use(
+      http.get('http://cmd-json-progress.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
+      http.get(
+        'http://cmd-json-progress.local/docs/llms.txt',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const { run } = await import('../../../src/cli/index.js');
+    await run([
+      'node',
+      'afdocs',
+      'check',
+      'http://cmd-json-progress.local',
+      '--checks',
+      'llms-txt-exists',
+      '--format',
+      'json',
+      '--request-delay',
+      '0',
+    ]);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join('');
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.results[0].id).toBe('llms-txt-exists');
+
+    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join('');
+    expect(stderr).toContain('[1/1] llms-txt-exists... ');
+
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
 });

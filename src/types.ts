@@ -173,6 +173,29 @@ export interface DiscoveredFile {
   crossHostRedirect?: boolean;
 }
 
+export interface CheckProgressStartEvent {
+  phase: 'start';
+  checkId: string;
+  /** 1-based position among the checks selected for this run. */
+  index: number;
+  /** Number of checks selected for this run. */
+  total: number;
+}
+
+export interface CheckProgressCompleteEvent {
+  phase: 'complete';
+  checkId: string;
+  /** 1-based position among the checks selected for this run. */
+  index: number;
+  /** Number of checks selected for this run. */
+  total: number;
+  result: CheckResult;
+  /** Wall-clock time the check took, in ms (0 for skipped checks). */
+  durationMs: number;
+}
+
+export type CheckProgressEvent = CheckProgressStartEvent | CheckProgressCompleteEvent;
+
 export interface RunnerOptions extends CheckOptions {
   /** Only run checks matching these IDs. If empty, run all. */
   checkIds?: string[];
@@ -180,6 +203,8 @@ export interface RunnerOptions extends CheckOptions {
   skipCheckIds?: string[];
   /** Curated page list from config or --urls. Used when samplingStrategy is 'curated'. */
   curatedPages?: PageConfigEntry[];
+  /** Called as each selected check starts and completes. The CLI uses this for stderr progress. */
+  onProgress?: (event: CheckProgressEvent) => void;
 }
 
 export interface ReportResult {
