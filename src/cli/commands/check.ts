@@ -3,7 +3,9 @@ import { normalizeCanonical, normalizeUrl, runChecks } from '../../runner.js';
 import { formatText } from '../formatters/text.js';
 import { formatJson } from '../formatters/json.js';
 import { formatScorecard } from '../formatters/scorecard.js';
+import { formatProgressEvent } from '../formatters/progress.js';
 import type {
+  CheckProgressEvent,
   PageConfigEntry,
   RunnerOptions,
   SamplingStrategy,
@@ -45,6 +47,7 @@ export function registerCheckCommand(program: Command): void {
     .option('--pass-threshold <n>', 'Pass threshold in characters')
     .option('--fail-threshold <n>', 'Fail threshold in characters')
     .option('-v, --verbose', 'Show per-page details for checks with issues')
+    .option('-q, --quiet', 'Suppress progress output on stderr')
     .option('--fixes', 'Show fix suggestions for warn/fail checks')
     .option('--score', 'Include scoring data in JSON output')
     .option(
@@ -187,7 +190,9 @@ export function registerCheckCommand(program: Command): void {
         10,
       );
 
-      if (format !== 'json') {
+      const quiet = !!opts.quiet;
+
+      if (format !== 'json' && !quiet) {
         const parsed = new URL(url);
         const target =
           parsed.pathname && parsed.pathname !== '/'
@@ -314,6 +319,12 @@ export function registerCheckCommand(program: Command): void {
         ...(parityPassThreshold != null && { parityPassThreshold }),
         ...(parityWarnThreshold != null && { parityWarnThreshold }),
         ...(parityExclusions && { parityExclusions }),
+        // Progress goes to stderr so it never contaminates parseable stdout
+        // formats (json, piped scorecard output).
+        ...(!quiet && {
+          onProgress: (event: CheckProgressEvent) =>
+            process.stderr.write(formatProgressEvent(event)),
+        }),
       };
 
       const validation = validateRunnerOptions(runnerOptions);
