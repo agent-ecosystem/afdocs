@@ -22,7 +22,7 @@ function makeReport(
   return {
     url: 'https://example.com',
     timestamp: new Date().toISOString(),
-    specUrl: 'https://agentdocsspec.com/spec/',
+    specUrl: 'https://agentdocsspec.com/spec/web/',
     results,
     summary,
     ...overrides,

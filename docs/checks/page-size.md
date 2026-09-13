@@ -8,10 +8,10 @@ This category also covers the related problem of pages that technically fit with
 
 Whether pages contain server-rendered content or are empty client-side application shells.
 
-|            |                                                                          |
-| ---------- | ------------------------------------------------------------------------ |
-| **Weight** | Critical (10)                                                            |
-| **Spec**   | [rendering-strategy](https://agentdocsspec.com/spec/#rendering-strategy) |
+|            |                                                                                        |
+| ---------- | -------------------------------------------------------------------------------------- |
+| **Weight** | Critical (10)                                                                          |
+| **Spec**   | [rendering-strategy](https://agentdocsspec.com/spec/web/page-size/#rendering-strategy) |
 
 ### Why it matters
 
@@ -50,11 +50,11 @@ The same proportion drives the [HTML path coefficient](/agent-score-calculation#
 
 Character count when documentation is served as markdown.
 
-|                |                                                                          |
-| -------------- | ------------------------------------------------------------------------ |
-| **Weight**     | High (7)                                                                 |
-| **Depends on** | `markdown-url-support` or `content-negotiation`                          |
-| **Spec**       | [page-size-markdown](https://agentdocsspec.com/spec/#page-size-markdown) |
+|                |                                                                                        |
+| -------------- | -------------------------------------------------------------------------------------- |
+| **Weight**     | High (7)                                                                               |
+| **Depends on** | `markdown-url-support` or `content-negotiation`                                        |
+| **Spec**       | [page-size-markdown](https://agentdocsspec.com/spec/web/page-size/#page-size-markdown) |
 
 ### Why it matters
 
@@ -78,10 +78,10 @@ This is the best-case scenario for agent consumption. Markdown size directly cor
 
 Character count of the HTML response and the post-conversion size when converted to markdown.
 
-|            |                                                                  |
-| ---------- | ---------------------------------------------------------------- |
-| **Weight** | High (7)                                                         |
-| **Spec**   | [page-size-html](https://agentdocsspec.com/spec/#page-size-html) |
+|            |                                                                                |
+| ---------- | ------------------------------------------------------------------------------ |
+| **Weight** | High (7)                                                                       |
+| **Spec**   | [page-size-html](https://agentdocsspec.com/spec/web/page-size/#page-size-html) |
 
 ### Why it matters
 
@@ -118,10 +118,10 @@ Markdown availability helps agents that request it, but most agents still fetch 
 
 How far into the response actual documentation content begins.
 
-|            |                                                                                  |
-| ---------- | -------------------------------------------------------------------------------- |
-| **Weight** | Medium (4)                                                                       |
-| **Spec**   | [content-start-position](https://agentdocsspec.com/spec/#content-start-position) |
+|            |                                                                                                |
+| ---------- | ---------------------------------------------------------------------------------------------- |
+| **Weight** | Medium (4)                                                                                     |
+| **Spec**   | [content-start-position](https://agentdocsspec.com/spec/web/page-size/#content-start-position) |
 
 ### Why it matters
 

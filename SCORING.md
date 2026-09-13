@@ -34,73 +34,73 @@ The 23 checks are grouped into seven categories. Each check is assigned a **weig
 
 How agents find and navigate your documentation.
 
-| Check                                                                              | Weight        | What it measures                                                                                                         |
-| ---------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| [llms-txt-exists](https://agentdocsspec.com/spec/#llms-txt-exists)                 | Critical (10) | Whether your site has an llms.txt file. The primary navigation mechanism for agents.                                     |
-| [llms-txt-valid](https://agentdocsspec.com/spec/#llms-txt-valid)                   | Medium (4)    | Whether your llms.txt follows standard structure so agents can parse it reliably.                                        |
-| [llms-txt-size](https://agentdocsspec.com/spec/#llms-txt-size)                     | High (7)      | Whether your llms.txt fits within agent context windows. Truncated indexes defeat their purpose.                         |
-| [llms-txt-links-resolve](https://agentdocsspec.com/spec/#llms-txt-links-resolve)   | High (7)      | Whether links in your llms.txt actually work. Broken links send agents down dead ends with high confidence.              |
-| [llms-txt-links-markdown](https://agentdocsspec.com/spec/#llms-txt-links-markdown) | High (7)      | Whether llms.txt links point to markdown rather than HTML. Agents work significantly less effectively with HTML content. |
-| [llms-txt-directive-html](https://agentdocsspec.com/spec/#llms-txt-directive-html) | High (7)      | Whether your HTML pages tell agents where to find llms.txt. Without this, agents won't know it exists.                   |
-| [llms-txt-directive-md](https://agentdocsspec.com/spec/#llms-txt-directive-md)     | Medium (4)    | Whether your markdown pages tell agents where to find llms.txt.                                                          |
+| Check                                                                                                          | Weight        | What it measures                                                                                                         |
+| -------------------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [llms-txt-exists](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-exists)                 | Critical (10) | Whether your site has an llms.txt file. The primary navigation mechanism for agents.                                     |
+| [llms-txt-valid](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-valid)                   | Medium (4)    | Whether your llms.txt follows standard structure so agents can parse it reliably.                                        |
+| [llms-txt-size](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-size)                     | High (7)      | Whether your llms.txt fits within agent context windows. Truncated indexes defeat their purpose.                         |
+| [llms-txt-links-resolve](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-links-resolve)   | High (7)      | Whether links in your llms.txt actually work. Broken links send agents down dead ends with high confidence.              |
+| [llms-txt-links-markdown](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-links-markdown) | High (7)      | Whether llms.txt links point to markdown rather than HTML. Agents work significantly less effectively with HTML content. |
+| [llms-txt-directive-html](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-directive-html) | High (7)      | Whether your HTML pages tell agents where to find llms.txt. Without this, agents won't know it exists.                   |
+| [llms-txt-directive-md](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-directive-md)     | Medium (4)    | Whether your markdown pages tell agents where to find llms.txt.                                                          |
 
 ### Markdown Availability
 
 Whether agents can get documentation in their preferred format.
 
-| Check                                                                        | Weight     | What it measures                                                                                     |
-| ---------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------- |
-| [markdown-url-support](https://agentdocsspec.com/spec/#markdown-url-support) | High (7)   | Whether appending .md to a URL returns markdown. This is the core format capability agents look for. |
-| [content-negotiation](https://agentdocsspec.com/spec/#content-negotiation)   | Medium (4) | Whether your server returns markdown when agents request it via `Accept: text/markdown`.             |
+| Check                                                                                                  | Weight     | What it measures                                                                                     |
+| ------------------------------------------------------------------------------------------------------ | ---------- | ---------------------------------------------------------------------------------------------------- |
+| [markdown-url-support](https://agentdocsspec.com/spec/web/markdown-availability/#markdown-url-support) | High (7)   | Whether appending .md to a URL returns markdown. This is the core format capability agents look for. |
+| [content-negotiation](https://agentdocsspec.com/spec/web/markdown-availability/#content-negotiation)   | Medium (4) | Whether your server returns markdown when agents request it via `Accept: text/markdown`.             |
 
 ### Page Size and Truncation Risk
 
 Whether agents can process your pages without losing content.
 
-| Check                                                                            | Weight        | What it measures                                                                                      |
-| -------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------- |
-| [rendering-strategy](https://agentdocsspec.com/spec/#rendering-strategy)         | Critical (10) | Whether pages are fully server-rendered, server-rendered but sparse, or empty SPA shells.             |
-| [page-size-markdown](https://agentdocsspec.com/spec/#page-size-markdown)         | High (7)      | Whether markdown pages fit within agent processing limits (~100K characters).                         |
-| [page-size-html](https://agentdocsspec.com/spec/#page-size-html)                 | High (7)      | Whether HTML pages, once converted to text, fit within agent processing limits.                       |
-| [content-start-position](https://agentdocsspec.com/spec/#content-start-position) | Medium (4)    | Whether documentation content starts near the top of the page, or is buried under boilerplate CSS/JS. |
+| Check                                                                                          | Weight        | What it measures                                                                                      |
+| ---------------------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------- |
+| [rendering-strategy](https://agentdocsspec.com/spec/web/page-size/#rendering-strategy)         | Critical (10) | Whether pages are fully server-rendered, server-rendered but sparse, or empty SPA shells.             |
+| [page-size-markdown](https://agentdocsspec.com/spec/web/page-size/#page-size-markdown)         | High (7)      | Whether markdown pages fit within agent processing limits (~100K characters).                         |
+| [page-size-html](https://agentdocsspec.com/spec/web/page-size/#page-size-html)                 | High (7)      | Whether HTML pages, once converted to text, fit within agent processing limits.                       |
+| [content-start-position](https://agentdocsspec.com/spec/web/page-size/#content-start-position) | Medium (4)    | Whether documentation content starts near the top of the page, or is buried under boilerplate CSS/JS. |
 
 ### Content Structure
 
 Whether page content is structured in ways agents can consume.
 
-| Check                                                                                        | Weight     | What it measures                                                                                        |
-| -------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
-| [tabbed-content-serialization](https://agentdocsspec.com/spec/#tabbed-content-serialization) | Medium (4) | Whether tabbed UI components serialize to a reasonable size. Tabs can multiply page size dramatically.  |
-| [section-header-quality](https://agentdocsspec.com/spec/#section-header-quality)             | Low (2)    | Whether headers in tabbed sections include variant context (e.g., "Step 1 (Python)" vs. just "Step 1"). |
-| [markdown-code-fence-validity](https://agentdocsspec.com/spec/#markdown-code-fence-validity) | Medium (4) | Whether code fences are properly closed. An unclosed fence corrupts all content after the break point.  |
+| Check                                                                                                              | Weight     | What it measures                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------- |
+| [tabbed-content-serialization](https://agentdocsspec.com/spec/web/content-structure/#tabbed-content-serialization) | Medium (4) | Whether tabbed UI components serialize to a reasonable size. Tabs can multiply page size dramatically.  |
+| [section-header-quality](https://agentdocsspec.com/spec/web/content-structure/#section-header-quality)             | Low (2)    | Whether headers in tabbed sections include variant context (e.g., "Step 1 (Python)" vs. just "Step 1"). |
+| [markdown-code-fence-validity](https://agentdocsspec.com/spec/web/content-structure/#markdown-code-fence-validity) | Medium (4) | Whether code fences are properly closed. An unclosed fence corrupts all content after the break point.  |
 
 ### URL Stability and Redirects
 
 Whether documentation URLs behave predictably for agents.
 
-| Check                                                                  | Weight     | What it measures                                                                                        |
-| ---------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
-| [http-status-codes](https://agentdocsspec.com/spec/#http-status-codes) | High (7)   | Whether missing pages return 404. Soft 404s (returning 200 with error content) actively mislead agents. |
-| [redirect-behavior](https://agentdocsspec.com/spec/#redirect-behavior) | Medium (4) | Whether redirects use standard HTTP methods. Cross-host and JavaScript redirects break many agents.     |
+| Check                                                                                    | Weight     | What it measures                                                                                        |
+| ---------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
+| [http-status-codes](https://agentdocsspec.com/spec/web/url-stability/#http-status-codes) | High (7)   | Whether missing pages return 404. Soft 404s (returning 200 with error content) actively mislead agents. |
+| [redirect-behavior](https://agentdocsspec.com/spec/web/url-stability/#redirect-behavior) | Medium (4) | Whether redirects use standard HTTP methods. Cross-host and JavaScript redirects break many agents.     |
 
 ### Observability and Content Health
 
 Whether agent-facing resources stay accurate over time.
 
-| Check                                                                              | Weight     | What it measures                                                                                           |
-| ---------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
-| [llms-txt-coverage](https://agentdocsspec.com/spec/#llms-txt-coverage)             | Medium (4) | Whether your llms.txt reflects your current site. A stale index sends agents to outdated or missing pages. |
-| [markdown-content-parity](https://agentdocsspec.com/spec/#markdown-content-parity) | Medium (4) | Whether markdown and HTML versions of pages contain the same content.                                      |
-| [cache-header-hygiene](https://agentdocsspec.com/spec/#cache-header-hygiene)       | Low (2)    | Whether cache lifetimes allow content updates to reach agents in a reasonable timeframe.                   |
+| Check                                                                                                | Weight     | What it measures                                                                                           |
+| ---------------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
+| [llms-txt-coverage](https://agentdocsspec.com/spec/web/observability/#llms-txt-coverage)             | Medium (4) | Whether your llms.txt reflects your current site. A stale index sends agents to outdated or missing pages. |
+| [markdown-content-parity](https://agentdocsspec.com/spec/web/observability/#markdown-content-parity) | Medium (4) | Whether markdown and HTML versions of pages contain the same content.                                      |
+| [cache-header-hygiene](https://agentdocsspec.com/spec/web/observability/#cache-header-hygiene)       | Low (2)    | Whether cache lifetimes allow content updates to reach agents in a reasonable timeframe.                   |
 
 ### Authentication and Access
 
 Whether agents can reach your documentation at all.
 
-| Check                                                                              | Weight        | What it measures                                                                                     |
-| ---------------------------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------- |
-| [auth-gate-detection](https://agentdocsspec.com/spec/#auth-gate-detection)         | Critical (10) | Whether documentation requires authentication. Auth-gated docs are invisible to agents.              |
-| [auth-alternative-access](https://agentdocsspec.com/spec/#auth-alternative-access) | Medium (4)    | Whether auth-gated sites provide alternative access paths (public llms.txt, SDK-bundled docs, etc.). |
+| Check                                                                                                 | Weight        | What it measures                                                                                     |
+| ----------------------------------------------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------- |
+| [auth-gate-detection](https://agentdocsspec.com/spec/web/authentication/#auth-gate-detection)         | Critical (10) | Whether documentation requires authentication. Auth-gated docs are invisible to agents.              |
+| [auth-alternative-access](https://agentdocsspec.com/spec/web/authentication/#auth-alternative-access) | Medium (4)    | Whether auth-gated sites provide alternative access paths (public llms.txt, SDK-bundled docs, etc.). |
 
 ## How the score is calculated
 

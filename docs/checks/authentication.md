@@ -6,10 +6,10 @@ Whether agents can reach your documentation at all. Documentation that returns l
 
 Whether documentation pages require authentication to access content.
 
-|            |                                                                            |
-| ---------- | -------------------------------------------------------------------------- |
-| **Weight** | Critical (10)                                                              |
-| **Spec**   | [auth-gate-detection](https://agentdocsspec.com/spec/#auth-gate-detection) |
+|            |                                                                                               |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| **Weight** | Critical (10)                                                                                 |
+| **Spec**   | [auth-gate-detection](https://agentdocsspec.com/spec/web/authentication/#auth-gate-detection) |
 
 ### Why it matters
 
@@ -40,7 +40,7 @@ AFDocs detects several forms of auth gating:
 - Shipping documentation with your SDK
 - Providing an MCP server for authenticated access
 
-The [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec) covers options for making private docs agent-accessible, ordered by implementation effort.
+The [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/) covers options for making private docs agent-accessible, ordered by implementation effort.
 
 ### Score impact
 
@@ -55,11 +55,11 @@ This is a Critical check with two score caps:
 
 Whether auth-gated sites provide alternative access paths agents can use.
 
-|                |                                                                                    |
-| -------------- | ---------------------------------------------------------------------------------- |
-| **Weight**     | Medium (4)                                                                         |
-| **Depends on** | `auth-gate-detection` (warn or fail)                                               |
-| **Spec**       | [auth-alternative-access](https://agentdocsspec.com/spec/#auth-alternative-access) |
+|                |                                                                                                       |
+| -------------- | ----------------------------------------------------------------------------------------------------- |
+| **Weight**     | Medium (4)                                                                                            |
+| **Depends on** | `auth-gate-detection` (warn or fail)                                                                  |
+| **Spec**       | [auth-alternative-access](https://agentdocsspec.com/spec/web/authentication/#auth-alternative-access) |
 
 ### Why it matters
 
@@ -97,6 +97,6 @@ Because AFDocs can't detect these manual paths, you won't get score credit for t
 
 ### How to fix
 
-**If this check fails**, no alternative access paths were detected for your auth-gated content. The lowest-effort option is usually providing a public `llms.txt` that lists whatever documentation can be made available without authentication. See the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec) for the full range of options.
+**If this check fails**, no alternative access paths were detected for your auth-gated content. The lowest-effort option is usually providing a public `llms.txt` that lists whatever documentation can be made available without authentication. See the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/) for the full range of options.
 
 **If this check warns**, you have partial alternative access. Expand coverage to include more of the gated documentation, or add additional access paths.

@@ -9,13 +9,13 @@
   <a href="https://www.npmjs.com/package/afdocs"><img src="https://img.shields.io/npm/v/afdocs" alt="npm"></a>
 </p>
 
-Test your documentation site against the [Agent-Friendly Documentation Spec](https://agentdocsspec.com). AFDocs runs 23 checks across 7 categories to measure how well AI coding agents can discover, navigate, and consume your docs.
+Test your documentation site against the [Agent-Friendly Documentation Spec](https://agentdocsspec.com). AFDocs runs checks across 7 categories to measure how well AI coding agents can discover, navigate, and consume your docs.
 
 Powering [Agent Score](https://buildwithfern.com/agent-score) by Fern.
 
 > **Status: Early development (0.x)**
 > Check IDs, CLI flags, and output formats may change between minor versions.
-> Implements [spec v0.5.0](https://agentdocsspec.com/spec) (2026-04-25).
+> Implements [spec v0.6.0](https://agentdocsspec.com/spec/web/) (2026-08-24). The `bot-protection-interference` check is not yet scored; stalled responses currently surface as body-timeout fetch errors, with the run-level diagnostic tracked in [#104](https://github.com/agent-ecosystem/afdocs/issues/104).
 
 ## Quick start
 

@@ -58,8 +58,16 @@ export const DEFAULT_PARITY_WARN_THRESHOLD = 20;
 /** Minimum discovered pages before page-level scores are considered meaningful. */
 export const MIN_PAGES_FOR_SCORING = 5;
 
-/** Base URL for the Agent-Friendly Documentation Spec. */
-export const SPEC_BASE_URL = 'https://agentdocsspec.com/spec/';
+/** Base URL for the Web Documentation Delivery Spec. */
+export const SPEC_BASE_URL = 'https://agentdocsspec.com/spec/web/';
+
+/**
+ * URL of a check's definition in the spec. Checks are documented on
+ * per-category pages (category ids match the spec site's page slugs).
+ */
+export function specCheckUrl(category: string, checkId: string): string {
+  return `${SPEC_BASE_URL}${category}/#${checkId}`;
+}
 
 /** Version of the Agent-Friendly Documentation Spec implemented by this release. */
 export const SPEC_VERSION = 'v0.5.0';
