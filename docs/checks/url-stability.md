@@ -6,10 +6,10 @@ Whether documentation URLs behave predictably for agents. Agents retrieve URLs f
 
 Whether error pages return correct HTTP status codes.
 
-|            |                                                                        |
-| ---------- | ---------------------------------------------------------------------- |
-| **Weight** | High (7)                                                               |
-| **Spec**   | [http-status-codes](https://agentdocsspec.com/spec/#http-status-codes) |
+|            |                                                                                          |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| **Weight** | High (7)                                                                                 |
+| **Spec**   | [http-status-codes](https://agentdocsspec.com/spec/web/url-stability/#http-status-codes) |
 
 ### Why it matters
 
@@ -56,10 +56,10 @@ A more interesting long-term approach: if you notice agents consistently request
 
 Whether redirects use standard HTTP methods and stay on the same host.
 
-|            |                                                                        |
-| ---------- | ---------------------------------------------------------------------- |
-| **Weight** | Medium (4)                                                             |
-| **Spec**   | [redirect-behavior](https://agentdocsspec.com/spec/#redirect-behavior) |
+|            |                                                                                          |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| **Weight** | Medium (4)                                                                               |
+| **Spec**   | [redirect-behavior](https://agentdocsspec.com/spec/web/url-stability/#redirect-behavior) |
 
 ### Why it matters
 

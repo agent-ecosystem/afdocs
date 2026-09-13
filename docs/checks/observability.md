@@ -6,11 +6,11 @@ Whether agent-facing resources stay accurate over time. Getting `llms.txt` and m
 
 How much of your site's documentation is represented in `llms.txt`.
 
-|                |                                                                        |
-| -------------- | ---------------------------------------------------------------------- |
-| **Weight**     | Medium (4)                                                             |
-| **Depends on** | `llms-txt-exists`                                                      |
-| **Spec**       | [llms-txt-coverage](https://agentdocsspec.com/spec/#llms-txt-coverage) |
+|                |                                                                                          |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| **Weight**     | Medium (4)                                                                               |
+| **Depends on** | `llms-txt-exists`                                                                        |
+| **Spec**       | [llms-txt-coverage](https://agentdocsspec.com/spec/web/observability/#llms-txt-coverage) |
 
 ### Why it matters
 
@@ -80,7 +80,7 @@ Paths like `/changelog`, `/releases`, and `/security` are **not** excluded becau
 
 ### Omitted subtrees
 
-When your `llms.txt` uses [progressive disclosure](https://agentdocsspec.com/spec/#progressive-disclosure-for-large-documentation-sets) (nested `llms.txt` files), the walker descends one level into linked `.txt` files. Any `.txt` files found at that depth (which the walker does not descend into) are treated as "omitted subtrees." Sitemap pages under those subtree prefixes are excluded from the coverage denominator rather than counted as missing.
+When your `llms.txt` uses [progressive disclosure](https://agentdocsspec.com/spec/web/content-discoverability/#progressive-disclosure-for-large-documentation-sets) (nested `llms.txt` files), the walker descends one level into linked `.txt` files. Any `.txt` files found at that depth (which the walker does not descend into) are treated as "omitted subtrees." Sitemap pages under those subtree prefixes are excluded from the coverage denominator rather than counted as missing.
 
 This means deeply nested `llms.txt` structures aren't penalized. The output distinguishes directly-verified pages from omitted subtrees.
 
@@ -106,11 +106,11 @@ Each per-product run picks up that section's `llms.txt` as canonical. For the si
 
 Whether markdown and HTML versions of pages contain the same content.
 
-|                |                                                                                    |
-| -------------- | ---------------------------------------------------------------------------------- |
-| **Weight**     | Medium (4)                                                                         |
-| **Depends on** | `markdown-url-support` or `content-negotiation`                                    |
-| **Spec**       | [markdown-content-parity](https://agentdocsspec.com/spec/#markdown-content-parity) |
+|                |                                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------- |
+| **Weight**     | Medium (4)                                                                                           |
+| **Depends on** | `markdown-url-support` or `content-negotiation`                                                      |
+| **Spec**       | [markdown-content-parity](https://agentdocsspec.com/spec/web/observability/#markdown-content-parity) |
 
 ### Why it matters
 
@@ -183,10 +183,10 @@ Note: `data-markdown-ignore` is built in and does not need to be listed in `pari
 
 Whether cache headers on `llms.txt` and markdown endpoints allow timely updates.
 
-|            |                                                                              |
-| ---------- | ---------------------------------------------------------------------------- |
-| **Weight** | Low (2)                                                                      |
-| **Spec**   | [cache-header-hygiene](https://agentdocsspec.com/spec/#cache-header-hygiene) |
+|            |                                                                                                |
+| ---------- | ---------------------------------------------------------------------------------------------- |
+| **Weight** | Low (2)                                                                                        |
+| **Spec**   | [cache-header-hygiene](https://agentdocsspec.com/spec/web/observability/#cache-header-hygiene) |
 
 ### Why it matters
 

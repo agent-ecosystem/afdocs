@@ -1,6 +1,6 @@
 # Checks Reference
 
-AFDocs runs 23 checks across 7 categories. Each check implements a section of the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec), which documents the observed agent behaviors and failure modes that motivated the check.
+AFDocs runs 23 checks across 7 categories. Each check implements a section of the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/), which documents the observed agent behaviors and failure modes that motivated the check.
 
 ## Categories
 

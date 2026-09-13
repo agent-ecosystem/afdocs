@@ -8,10 +8,10 @@ The checks in this section focus on structural patterns that have measurable imp
 
 Whether tabbed UI components create oversized output when serialized.
 
-|            |                                                                                              |
-| ---------- | -------------------------------------------------------------------------------------------- |
-| **Weight** | Medium (4)                                                                                   |
-| **Spec**   | [tabbed-content-serialization](https://agentdocsspec.com/spec/#tabbed-content-serialization) |
+|            |                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Weight** | Medium (4)                                                                                                         |
+| **Spec**   | [tabbed-content-serialization](https://agentdocsspec.com/spec/web/content-structure/#tabbed-content-serialization) |
 
 ### Why it matters
 
@@ -38,11 +38,11 @@ If tabbed content creates oversized output, consider these approaches:
 
 Whether headers in tabbed sections include enough context to be meaningful without the surrounding UI.
 
-|                |                                                                                  |
-| -------------- | -------------------------------------------------------------------------------- |
-| **Weight**     | Low (2)                                                                          |
-| **Depends on** | `tabbed-content-serialization`                                                   |
-| **Spec**       | [section-header-quality](https://agentdocsspec.com/spec/#section-header-quality) |
+|                |                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------ |
+| **Weight**     | Low (2)                                                                                                |
+| **Depends on** | `tabbed-content-serialization`                                                                         |
+| **Spec**       | [section-header-quality](https://agentdocsspec.com/spec/web/content-structure/#section-header-quality) |
 
 ### Why it matters
 
@@ -66,11 +66,11 @@ Add variant context to headers in tabbed sections. For example, change "Step 1" 
 
 Whether markdown content has properly closed code fences.
 
-|                |                                                                                              |
-| -------------- | -------------------------------------------------------------------------------------------- |
-| **Weight**     | Medium (4)                                                                                   |
-| **Depends on** | `markdown-url-support` or `content-negotiation`                                              |
-| **Spec**       | [markdown-code-fence-validity](https://agentdocsspec.com/spec/#markdown-code-fence-validity) |
+|                |                                                                                                                    |
+| -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Weight**     | Medium (4)                                                                                                         |
+| **Depends on** | `markdown-url-support` or `content-negotiation`                                                                    |
+| **Spec**       | [markdown-code-fence-validity](https://agentdocsspec.com/spec/web/content-structure/#markdown-code-fence-validity) |
 
 ### Why it matters
 

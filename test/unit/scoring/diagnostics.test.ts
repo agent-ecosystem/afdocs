@@ -18,7 +18,7 @@ function defaultReport(): ReportResult {
   return {
     url: 'https://example.com',
     timestamp: new Date().toISOString(),
-    specUrl: 'https://agentdocsspec.com/spec/',
+    specUrl: 'https://agentdocsspec.com/spec/web/',
     results: [],
     summary: { total: 0, pass: 0, warn: 0, fail: 0, skip: 0, error: 0 },
     samplingStrategy: 'random',

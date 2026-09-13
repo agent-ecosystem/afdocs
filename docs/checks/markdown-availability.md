@@ -6,10 +6,10 @@ Whether agents can get documentation as markdown instead of HTML. Agents work mo
 
 Whether appending `.md` to a documentation URL returns valid markdown.
 
-|            |                                                                              |
-| ---------- | ---------------------------------------------------------------------------- |
-| **Weight** | High (7)                                                                     |
-| **Spec**   | [markdown-url-support](https://agentdocsspec.com/spec/#markdown-url-support) |
+|            |                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------ |
+| **Weight** | High (7)                                                                                               |
+| **Spec**   | [markdown-url-support](https://agentdocsspec.com/spec/web/markdown-availability/#markdown-url-support) |
 
 ### Why it matters
 
@@ -43,10 +43,10 @@ Configure your docs platform to serve `.md` variants for all documentation pages
 
 Whether your server returns markdown when agents send `Accept: text/markdown`.
 
-|            |                                                                            |
-| ---------- | -------------------------------------------------------------------------- |
-| **Weight** | Medium (4)                                                                 |
-| **Spec**   | [content-negotiation](https://agentdocsspec.com/spec/#content-negotiation) |
+|            |                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------- |
+| **Weight** | Medium (4)                                                                                           |
+| **Spec**   | [content-negotiation](https://agentdocsspec.com/spec/web/markdown-availability/#content-negotiation) |
 
 ### Why it matters
 

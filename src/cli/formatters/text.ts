@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import type { ReportResult, CheckResult } from '../../types.js';
-import { SPEC_BASE_URL } from '../../constants.js';
+import { SPEC_BASE_URL, specCheckUrl } from '../../constants.js';
 import { getResolution } from '../../scoring/resolutions.js';
 
 const STATUS_ICONS: Record<string, string> = {
@@ -364,7 +364,7 @@ function formatResult(result: CheckResult, allResults?: CheckResult[]): string {
 
   // Add spec link for warn/fail/error results
   if (result.status === 'warn' || result.status === 'fail' || result.status === 'error') {
-    line += `\n      ${chalk.dim(`Learn more: ${SPEC_BASE_URL}#${result.id}`)}`;
+    line += `\n      ${chalk.dim(`Learn more: ${specCheckUrl(result.category, result.id)}`)}`;
   }
 
   return line;

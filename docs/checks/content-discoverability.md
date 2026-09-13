@@ -8,10 +8,10 @@ These seven checks carry the most combined weight of any category. Without disco
 
 Whether your site has an `llms.txt` file at a discoverable location.
 
-|            |                                                                    |
-| ---------- | ------------------------------------------------------------------ |
-| **Weight** | Critical (10)                                                      |
-| **Spec**   | [llms-txt-exists](https://agentdocsspec.com/spec/#llms-txt-exists) |
+|            |                                                                                                |
+| ---------- | ---------------------------------------------------------------------------------------------- |
+| **Weight** | Critical (10)                                                                                  |
+| **Spec**   | [llms-txt-exists](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-exists) |
 
 ### Why it matters
 
@@ -74,11 +74,11 @@ If this check fails, the score is [capped at D (59)](/agent-score-calculation#sc
 
 Whether your `llms.txt` follows the [llmstxt.org](https://llmstxt.org/) structure so agents can parse it reliably.
 
-|                |                                                                  |
-| -------------- | ---------------------------------------------------------------- |
-| **Weight**     | Medium (4)                                                       |
-| **Depends on** | `llms-txt-exists`                                                |
-| **Spec**       | [llms-txt-valid](https://agentdocsspec.com/spec/#llms-txt-valid) |
+|                |                                                                                              |
+| -------------- | -------------------------------------------------------------------------------------------- |
+| **Weight**     | Medium (4)                                                                                   |
+| **Depends on** | `llms-txt-exists`                                                                            |
+| **Spec**       | [llms-txt-valid](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-valid) |
 
 ### Why it matters
 
@@ -104,11 +104,11 @@ A well-structured `llms.txt` gives agents a reliable map of the documentation. I
 
 Whether your `llms.txt` fits within agent context windows.
 
-|                |                                                                |
-| -------------- | -------------------------------------------------------------- |
-| **Weight**     | High (7)                                                       |
-| **Depends on** | `llms-txt-exists`                                              |
-| **Spec**       | [llms-txt-size](https://agentdocsspec.com/spec/#llms-txt-size) |
+|                |                                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------ |
+| **Weight**     | High (7)                                                                                   |
+| **Depends on** | `llms-txt-exists`                                                                          |
+| **Spec**       | [llms-txt-size](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-size) |
 
 ### Why it matters
 
@@ -138,11 +138,11 @@ When `llms.txt` is oversized, the [index truncation coefficient](/agent-score-ca
 
 Whether the URLs listed in your `llms.txt` actually work.
 
-|                |                                                                                  |
-| -------------- | -------------------------------------------------------------------------------- |
-| **Weight**     | High (7)                                                                         |
-| **Depends on** | `llms-txt-exists`                                                                |
-| **Spec**       | [llms-txt-links-resolve](https://agentdocsspec.com/spec/#llms-txt-links-resolve) |
+|                |                                                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Weight**     | High (7)                                                                                                     |
+| **Depends on** | `llms-txt-exists`                                                                                            |
+| **Spec**       | [llms-txt-links-resolve](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-links-resolve) |
 
 ### Why it matters
 
@@ -168,11 +168,11 @@ The best long-term fix is generating `llms.txt` at build time so it stays in syn
 
 Whether the URLs in your `llms.txt` point to markdown content rather than HTML.
 
-|                |                                                                                    |
-| -------------- | ---------------------------------------------------------------------------------- |
-| **Weight**     | High (7)                                                                           |
-| **Depends on** | `llms-txt-exists`                                                                  |
-| **Spec**       | [llms-txt-links-markdown](https://agentdocsspec.com/spec/#llms-txt-links-markdown) |
+|                |                                                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Weight**     | High (7)                                                                                                       |
+| **Depends on** | `llms-txt-exists`                                                                                              |
+| **Spec**       | [llms-txt-links-markdown](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-links-markdown) |
 
 ### Why it matters
 
@@ -202,10 +202,10 @@ A warning on this check carries a bigger penalty in scoring because it means mar
 
 Whether the HTML version of your documentation pages tells agents where to find `llms.txt`.
 
-|            |                                                                                    |
-| ---------- | ---------------------------------------------------------------------------------- |
-| **Weight** | High (7)                                                                           |
-| **Spec**   | [llms-txt-directive-html](https://agentdocsspec.com/spec/#llms-txt-directive-html) |
+|            |                                                                                                                |
+| ---------- | -------------------------------------------------------------------------------------------------------------- |
+| **Weight** | High (7)                                                                                                       |
+| **Spec**   | [llms-txt-directive-html](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-directive-html) |
 
 ### Why it matters
 
@@ -231,11 +231,11 @@ Add a visually-hidden element near the top of each page (e.g., a `<div>` with CS
 
 Whether the markdown version of your documentation pages tells agents where to find `llms.txt`.
 
-|                |                                                                                |
-| -------------- | ------------------------------------------------------------------------------ |
-| **Weight**     | Medium (4)                                                                     |
-| **Depends on** | `markdown-url-support` or `content-negotiation`                                |
-| **Spec**       | [llms-txt-directive-md](https://agentdocsspec.com/spec/#llms-txt-directive-md) |
+|                |                                                                                                            |
+| -------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Weight**     | Medium (4)                                                                                                 |
+| **Depends on** | `markdown-url-support` or `content-negotiation`                                                            |
+| **Spec**       | [llms-txt-directive-md](https://agentdocsspec.com/spec/web/content-discoverability/#llms-txt-directive-md) |
 
 ### Why it matters
 
