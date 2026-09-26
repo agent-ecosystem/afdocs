@@ -155,6 +155,8 @@ afdocs check https://docs.example.com --url-path-pattern html
 afdocs check https://docs.example.com --url-path-pattern md
 ```
 
+When a sampled page derived from a `.md` link returns 404, afdocs drops it from the sample and reports the skipped URLs as a discovery warning under `--verbose`. A few skipped URLs usually means the site links to markdown-only files (a markdown sitemap, for example) and needs no action. If most of the sample is skipped, the derived URLs do not match how the site serves pages, and this flag is the fix.
+
 The same option is available in `agent-docs.config.yml` as `options.urlPathPattern`.
 
 ### Request behavior
