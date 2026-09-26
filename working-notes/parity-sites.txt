@@ -2,7 +2,7 @@
 # Format: <slug> <url>
 # Lines starting with # are comments.
 
-anthropic           https://platform.claude.com/docs/en/home
+anthropic           https://platform.claude.com/docs/en
 loops               https://loops.so/docs
 resend              https://resend.com/docs
 neon                https://neon.tech/docs
