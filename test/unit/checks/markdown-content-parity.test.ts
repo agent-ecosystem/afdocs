@@ -2089,6 +2089,224 @@ TLS certificates are verified by default to ensure secure communication channels
     expect(result.details?.segmentationElementsStripped).toBe(1);
   });
 
+  it('strips inline data-markdown-ignore badges in API schema rows (issue #106)', async () => {
+    // OpenAPI reference platforms (Fern) render each schema field as a flex
+    // row of adjacent inline spans: the key, then type/required badges. The
+    // DOM text of that row is run together ("workspacestringRequired") and
+    // can never match the markdown's structured "- `workspace` (string,
+    // required)". The badges carry data-markdown-ignore; once stripped, the
+    // bare key is under MIN_SEGMENT_LENGTH and drops out, and the field
+    // descriptions (which the markdown does carry) are what get compared.
+    const row = (key: string, type: string, req: string, desc: string) => `
+      <div class="fern-api-property">
+        <div class="inline-flex items-center gap-x-2"><span class="fern-api-property-key">${key}</span><span class="fern-api-property-meta" data-markdown-ignore=""><span class="fern-api-property-type">${type}</span><span class="fern-api-property-optional">${req}</span></span></div>
+        <div class="fern-prose prose fern-api-property-description">${desc}</div>
+      </div>`;
+    const fields: Array<[string, string, string, string]> = [
+      [
+        'name',
+        'string',
+        'Required',
+        'Name of the virtual model within the workspace. Must be unique per workspace.',
+      ],
+      [
+        'default_model_entity',
+        'string',
+        'Optional',
+        'Model entity to route to, in “workspace/name” format. Written into the request.',
+      ],
+      [
+        'autoprovisioned',
+        'boolean',
+        'Optional',
+        'Marks this VirtualModel as controller-managed and eligible for cleanup.',
+      ],
+      [
+        'models',
+        'list of objects',
+        'Optional',
+        'Model entity references used by this VirtualModel when resolving a backend.',
+      ],
+      [
+        'request_middleware',
+        'list of objects',
+        'Optional',
+        'Ordered list of middleware plugins applied before proxying to the backend.',
+      ],
+      [
+        'response_middleware',
+        'list of objects',
+        'Optional',
+        'Ordered list of middleware plugins applied after the backend response is received.',
+      ],
+      [
+        'post_response_middleware',
+        'list of objects',
+        'Optional',
+        'Ordered list of middleware plugins invoked after the response has been returned.',
+      ],
+      [
+        'override_proxy',
+        'string',
+        'Optional',
+        'Plugin-provided proxy implementation for the gateway to use instead of its default.',
+      ],
+      [
+        'guardrail_config_ids',
+        'list of strings',
+        'Optional',
+        'System-managed guardrail configs applied by this VirtualModel’s middleware.',
+      ],
+      [
+        'project',
+        'string',
+        'Optional',
+        'The name of the project associated with this entity in the workspace.',
+      ],
+    ];
+    const buildHtml = (withAttr: boolean) => {
+      const body = `<html><body><main><article>
+      <h1>Create VirtualModel</h1>
+      <div class="fern-prose prose">
+        <p>Create a new VirtualModel in the given workspace using this endpoint.</p>
+        <p>A VirtualModel defines an ordered middleware pipeline that the gateway executes.</p>
+        ${fields.map((f) => row(...f)).join('')}
+      </div>
+    </article></main></body></html>`;
+      return withAttr ? body : body.replace(/ data-markdown-ignore=""/g, '');
+    };
+    const markdown = `# Create VirtualModel
+
+Create a new VirtualModel in the given workspace using this endpoint.
+
+A VirtualModel defines an ordered middleware pipeline that the gateway executes.
+
+### Body (application/json)
+
+${fields
+  .map(([key, type, req, desc]) => `- \`${key}\` (${type}, ${req.toLowerCase()}) — ${desc}`)
+  .join('\n')}
+`;
+
+    const run = async (withAttr: boolean) => {
+      const html = buildHtml(withAttr);
+      const host = withAttr ? 'mcp-fern-tagged.local' : 'mcp-fern-untagged.local';
+      const url = `http://${host}/reference/create-virtual-model`;
+      server.use(
+        http.get(
+          url,
+          () =>
+            new HttpResponse(html, {
+              status: 200,
+              headers: { 'Content-Type': 'text/html' },
+            }),
+        ),
+      );
+      const ctx = makeCtx([{ url, markdown, htmlBody: html }], host);
+      return check.run(ctx);
+    };
+
+    // With the badges tagged, every remaining segment is prose the markdown carries.
+    const tagged = await run(true);
+    expect(tagged.status).toBe('pass');
+    const taggedPages = tagged.details?.pageResults as Array<{
+      missingSegments: number;
+      totalSegments: number;
+      sampleDiffs: string[];
+    }>;
+    expect(taggedPages[0].missingSegments).toBe(0);
+    expect(taggedPages[0].totalSegments).toBeGreaterThanOrEqual(10);
+    expect(tagged.details?.segmentationElementsStripped).toBe(fields.length);
+
+    // Without the attribute the run-together rows are counted as missing:
+    // this is the failure mode the issue reported, and the guard that keeps
+    // this fixture meaningful.
+    const untagged = await run(false);
+    expect(untagged.status).not.toBe('pass');
+    const untaggedPages = untagged.details?.pageResults as Array<{
+      missingSegments: number;
+      sampleDiffs: string[];
+    }>;
+    expect(untaggedPages[0].missingSegments).toBeGreaterThan(0);
+    expect(untaggedPages[0].sampleDiffs.join('\n')).toContain('default_model_entitystringOptional');
+  });
+
+  it('matches HTML that shows markdown syntax verbatim (issue #106)', async () => {
+    // Some platforms display an OpenAPI description as raw text instead of
+    // rendering it, so the HTML carries literal backticks, literal "- " list
+    // markers and hard line wraps, while the markdown side has those stripped
+    // as syntax. Markdown "--" also renders as an em dash in HTML. All three
+    // are one-sided syntax-vs-literal differences that normalize() absorbs.
+    const html = `<html><body><main><article>
+      <h1>Model Inference Proxy</h1>
+      <p>Proxy requests to model entity inference endpoints in the workspace.</p>
+      <div class="whitespace-pre-wrap">All inference requests must resolve to a \`VirtualModel\`. The platform's
+provider reconciler auto-creates an implicit \`autoprovisioned\` VirtualModel
+for every served model entity so this is the typical case for operators.
+
+Query Parameters:
+- page, page_size: Pagination controls for the listing endpoint
+- sort: Sort field for the returned workspace records
+- filter: Advanced filters (JSON, text, or bracket notation)
+1. First step of the request flow described in prose
+2. Second step of the request flow described in prose</div>
+      <p>What model to serve and how — independent of the executor it runs on.</p>
+      <p>The compiler resolves the weight source per engine at deploy time.</p>
+      <p>Serving fields override the model defaults when both are present.</p>
+      <p>Requests for which no VirtualModel can be found return a not-found error.</p>
+      <p>Operators can also create custom VirtualModels for routing and plugin chains.</p>
+      <p>Each entry references a stored plugin configuration by its identifier.</p>
+    </article></main></body></html>`;
+    const markdown = `# Model Inference Proxy
+
+Proxy requests to model entity inference endpoints in the workspace.
+
+All inference requests must resolve to a \`VirtualModel\`. The platform's
+provider reconciler auto-creates an implicit \`autoprovisioned\` VirtualModel
+for every served model entity so this is the typical case for operators.
+
+Query Parameters:
+- page, page_size: Pagination controls for the listing endpoint
+- sort: Sort field for the returned workspace records
+- filter: Advanced filters (JSON, text, or bracket notation)
+1. First step of the request flow described in prose
+2. Second step of the request flow described in prose
+
+What model to serve and how -- independent of the executor it runs on.
+
+The compiler resolves the weight source per engine at deploy time.
+
+Serving fields override the model defaults when both are present.
+
+Requests for which no VirtualModel can be found return a not-found error.
+
+Operators can also create custom VirtualModels for routing and plugin chains.
+
+Each entry references a stored plugin configuration by its identifier.`;
+    const url = 'http://mcp-raw-md.local/reference/proxy';
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-raw-md.local');
+    const result = await check.run(ctx);
+    const pageResults = result.details?.pageResults as Array<{
+      missingSegments: number;
+      totalSegments: number;
+      sampleDiffs: string[];
+    }>;
+    expect(pageResults[0].sampleDiffs).toEqual([]);
+    expect(pageResults[0].totalSegments).toBeGreaterThanOrEqual(10);
+    expect(pageResults[0].missingSegments).toBe(0);
+    expect(result.status).toBe('pass');
+  });
+
   it('strips form-control chrome (select, input, textarea) before comparison', async () => {
     const html = `<html><body><main>
       <p>The greet helper takes a name and returns a friendly greeting string.</p>
