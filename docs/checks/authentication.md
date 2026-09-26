@@ -1,6 +1,6 @@
 # Authentication and Access
 
-Whether agents can reach your documentation at all. Documentation that returns login pages, 401/403 responses, or SSO redirects is completely invisible to agents. These checks identify the problem and look for alternative access paths.
+Whether agents can reach your documentation at all. Documentation that returns login pages, 401/403 responses, or SSO redirects is completely invisible to agents, and bot-protection systems can produce the same invisibility through a different mechanism. These checks identify the problem and look for alternative access paths.
 
 ## auth-gate-detection
 
@@ -100,3 +100,68 @@ Because AFDocs can't detect these manual paths, you won't get score credit for t
 **If this check fails**, no alternative access paths were detected for your auth-gated content. The lowest-effort option is usually providing a public `llms.txt` that lists whatever documentation can be made available without authentication. See the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/) for the full range of options.
 
 **If this check warns**, you have partial alternative access. Expand coverage to include more of the gated documentation, or add additional access paths.
+
+---
+
+## bot-protection-interference
+
+Whether bot-protection systems (CDN bot management, WAF rules, behavioral rate enforcement) interfere with automated fetching of documentation content.
+
+|            |                                                                                                               |
+| ---------- | ------------------------------------------------------------------------------------------------------------- |
+| **Weight** | High (7)                                                                                                      |
+| **Spec**   | [bot-protection-interference](https://agentdocsspec.com/spec/web/authentication/#bot-protection-interference) |
+
+### Why it matters
+
+Coding agents are automated clients. Bot management tuned for scraper and attack traffic frequently cannot distinguish an agent fetching docs on a developer's behalf from abuse, and its enforcement modes are worse for agents than a clean block because the failures are invisible:
+
+- **Challenge interstitials served as 200.** A "verifying your browser" page returned with a success status is a soft 404 from the agent's perspective. The agent extracts challenge boilerplate instead of documentation and may present it as an answer.
+- **Tarpits.** The server accepts the connection and returns headers, then holds the response body open indefinitely. The agent's fetch stalls until its own timeout with no error to reason about, and a multi-page reading session dies partway through.
+- **Volume-triggered throttling or blocking.** Enforcement engages only after several requests, so the first pages of a session succeed and later ones fail. Because enforcement is typically stateful and decays over time, single-page spot checks look healthy while sustained agent sessions fail.
+
+This is grounded in an observed production case where a CDN's bot management responded to a sustained documentation scan by holding response bodies open. Single-request probes of the same pages looked healthy throughout, and enforcement decayed after a cooldown.
+
+### Results
+
+| Result | Condition                                                                                                                                                               |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pass   | No challenge pages, no stalled response bodies, and no volume-correlated failures were observed during this run                                                         |
+| Warn   | Intermittent interference: some requests were challenged, stalled, or blocked while others succeeded, or failures climbed as the scan progressed                        |
+| Fail   | Sustained interference: once enforcement triggered, at least half of the remaining requests were challenged, stalled, or failed (or at least half of all requests were) |
+
+### How the check works
+
+Unlike other checks, this one has no fetch phase of its own. AFDocs keeps a ledger of every HTTP request the run makes, and this check runs last and evaluates that ledger. A full run already resembles a realistic multi-page agent reading session at a respectful cadence, which is the workload the check predicts; AFDocs never escalates traffic to provoke enforcement.
+
+Three signals feed the verdict:
+
+- **Stalled bodies.** The HTTP client guards every body read with the request timeout. A response whose headers arrived but whose body never finished is recorded as stalled, with the message `Body read timed out after <n>ms (response stalled; server may be rate-limiting or tarpitting automated clients)`.
+- **Challenge pages.** Fetched HTML bodies are matched against challenge signatures (Cloudflare, Imperva/Incapsula, PerimeterX/HUMAN, DataDome, AWS WAF, Akamai, CAPTCHA widgets, and generic "verify you are human" interstitials). A page with substantive documentation content is never counted, so a docs page that merely mentions these products is not mistaken for an interstitial. Challenge pages are counted whatever their status code; the details report how many were served as 200.
+- **Failure trend.** The ledger is split into thirds. When the last third's failure rate is at least 20%, at least three times the first third's rate, and backed by at least two failures, failures are volume-correlated. This catches silent blocks (connection resets after N requests) that carry no signature.
+
+Explicit `429` responses with `Retry-After` are not counted as interference. The spec prefers them over tarpits and silent blocks because an agent can see and react to them; the HTTP client already honors `Retry-After`, and the [severe rate limiting](/interaction-diagnostics#severe-rate-limiting) diagnostic covers the case where they dominate.
+
+The verdict is **fail** when, from the first interference event onward, at least half of the remaining requests (minimum five) were challenged, stalled, or failed, or when at least half of all requests were. Otherwise interference is **warn**.
+
+When the check runs alone (`--checks bot-protection-interference`), there is no traffic to evaluate, so it performs one ordinary pass over the sampled pages first. The details report `standaloneScan: true` in that case.
+
+### Network context
+
+Bot enforcement is commonly keyed to client reputation (IP range, ASN, TLS fingerprint), so a scan run from CI or cloud infrastructure may trigger enforcement that residential traffic would not. That mirrors real agent traffic: some harnesses fetch from the developer's own connection, while others route fetches through vendor servers or cloud-hosted sessions. A datacenter-origin scan is representative of the second class, not a false positive.
+
+AFDocs classifies the scan's vantage point from environment variables as a developer machine, CI infrastructure, or cloud infrastructure, and reports the classification with the results (`networkContext` on the report and in the check details, "Scanned from ..." in the scorecard). It never records the scanner's IP address, since reports are often shared.
+
+### Caveats
+
+Detection is heuristic and enforcement is stateful. A pass means no interference was observed during this run, not that bot protection will never engage, and results legitimately vary across runs and vantage points. When the check warns or fails, every multi-page check was computed from whatever sample survived; see [Bot protection degrading scan reliability](/interaction-diagnostics#bot-protection-degrading-scan-reliability).
+
+This check is distinct from `robots.txt` and AI user-agent blocking, which the spec intentionally excludes. Declared crawling policy is invisible to most coding agents because they don't identify themselves; behavioral enforcement affects them precisely because their traffic is indistinguishable from the automated traffic it targets.
+
+### How to fix
+
+**If this check warns**, identify which bot-management layer is challenging or stalling some requests and exempt public documentation routes from behavioral enforcement. Intermittent interference means enforcement thresholds sit close to normal agent reading cadence, so small configuration changes (or ordinary traffic growth) can tip it into sustained blocking.
+
+**If this check fails**, treat public documentation paths as automation-friendly in your bot-management configuration. Exempt docs routes from behavioral enforcement, or scope enforcement to interactive product surfaces. Where limits are genuinely needed, prefer an explicit `429` with `Retry-After` over tarpits or silent blocks: a `429` is an error the agent can see, report, and react to, while a tarpit or challenge page fails invisibly. Never serve challenge interstitials with a 200 status.
+
+This check identifies the condition; it does not prescribe that sites disable bot protection. Like auth gating, this is a tradeoff to make deliberately, with awareness that coding agents are among the clients being blocked.

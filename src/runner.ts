@@ -4,6 +4,8 @@ import { createHttpClient } from './http.js';
 import { getChecksSorted } from './checks/registry.js';
 import { validateRunnerOptions } from './validation.js';
 import { getBlockedPort, blockedPortMessage } from './helpers/blocked-ports.js';
+import { createFetchLedger, summarizeRequests } from './helpers/fetch-ledger.js';
+import { detectNetworkContext } from './helpers/network-context.js';
 
 /**
  * Normalize dependsOn to the internal format: array of OR-groups.
@@ -93,6 +95,10 @@ export function createContext(baseUrl: string, options?: Partial<RunnerOptions>)
     throw new Error(blockedPortMessage(blockedPort));
   }
 
+  // Every request the run makes is recorded here. bot-protection-interference
+  // reads the ledger as its evidence instead of fetching anything itself.
+  const fetchLedger = createFetchLedger();
+
   return {
     baseUrl: normalizedBaseUrl,
     origin: url.origin,
@@ -107,11 +113,14 @@ export function createContext(baseUrl: string, options?: Partial<RunnerOptions>)
           ? normalizedBaseUrl
           : url.origin
         : undefined,
+      observer: fetchLedger,
     }),
     options: merged,
     pageCache: new Map(),
     htmlCache: new Map(),
     _curatedPages: options?.curatedPages,
+    fetchLedger,
+    networkContext: detectNetworkContext(),
   };
 }
 
@@ -221,6 +230,7 @@ export async function runChecks(
   const urlTags = ctx._sampledPages?.urlTags;
   const discoverySources = ctx._sampledPages?.sources;
   const testedPages = ctx._sampledPages?.urls.length;
+  const requestSummary = ctx.fetchLedger ? summarizeRequests(ctx.fetchLedger.records) : undefined;
 
   return {
     url: baseUrl,
@@ -232,5 +242,7 @@ export async function runChecks(
     ...(discoverySources && { discoverySources }),
     ...(testedPages !== undefined && { testedPages }),
     samplingStrategy: ctx.options.samplingStrategy,
+    ...(requestSummary && { requestSummary }),
+    ...(ctx.networkContext && { networkContext: ctx.networkContext }),
   };
 }

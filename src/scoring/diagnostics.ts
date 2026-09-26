@@ -2,6 +2,54 @@ import type { CheckResult, ReportResult } from '../types.js';
 import type { Diagnostic, DiagnosticSeverity } from './types.js';
 import { MIN_PAGES_FOR_SCORING } from '../constants.js';
 
+/**
+ * Run-level fetch failure rate at which the scan is flagged as degraded even
+ * when `bot-protection-interference` did not itself warn or fail (the spec's
+ * "for example, above 20% of page fetches").
+ */
+export const PARTIAL_SAMPLE_FAILURE_RATE = 0.2;
+
+/**
+ * The spec's "Bot Protection Degrading Scan Reliability" effect has two
+ * triggers, and both are honored: the check returning warn or fail (its
+ * inverted dependency on every multi-page check), or the run-level fetch
+ * failure rate crossing the threshold regardless of what the check said.
+ */
+export function isScanDegradedByBotProtection(
+  results: Map<string, CheckResult>,
+  report: ReportResult,
+): boolean {
+  const check = results.get('bot-protection-interference');
+  if (check?.status === 'warn' || check?.status === 'fail') return true;
+
+  const s = report.requestSummary;
+  return !!s && s.requests > 0 && s.failed / s.requests >= PARTIAL_SAMPLE_FAILURE_RATE;
+}
+
+interface FailureCounts {
+  requests: number;
+  failed: number;
+  stalledBodies: number;
+  challengePages: number;
+  fetchErrors: number;
+}
+
+function failureCounts(
+  results: Map<string, CheckResult>,
+  report: ReportResult,
+): FailureCounts | undefined {
+  if (report.requestSummary) return report.requestSummary;
+  const d = results.get('bot-protection-interference')?.details;
+  if (!d) return undefined;
+  return {
+    requests: (d.requests as number) ?? 0,
+    failed: (d.failedRequests as number) ?? 0,
+    stalledBodies: (d.stalledBodies as number) ?? 0,
+    challengePages: (d.challengePages as number) ?? 0,
+    fetchErrors: (d.fetchErrors as number) ?? 0,
+  };
+}
+
 interface DiagnosticDefinition {
   id: string;
   severity: DiagnosticSeverity;
@@ -309,6 +357,53 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       'Either reduce HTML page sizes (break large pages, reduce inline ' +
       'CSS/JS), or provide markdown versions and ensure agents can discover ' +
       'them via content negotiation or an llms.txt directive.',
+  },
+
+  {
+    id: 'bot-protection-scan-reliability',
+    severity: 'warning',
+    triggers: (results, _triggered, report) => isScanDegradedByBotProtection(results, report),
+    message: (results, _triggered, report) => {
+      const counts = failureCounts(results, report);
+      const check = results.get('bot-protection-interference');
+      const verdict =
+        check?.status === 'fail'
+          ? ' The bot-protection-interference check found sustained interference.'
+          : check?.status === 'warn'
+            ? ' The bot-protection-interference check found intermittent interference.'
+            : '';
+
+      if (!counts || counts.requests === 0) {
+        return (
+          'Bot protection interfered with this scan, so multi-page checks ' +
+          'were computed from whatever sample of pages survived.' +
+          verdict
+        );
+      }
+
+      const pct = Math.round((counts.failed / counts.requests) * 100);
+      const responded = counts.requests - counts.failed;
+      const kinds: string[] = [];
+      if (counts.stalledBodies > 0) kinds.push(`${counts.stalledBodies} stalled bodies`);
+      if (counts.challengePages > 0) kinds.push(`${counts.challengePages} challenge pages`);
+      if (counts.fetchErrors > 0) kinds.push(`${counts.fetchErrors} connection errors`);
+      const breakdown = kinds.length > 0 ? ` (${kinds.join(', ')})` : '';
+
+      return (
+        `${pct}% of HTTP requests during this scan failed or timed out${breakdown}. ` +
+        'The site may be rate-limiting or tarpitting automated clients; ' +
+        `multi-page check scores reflect only the ${responded} requests that completed, ` +
+        'not the full site.' +
+        verdict
+      );
+    },
+    resolution:
+      'Treat the scores as measuring a smaller sample than they appear to. ' +
+      'Behavioral enforcement is stateful and decays, so re-run after a ' +
+      'cooldown or from a different network vantage point, and raise ' +
+      '--request-delay if the cadence is yours to control. For the site-side ' +
+      'fix, see the bot-protection-interference check: exempt public ' +
+      'documentation routes from behavioral bot enforcement.',
   },
 
   // --- run-level diagnostics (don't depend on other diagnostics) ---

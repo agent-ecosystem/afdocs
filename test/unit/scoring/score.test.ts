@@ -629,4 +629,54 @@ describe('computeScore', () => {
       expect(scoreNormal.cap!.cap).toBe(39);
     });
   });
+  describe('partial sample flag', () => {
+    it('flags page-level checks when bot protection degraded the scan', () => {
+      const report = makeReport(
+        [
+          makeResult('llms-txt-exists', 'content-discoverability', 'pass'),
+          makeResult('page-size-html', 'page-size', 'pass', {
+            passBucket: 8,
+            warnBucket: 0,
+            failBucket: 0,
+          }),
+          makeResult('bot-protection-interference', 'authentication', 'warn'),
+        ],
+        { testedPages: 8, samplingStrategy: 'random' },
+      );
+      const score = computeScore(report);
+      expect(score.checkScores['page-size-html'].partialSample).toBe(true);
+      expect(score.checkScores['llms-txt-exists'].partialSample).toBeUndefined();
+      expect(score.checkScores['bot-protection-interference'].partialSample).toBeUndefined();
+      expect(score.diagnostics.map((d) => d.id)).toContain('bot-protection-scan-reliability');
+      // Flagged runs still score: the check keeps its earned weight.
+      expect(score.checkScores['page-size-html'].earnedScore).toBe(7);
+    });
+
+    it('does not flag anything on a clean run', () => {
+      const report = makeReport(
+        [
+          makeResult('page-size-html', 'page-size', 'pass', {
+            passBucket: 8,
+            warnBucket: 0,
+            failBucket: 0,
+          }),
+          makeResult('bot-protection-interference', 'authentication', 'pass'),
+        ],
+        { testedPages: 8, samplingStrategy: 'random' },
+      );
+      const score = computeScore(report);
+      expect(score.checkScores['page-size-html'].partialSample).toBeUndefined();
+    });
+
+    it('scores the check itself by status', () => {
+      const warn = computeScore(
+        makeReport([makeResult('bot-protection-interference', 'authentication', 'warn')]),
+      );
+      expect(warn.checkScores['bot-protection-interference'].earnedScore).toBe(3.5);
+      const fail = computeScore(
+        makeReport([makeResult('bot-protection-interference', 'authentication', 'fail')]),
+      );
+      expect(fail.checkScores['bot-protection-interference'].earnedScore).toBe(0);
+    });
+  });
 });

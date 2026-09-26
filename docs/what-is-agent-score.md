@@ -25,7 +25,7 @@ For the full business case, including how agents fail on documentation, the conc
 
 ## What the score measures
 
-The 23 checks cover seven categories:
+The 24 checks cover seven categories:
 
 | Category                                                   | What it tests                                                                                      |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -35,7 +35,7 @@ The 23 checks cover seven categories:
 | [Content Structure](/checks/content-structure)             | Do tabbed UI components blow up page size? Are code fences properly closed?                        |
 | [URL Stability](/checks/url-stability)                     | Do error pages return real 404s? Do redirects use standard HTTP methods?                           |
 | [Observability](/checks/observability)                     | Is your `llms.txt` fresh? Do markdown and HTML versions match? Are cache headers reasonable?       |
-| [Authentication](/checks/authentication)                   | Can agents reach your docs at all, or is everything behind a login wall?                           |
+| [Authentication](/checks/authentication)                   | Can agents reach your docs at all, or is everything behind a login wall or bot protection?         |
 
 Not all checks carry equal weight. Authentication failures and missing `llms.txt` are critical, while cache header issues are refinements. The scoring system accounts for this with [weight tiers](/agent-score-calculation#check-weights-by-category) and [score caps](/agent-score-calculation#score-caps) that prevent high scores when fundamental problems exist.
 

@@ -1,7 +1,13 @@
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import type { HttpClient, HttpRequestOptions, HttpResponse } from './types.js';
+import type {
+  FetchObserver,
+  FetchRecord,
+  HttpClient,
+  HttpRequestOptions,
+  HttpResponse,
+} from './types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
@@ -15,6 +21,8 @@ interface RateLimitedHttpClientOptions {
   canonicalOrigin?: string;
   /** Value to replace it with: the target origin, or the full target base for a path-prefix canonical. */
   targetOrigin?: string;
+  /** Receives one record per completed request, plus body contents as they are read. */
+  observer?: FetchObserver;
 }
 
 const MAX_RETRIES = 2;
@@ -26,6 +34,8 @@ function escapeRegExp(s: string): string {
 export function createHttpClient(options: RateLimitedHttpClientOptions): HttpClient {
   let lastRequestTime = 0;
   let activeRequests = 0;
+  let seq = 0;
+  const observer = options.observer;
   // Match the canonical base only at a URL boundary: end-of-string or one of these
   // delimiters. `)` and `,` are included so URLs inside markdown links `[x](url)` and
   // prose `url, next` rewrite; the rare tradeoff is a path segment like `/docs,2024`
@@ -64,14 +74,26 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), options.requestTimeout);
 
-          const response = await globalThis.fetch(url, {
-            method: reqOptions?.method ?? 'GET',
-            headers: { 'User-Agent': USER_AGENT, ...reqOptions?.headers },
-            redirect: reqOptions?.redirect ?? 'follow',
-            signal: reqOptions?.signal ?? controller.signal,
-          });
-
-          clearTimeout(timeout);
+          let response: Response;
+          try {
+            response = await globalThis.fetch(url, {
+              method: reqOptions?.method ?? 'GET',
+              headers: { 'User-Agent': USER_AGENT, ...reqOptions?.headers },
+              redirect: reqOptions?.redirect ?? 'follow',
+              signal: reqOptions?.signal ?? controller.signal,
+            });
+          } catch (err) {
+            observer?.onRecord({
+              seq: ++seq,
+              url,
+              status: null,
+              outcome: 'fetch-error',
+              error: err instanceof Error ? err.message : String(err),
+            });
+            throw err;
+          } finally {
+            clearTimeout(timeout);
+          }
 
           // Retry on 429 with Retry-After, up to MAX_RETRIES times
           const retryAfter = response.headers.get('Retry-After');
@@ -84,10 +106,46 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
             }
           }
 
+          const record: FetchRecord = { seq: ++seq, url, status: response.status, outcome: 'ok' };
+          observer?.onRecord(record);
+
+          // The timeout above only covers the connection/header phase; fetch
+          // resolves as soon as headers arrive. A server that then stalls the
+          // body (e.g. a bot-management tarpit that holds the connection open
+          // and never finishes the response) would hang an unguarded
+          // response.text() forever. Re-arm the same controller around every
+          // body read so a stalled body aborts instead of hanging the run.
+          // Body reads annotate the request's ledger record in place.
+          const readBody = async (): Promise<string> => {
+            let bodyTimedOut = false;
+            const bodyTimeout = setTimeout(() => {
+              bodyTimedOut = true;
+              controller.abort();
+            }, options.requestTimeout);
+            try {
+              const body = await response.text();
+              observer?.onBody(record, body, response.headers.get('content-type') ?? '');
+              return body;
+            } catch (err) {
+              // Surface a stalled body distinctly from generic aborts so
+              // scorecard "failed to fetch" details can distinguish tarpit
+              // behavior from ordinary fetch flakiness.
+              if (bodyTimedOut) {
+                const message = `Body read timed out after ${options.requestTimeout}ms (response stalled; server may be rate-limiting or tarpitting automated clients)`;
+                record.outcome = 'stalled-body';
+                record.error = message;
+                throw new Error(message, { cause: err });
+              }
+              throw err;
+            } finally {
+              clearTimeout(bodyTimeout);
+            }
+          };
+
           if (originPattern && options.targetOrigin) {
             const ct = response.headers.get('content-type') ?? '';
             if (/text|xml|json|markdown/.test(ct)) {
-              const body = await response.text();
+              const body = await readBody();
               originPattern.lastIndex = 0;
               // Use a function replacer so `$` in the target (e.g. a preview path
               // containing `$'` or `$&`) is inserted literally, not interpreted as a
@@ -106,7 +164,15 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
             }
           }
 
-          return response as HttpResponse;
+          return {
+            ok: response.ok,
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+            url: response.url,
+            redirected: response.redirected,
+            text: readBody,
+          } as HttpResponse;
         } finally {
           activeRequests--;
         }

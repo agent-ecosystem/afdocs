@@ -84,6 +84,18 @@ These diagnostics appear in the "Interaction Diagnostics" section of the `--form
 
 **Score impact**: No direct score cap, but the combination of failing page-size checks with no markdown alternative typically results in low category scores for both Page Size and Markdown Availability.
 
+## Bot protection degrading scan reliability
+
+**Triggers when** the [`bot-protection-interference`](/checks/authentication#bot-protection-interference) check warns or fails, or when at least 20% of the HTTP requests made during the run failed or timed out (stalled bodies, challenge pages, or connection errors), whichever comes first.
+
+**What it means**: Behavioral bot enforcement engaged partway through the scan. Requests that would have succeeded in isolation began to stall, get challenged, or fail, and every check still running scored whatever sample survived. The site's scores can look reasonable while being computed from a fraction of the intended pages. Per-check "failed to fetch" counts are scattered and easy to miss, so this diagnostic aggregates them at run level.
+
+This pattern has two victims. Agents doing multi-page reading sessions lose access mid-session, which is the site-side problem the check exists to surface. And the assessment itself degrades: a flagged run is still useful evidence; it just measures a smaller sample than it appears to.
+
+**What to do**: Treat the scores as measuring a smaller sample. Behavioral enforcement is stateful and decays, so re-run after a cooldown or from a different network vantage point (the scorecard reports whether the scan ran from a developer machine, CI, or cloud infrastructure), and raise `--request-delay` if the cadence is yours to control. For the site-side fix, see the check: exempt public documentation routes from behavioral bot enforcement.
+
+**Score impact**: No coefficient or cap. Multi-page checks keep their earned scores but are flagged as computed from a partial sample: `(partial sample)` after each affected check in the scorecard, a note under each in `--format text`, and `partialSample: true` on the check's entry in the scoring API's `checkScores`.
+
 ## Single-page sample
 
 **Triggers when** automatic page discovery (`random` or `deterministic` sampling) found fewer than 5 pages to test.

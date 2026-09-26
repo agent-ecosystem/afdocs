@@ -48,6 +48,8 @@ This is the same function; the subpath is provided for consumers who want a narr
 
 Each `CheckScore` includes a `scoreDisplayMode` field (`"numeric"` or `"notApplicable"`). When automatic page discovery finds fewer than 5 pages, page-level checks are marked `"notApplicable"` and excluded from overall and category score calculations. See [Insufficient data](/agent-score-calculation#insufficient-data) for details.
 
+A `CheckScore` for a multi-page check may also carry `partialSample: true`, meaning bot protection degraded the scan and the check was computed from whatever sample of pages survived. The score still counts; the flag tells you what the number measures. See [Bot protection degrading scan reliability](/interaction-diagnostics#bot-protection-degrading-scan-reliability).
+
 ## TagScore
 
 When curated pages have tags, each `TagScore` contains the aggregate score plus a per-check breakdown showing exactly which checks contributed and how each page fared:

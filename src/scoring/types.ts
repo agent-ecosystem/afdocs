@@ -19,6 +19,12 @@ export interface CheckScore {
   maxScore: number;
   /** Whether this score is meaningful. 'notApplicable' when insufficient data. */
   scoreDisplayMode: ScoreDisplayMode;
+  /**
+   * True when bot protection degraded the scan and this multi-page check was
+   * computed from whatever sample of pages survived. The score still counts;
+   * it just measures a smaller sample than it appears to.
+   */
+  partialSample?: boolean;
 }
 
 export interface CategoryScore {

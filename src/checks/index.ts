@@ -36,6 +36,9 @@ import './observability/cache-header-hygiene.js';
 // Category 7: Authentication
 import './authentication/auth-gate-detection.js';
 import './authentication/auth-alternative-access.js';
+// Registered last on purpose: it is evaluated from the fetch ledger the other
+// checks fill, so it must run after every other selected check.
+import './authentication/bot-protection-interference.js';
 
 export { getCheck, getAllChecks, getChecksSorted } from './registry.js';
 export { extractMarkdownLinks } from './content-discoverability/llms-txt-valid.js';

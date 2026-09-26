@@ -82,10 +82,11 @@ Every check is assigned a weight tier based on its observed impact on agent work
 
 ### Authentication and Access
 
-| Check                     | Weight        |
-| ------------------------- | ------------- |
-| `auth-gate-detection`     | Critical (10) |
-| `auth-alternative-access` | Medium (4)    |
+| Check                         | Weight        |
+| ----------------------------- | ------------- |
+| `auth-gate-detection`         | Critical (10) |
+| `auth-alternative-access`     | Medium (4)    |
+| `bot-protection-interference` | High (7)      |
 
 ## Proportional scoring
 
@@ -119,14 +120,15 @@ These checks sample pages from your site and score based on the pass rate across
 
 These checks test a single site-wide resource and produce one pass, warn, or fail result:
 
-| Check                     | What's tested                                          |
-| ------------------------- | ------------------------------------------------------ |
-| `llms-txt-exists`         | Whether an llms.txt file exists at candidate locations |
-| `llms-txt-valid`          | Whether the llms.txt follows the standard structure    |
-| `llms-txt-size`           | Whether the llms.txt fits within agent context limits  |
-| `llms-txt-links-resolve`  | Whether links in the llms.txt return 200               |
-| `llms-txt-links-markdown` | Whether llms.txt links point to markdown content       |
-| `llms-txt-coverage`       | Whether the llms.txt reflects the current site state   |
+| Check                         | What's tested                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `llms-txt-exists`             | Whether an llms.txt file exists at candidate locations                                     |
+| `llms-txt-valid`              | Whether the llms.txt follows the standard structure                                        |
+| `llms-txt-size`               | Whether the llms.txt fits within agent context limits                                      |
+| `llms-txt-links-resolve`      | Whether links in the llms.txt return 200                                                   |
+| `llms-txt-links-markdown`     | Whether llms.txt links point to markdown content                                           |
+| `llms-txt-coverage`           | Whether the llms.txt reflects the current site state                                       |
+| `bot-protection-interference` | Whether bot protection interfered with the run, evaluated from every request the scan made |
 
 Note that the llms.txt link checks (`llms-txt-links-resolve`, `llms-txt-links-markdown`) do test multiple URLs, but they test the links _within_ the llms.txt file rather than sampling pages from the site. Their result is a single pass/warn/fail based on the overall resolution or markdown rate.
 
@@ -134,12 +136,12 @@ Note that the llms.txt link checks (`llms-txt-links-resolve`, `llms-txt-links-ma
 
 A warning is not a binary "half credit." Different warnings represent different degrees of degradation, and the score reflects this.
 
-| Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                 |
-| ----------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                      |
-| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`                                                                                                                                                                                                                |
-| **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access` |
-| **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML)                                                                                                                                                                                                                 |
+| Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                                |
+| ----------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                                     |
+| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`                                                                                                                                                                                                                                               |
+| **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `bot-protection-interference` |
+| **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML)                                                                                                                                                                                                                                                |
 
 `markdown-code-fence-validity` is strictly pass/fail. `http-status-codes` is normally pass/fail but emits a warn when every sampled response is indeterminate (HTTP 202 during CDN cache-miss/build, or 5xx) so we couldn't measure bad-URL handling.
 

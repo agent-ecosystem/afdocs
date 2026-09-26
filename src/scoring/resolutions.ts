@@ -373,6 +373,25 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
       'alternative access paths (see auth-alternative-access check).',
   },
 
+  'bot-protection-interference': {
+    warn: () =>
+      'Some requests during a sustained scan were challenged, stalled, or ' +
+      'blocked while others succeeded. Identify which bot-management layer ' +
+      '(CDN bot management, WAF, behavioral rate enforcement) is doing this ' +
+      'and exempt public documentation routes from behavioral enforcement. ' +
+      'Intermittent interference means enforcement thresholds sit close to ' +
+      'normal agent reading cadence, so small configuration changes or ' +
+      'ordinary traffic growth can tip it into sustained blocking.',
+    fail: () =>
+      'Sustained automated fetching is effectively blocked. Treat public ' +
+      'documentation paths as automation-friendly in your bot-management ' +
+      'configuration: exempt docs routes from behavioral enforcement, or ' +
+      'scope enforcement to interactive product surfaces. Where limits are ' +
+      'genuinely needed, prefer an explicit 429 with Retry-After over ' +
+      'tarpits or silent blocks, and never serve challenge interstitials ' +
+      'with a 200 status.',
+  },
+
   'auth-alternative-access': {
     warn: () =>
       'Partial alternative access detected for auth-gated content (e.g., ' +
