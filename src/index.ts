@@ -36,7 +36,7 @@ export {
 export { validateRunnerOptions } from './validation.js';
 export type { ValidationResult, ValidationIssue } from './validation.js';
 export { createContext, normalizeUrl, runChecks } from './runner.js';
-export { createHttpClient } from './http.js';
+export { createHttpClient, BodyReadTimeoutError } from './http.js';
 export {
   createFetchLedger,
   detectChallengePage,

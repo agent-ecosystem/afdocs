@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createHttpClient } from '../../../src/http.js';
+import { createHttpClient, BodyReadTimeoutError } from '../../../src/http.js';
 import type { FetchRecord } from '../../../src/types.js';
 
 describe('createHttpClient', () => {
@@ -382,6 +382,35 @@ describe('createHttpClient', () => {
       await assertion;
     });
 
+    it('short-circuits later fetches of a URL whose body already stalled', async () => {
+      const fetchMock = makeTarpitFetch('text/html');
+      globalThis.fetch = fetchMock;
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const first = await client.fetch('http://example.com/page');
+      const assertion = expect(first.text()).rejects.toThrow(/Body read timed out/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Same URL: rejected immediately, no network request, no timer needed.
+      await expect(client.fetch('http://example.com/page')).rejects.toThrow(
+        /Body read timed out after 5000ms/,
+      );
+      await expect(client.fetch('http://example.com/page')).rejects.toBeInstanceOf(
+        BodyReadTimeoutError,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // A different URL is still fetched.
+      await client.fetch('http://example.com/other');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it('passes through non-timeout body read errors unchanged', async () => {
       globalThis.fetch = vi.fn(
         async () =>
@@ -544,6 +573,44 @@ describe('createHttpClient', () => {
       expect(observer.records[0].outcome).toBe('stalled-body');
       expect(observer.records[0].error).toMatch(/tarpitting/);
       expect(observer.bodies).toHaveLength(0);
+    });
+
+    it('does not record a short-circuited fetch of a stalled URL', async () => {
+      globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        const signal = init?.signal;
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers({ 'content-type': 'text/html' }),
+          url: 'http://example.com/tarpit',
+          redirected: false,
+          text: () =>
+            new Promise<string>((_resolve, reject) => {
+              signal?.addEventListener('abort', () =>
+                reject(new DOMException('This operation was aborted', 'AbortError')),
+              );
+            }),
+        } as unknown as Response;
+      }) as unknown as typeof fetch;
+
+      const observer = makeObserver();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const response = await client.fetch('http://example.com/tarpit');
+      const assertion = expect(response.text()).rejects.toThrow(/Body read timed out/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+
+      await expect(client.fetch('http://example.com/tarpit')).rejects.toThrow(
+        /Body read timed out/,
+      );
+      expect(observer.records).toHaveLength(1);
+      expect(observer.records[0].outcome).toBe('stalled-body');
     });
 
     it('records one entry for a 429 that was retried and then succeeded', async () => {

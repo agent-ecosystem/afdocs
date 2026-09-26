@@ -65,6 +65,15 @@ describe('detectChallengePage', () => {
     expect(detectChallengePage(DOCS_PAGE, 'text/html')).toBeUndefined();
   });
 
+  it('never treats a body over 100KB as a challenge page', () => {
+    const filler = '<p>' + 'Prose about bot management. '.repeat(20) + '</p>\n';
+    let body =
+      '<html><head><title>Just a moment...</title></head><body><div id="cf-browser-verification">';
+    while (body.length <= 100_000) body += filler;
+    body += '</div></body></html>';
+    expect(detectChallengePage(body, 'text/html')).toBeUndefined();
+  });
+
   it('ignores markdown bodies', () => {
     const md = '# Turnstile\n\nAdd the `cf-turnstile` class and load challenges.cloudflare.com.\n';
     expect(detectChallengePage(md, 'text/markdown')).toBeUndefined();

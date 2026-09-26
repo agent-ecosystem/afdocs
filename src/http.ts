@@ -27,6 +27,18 @@ interface RateLimitedHttpClientOptions {
 
 const MAX_RETRIES = 2;
 
+/**
+ * Thrown when a response's headers arrived but its body did not finish within
+ * the request timeout: the tarpit signature. Callers can distinguish it from
+ * ordinary fetch failures by class as well as by message.
+ */
+export class BodyReadTimeoutError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'BodyReadTimeoutError';
+  }
+}
+
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -36,6 +48,12 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
   let activeRequests = 0;
   let seq = 0;
   const observer = options.observer;
+  // URLs whose body stalled once this run. Every later fetch of the same URL
+  // fails immediately with the same error instead of paying another full
+  // request timeout: a stalled URL is fetched by several page-level checks,
+  // and each would otherwise wait out the timeout again. The short-circuit is
+  // not recorded in the ledger, so a single tarpitted page counts once.
+  const stalledUrls = new Map<string, string>();
   // Match the canonical base only at a URL boundary: end-of-string or one of these
   // delimiters. `)` and `,` are included so URLs inside markdown links `[x](url)` and
   // prose `url, next` rewrite; the rare tradeoff is a path segment like `/docs,2024`
@@ -63,6 +81,11 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
 
   return {
     async fetch(url: string, reqOptions?: HttpRequestOptions): Promise<HttpResponse> {
+      const stalledMessage = stalledUrls.get(url);
+      if (stalledMessage !== undefined) {
+        throw new BodyReadTimeoutError(stalledMessage);
+      }
+
       let retries = 0;
 
       while (true) {
@@ -134,7 +157,8 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
                 const message = `Body read timed out after ${options.requestTimeout}ms (response stalled; server may be rate-limiting or tarpitting automated clients)`;
                 record.outcome = 'stalled-body';
                 record.error = message;
-                throw new Error(message, { cause: err });
+                stalledUrls.set(url, message);
+                throw new BodyReadTimeoutError(message, { cause: err });
               }
               throw err;
             } finally {

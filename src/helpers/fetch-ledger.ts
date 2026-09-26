@@ -47,11 +47,22 @@ const CHALLENGE_SIGNATURES: Array<{ label: string; pattern: RegExp }> = [
 const SIGNATURE_SCAN_LENGTH = 40_000;
 
 /**
+ * Bodies larger than this are never challenge interstitials (real ones run
+ * a few KB, with inlined challenge JavaScript pushing them to a few tens of
+ * KB at most). Skipping them avoids the DOM parse in the veto step on large
+ * documentation pages that happen to mention a CAPTCHA or bot-management
+ * product near the top.
+ */
+export const MAX_CHALLENGE_PAGE_LENGTH = 100_000;
+
+/**
  * Returns the label of the bot-challenge signature the body matches, or
  * undefined. Only HTML bodies are inspected: challenge interstitials are
  * HTML, and markdown prose about bot management would otherwise match.
  */
 export function detectChallengePage(body: string, contentType: string): string | undefined {
+  if (body.length > MAX_CHALLENGE_PAGE_LENGTH) return undefined;
+
   const isHtml = /text\/html|application\/xhtml/i.test(contentType) || looksLikeHtml(body);
   if (!isHtml) return undefined;
 

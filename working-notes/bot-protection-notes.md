@@ -23,6 +23,16 @@ v0.6.0 checks merging into `spec-v0.6.0`.
   HTML body is discarded when `hasSubstantiveContent(analyzeRendering(body))`
   is true, so docs pages about Turnstile/reCAPTCHA are never counted.
   Markdown bodies are never inspected.
+- **Stalled URLs are negative-cached per run** in the HTTP client
+  (`stalledUrls` in `createHttpClient`). A second fetch of the same URL
+  throws `BodyReadTimeoutError` immediately, makes no request, and is not
+  recorded in the ledger, so one tarpitted page counts once and costs one
+  timeout instead of one per page-level check. Enforcement decays over time,
+  so a later run may succeed; that is by design (the run is degraded anyway).
+- **Bodies over 100KB are never challenge candidates**
+  (`MAX_CHALLENGE_PAGE_LENGTH`). Real interstitials are a few KB; this skips
+  the DOM-parse veto on large docs pages that mention a CAPTCHA product.
+  Measured: 7 ms per 300KB candidate without the gate, 0.14 ms with it.
 - **Network context never carries an IP.** `detectNetworkContext` reads only
   environment variables and reports `developer-machine | ci | cloud` plus the
   indicator name.
@@ -39,6 +49,7 @@ v0.6.0 checks merging into `spec-v0.6.0`.
 | `MIN_LATE_FAILURES`             | 2     | one flaky request late in a short run does not trip it          |
 | `MIN_REQUESTS_FOR_VOLUME_TREND` | 6     | need two records per third                                      |
 | `PARTIAL_SAMPLE_FAILURE_RATE`   | 0.2   | diagnostic trigger (spec: "for example, above 20%")             |
+| `MAX_CHALLENGE_PAGE_LENGTH`     | 100KB | larger bodies skip challenge detection entirely                 |
 
 Onset = first stalled/challenge record; for a purely volume-correlated
 pattern, the first failure past the early third.
