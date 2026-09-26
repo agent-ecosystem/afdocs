@@ -136,63 +136,77 @@ export async function runChecks(
   }
 
   const results: CheckResult[] = [];
+  const onProgress = options?.onProgress;
 
-  for (const check of allChecks) {
-    // Filter by requested check IDs if provided
-    if (checkIds && checkIds.length > 0 && !checkIds.includes(check.id)) {
-      continue;
-    }
+  // Filter by requested check IDs if provided
+  const selectedChecks =
+    checkIds && checkIds.length > 0
+      ? allChecks.filter((check) => checkIds.includes(check.id))
+      : allChecks;
+
+  let index = 0;
+  for (const check of selectedChecks) {
+    index++;
+    onProgress?.({ phase: 'start', checkId: check.id, index, total: selectedChecks.length });
+    const startedAt = Date.now();
+
+    let result: CheckResult;
+    // Explicitly excluded skips are intentionally not stored in previousResults so
+    // dependent checks see "dependency never ran" and can run in standalone mode —
+    // matching the behaviour of checks filtered out by checkIds.
+    let storeInPreviousResults = true;
 
     // Emit a skip result for explicitly excluded checks without running them.
-    // Intentionally not stored in previousResults so dependent checks see
-    // "dependency never ran" and can run in standalone mode — matching the
-    // behaviour of checks filtered out by checkIds.
     if (skipCheckIds.includes(check.id)) {
-      results.push({
+      result = {
         id: check.id,
         category: check.category,
         status: 'skip',
         message: 'Check skipped (excluded via --skip-checks)',
-      });
-      continue;
-    }
-
-    // Check dependencies — only skip if at least one dependency actually ran and none passed.
-    // If no dependencies ran at all (e.g. filtered out via --checks), let the check handle
-    // standalone mode itself.
-    if (check.dependsOn.length > 0) {
-      const normalized = normalizeDeps(check.dependsOn);
-      const anyDepRan = normalized.some((orGroup) =>
+      };
+      storeInPreviousResults = false;
+    } else if (
+      // Check dependencies — only skip if at least one dependency actually ran and none
+      // passed. If no dependencies ran at all (e.g. filtered out via --checks), let the
+      // check handle standalone mode itself.
+      check.dependsOn.length > 0 &&
+      normalizeDeps(check.dependsOn).some((orGroup) =>
         orGroup.some((id) => ctx.previousResults.has(id)),
-      );
-      if (anyDepRan && !checkDependenciesMet(check.dependsOn, ctx.previousResults)) {
-        const result: CheckResult = {
+      ) &&
+      !checkDependenciesMet(check.dependsOn, ctx.previousResults)
+    ) {
+      result = {
+        id: check.id,
+        category: check.category,
+        status: 'skip',
+        message: 'Skipped: dependency check did not pass',
+        dependsOn: normalizeDeps(check.dependsOn).flat(),
+      };
+    } else {
+      try {
+        result = await check.run(ctx);
+      } catch (err) {
+        result = {
           id: check.id,
           category: check.category,
-          status: 'skip',
-          message: 'Skipped: dependency check did not pass',
-          dependsOn: normalized.flat(),
+          status: 'error',
+          message: `Check error: ${err instanceof Error ? err.message : String(err)}`,
         };
-        results.push(result);
-        ctx.previousResults.set(check.id, result);
-        continue;
       }
     }
 
-    try {
-      const result = await check.run(ctx);
-      results.push(result);
-      ctx.previousResults.set(check.id, result);
-    } catch (err) {
-      const result: CheckResult = {
-        id: check.id,
-        category: check.category,
-        status: 'error',
-        message: `Check error: ${err instanceof Error ? err.message : String(err)}`,
-      };
-      results.push(result);
+    results.push(result);
+    if (storeInPreviousResults) {
       ctx.previousResults.set(check.id, result);
     }
+    onProgress?.({
+      phase: 'complete',
+      checkId: check.id,
+      index,
+      total: selectedChecks.length,
+      result,
+      durationMs: Date.now() - startedAt,
+    });
   }
 
   const summary = {

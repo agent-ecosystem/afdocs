@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { createContext, normalizeCanonical, normalizeUrl, runChecks } from '../../src/runner.js';
 import { registerCheck } from '../../src/checks/registry.js';
+import type { CheckProgressEvent } from '../../src/types.js';
 import '../../src/checks/index.js';
 import { mockSitemapNotFound } from '../helpers/mock-sitemap-not-found.js';
 
@@ -647,5 +648,127 @@ describe('runner', () => {
     await expect(
       runChecks('http://invalid-opts.local', { checkIds: ['nonexistent-check'] }),
     ).rejects.toThrow('Unknown check ID');
+  });
+});
+
+describe('runChecks onProgress', () => {
+  it('emits start and complete events with position, total, and the check result', async () => {
+    registerCheck({
+      id: '_progress-a',
+      category: 'content-discoverability',
+      description: 'Progress test check A',
+      dependsOn: [],
+      run: async () => ({
+        id: '_progress-a',
+        category: 'content-discoverability',
+        status: 'pass' as const,
+        message: 'ok',
+        details: { testedPages: 5, fetchErrors: 2 },
+      }),
+    });
+    registerCheck({
+      id: '_progress-b',
+      category: 'content-discoverability',
+      description: 'Progress test check B',
+      dependsOn: [],
+      run: async () => ({
+        id: '_progress-b',
+        category: 'content-discoverability',
+        status: 'pass' as const,
+        message: 'ok',
+      }),
+    });
+
+    const events: CheckProgressEvent[] = [];
+    await runChecks('http://progress.local', {
+      checkIds: ['_progress-a', '_progress-b'],
+      requestDelay: 0,
+      onProgress: (e) => events.push(e),
+    });
+
+    expect(events).toHaveLength(4);
+    expect(events[0]).toEqual({ phase: 'start', checkId: '_progress-a', index: 1, total: 2 });
+    expect(events[1].phase).toBe('complete');
+    expect(events[1].checkId).toBe('_progress-a');
+    if (events[1].phase === 'complete') {
+      expect(events[1].result.status).toBe('pass');
+      expect(events[1].result.details).toMatchObject({ testedPages: 5, fetchErrors: 2 });
+      expect(events[1].durationMs).toBeGreaterThanOrEqual(0);
+    }
+    expect(events[2]).toEqual({ phase: 'start', checkId: '_progress-b', index: 2, total: 2 });
+    expect(events[3].phase).toBe('complete');
+    expect(events[3].checkId).toBe('_progress-b');
+  });
+
+  it('emits skip completion for checks excluded via skipCheckIds', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const events: CheckProgressEvent[] = [];
+    await runChecks('http://progress-skip.local', {
+      checkIds: ['_progress-a', '_progress-b'],
+      skipCheckIds: ['_progress-b'],
+      requestDelay: 0,
+      onProgress: (e) => events.push(e),
+    });
+
+    expect(events).toHaveLength(4);
+    const last = events[3];
+    expect(last.phase).toBe('complete');
+    expect(last.checkId).toBe('_progress-b');
+    if (last.phase === 'complete') {
+      expect(last.result.status).toBe('skip');
+    }
+    warnSpy.mockRestore();
+  });
+
+  it('emits skip completion when a dependency gate fails', async () => {
+    server.use(
+      http.get('http://progress-dep.local/llms.txt', () => new HttpResponse(null, { status: 404 })),
+      http.get(
+        'http://progress-dep.local/docs/llms.txt',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+
+    const events: CheckProgressEvent[] = [];
+    await runChecks('http://progress-dep.local', {
+      checkIds: ['llms-txt-exists', 'llms-txt-valid'],
+      requestDelay: 0,
+      onProgress: (e) => events.push(e),
+    });
+
+    expect(events).toHaveLength(4);
+    const last = events[3];
+    expect(last.checkId).toBe('llms-txt-valid');
+    if (last.phase === 'complete') {
+      expect(last.result.status).toBe('skip');
+      expect(last.result.message).toContain('dependency');
+    }
+  });
+
+  it('emits error completion when a check throws', async () => {
+    registerCheck({
+      id: '_progress-throws',
+      category: 'content-discoverability',
+      description: 'Progress test check that throws',
+      dependsOn: [],
+      run: () => {
+        throw new Error('progress boom');
+      },
+    });
+
+    const events: CheckProgressEvent[] = [];
+    await runChecks('http://progress-throws.local', {
+      checkIds: ['_progress-throws'],
+      requestDelay: 0,
+      onProgress: (e) => events.push(e),
+    });
+
+    expect(events).toHaveLength(2);
+    const last = events[1];
+    if (last.phase === 'complete') {
+      expect(last.result.status).toBe('error');
+      expect(last.result.message).toContain('progress boom');
+    }
   });
 });

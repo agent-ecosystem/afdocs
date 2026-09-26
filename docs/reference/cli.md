@@ -37,6 +37,9 @@ The URL can be a site root or a specific page. When pointing to a site root, `af
 | `-v, --verbose`         |         | Show per-page details for checks with issues                                                                                                     |
 | `--fixes`               |         | Show per-check fix suggestions for warn/fail checks (only needed for `text` format; the other two formats include fix suggestions automatically) |
 | `--score`               |         | Include scoring data in JSON output (only usable with `json` output format)                                                                      |
+| `-q, --quiet`           |         | Suppress progress output on stderr                                                                                                               |
+
+While a run is in progress, each check writes a numbered progress line to stderr as it starts and completes, e.g. `[7/24] llms-txt-directive-html... done (47 tested, 3 fetch errors, 12s)`. Progress goes to stderr for every format, so piped `json` or `scorecard` output on stdout stays parseable. Use `--quiet` to suppress it (e.g. in CI logs).
 
 **Which format to use:**
 
