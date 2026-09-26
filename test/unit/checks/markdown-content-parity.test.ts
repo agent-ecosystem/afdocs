@@ -2743,4 +2743,269 @@ Use the steps below to install FusionAuth using Docker Compose.
     const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
     expect(pageResults[0].missingSegments).toBe(0);
   });
+
+  it('treats backslash-escaped punctuation as the literal character (issue #110)', async () => {
+    // Markdown generators escape punctuation that could be mistaken for
+    // formatting: snake\_case, string\[], Foo\<T>. The HTML renders the bare
+    // character, so extractMarkdownText() must drop the escaping backslash or
+    // every such passage is reported as missing.
+    const html = `<html><body><main>
+      <h1>Plugins</h1>
+      <p>Converts snake_case identifiers into camelCase for every result row.</p>
+      <p>The type ReferenceExpression&lt;DB, "person"&gt; selects a column by name.</p>
+      <p>Arrays are typed as string[] when the column holds multiple values.</p>
+      <p>Wildcards like *.example.com are matched against the request host.</p>
+      <p>Use a pipe | to separate alternatives in the pattern expression.</p>
+      <p>Paths on Windows use backslashes such as C:\\Users\\name for home.</p>
+      <p>The plugin system lets you transform query results before they are returned.</p>
+      <p>Each plugin receives the compiled query and can rewrite its output rows.</p>
+      <p>Plugins are applied in the order they were registered on the instance.</p>
+      <p>Registering the same plugin twice applies its transformation two times.</p>
+      <p>Custom plugins implement a small interface with two optional methods.</p>
+      <p>See the API reference for the full list of built-in plugins and options.</p>
+    </main></body></html>`;
+
+    const markdown = `# Plugins
+
+Converts snake\\_case identifiers into camelCase for every result row.
+
+The type ReferenceExpression\\<DB, "person"> selects a column by name.
+
+Arrays are typed as string\\[] when the column holds multiple values.
+
+Wildcards like \\*.example.com are matched against the request host.
+
+Use a pipe \\| to separate alternatives in the pattern expression.
+
+Paths on Windows use backslashes such as C:\\\\Users\\\\name for home.
+
+The plugin system lets you transform query results before they are returned.
+
+Each plugin receives the compiled query and can rewrite its output rows.
+
+Plugins are applied in the order they were registered on the instance.
+
+Registering the same plugin twice applies its transformation two times.
+
+Custom plugins implement a small interface with two optional methods.
+
+See the API reference for the full list of built-in plugins and options.`;
+
+    const url = 'http://mcp-escapes.local/docs/plugins';
+
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-escapes.local');
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
+    expect(pageResults[0].missingSegments).toBe(0);
+  });
+
+  it('does not interpret escaped punctuation as markdown formatting', async () => {
+    // Per CommonMark, an escaped character is never a formatting marker.
+    // \*not bold\* renders with its asterisks, \_x\_ keeps its underscores,
+    // \[not a link](x) keeps its brackets, and \# / 1\. / \- at line start
+    // are paragraph text rather than a heading, numbered item, or bullet.
+    const html = `<html><body><main>
+      <h1>Escaping Reference</h1>
+      <p>Writing *not bold* keeps the asterisks visible in the rendered output.</p>
+      <p>Writing _not italic_ keeps both underscores in the rendered output.</p>
+      <p>Writing [not a link](nowhere) keeps the brackets and parentheses intact.</p>
+      <p># This line is not a heading because the hash is escaped in source.</p>
+      <p>1. This line is not a numbered list item because the dot is escaped.</p>
+      <p>- This line is not a bullet because the hyphen is escaped in source.</p>
+      <p>\`not code\` keeps its backticks because both are escaped in the source.</p>
+      <p>The plugin system lets you transform query results before they are returned.</p>
+      <p>Each plugin receives the compiled query and can rewrite its output rows.</p>
+      <p>Plugins are applied in the order they were registered on the instance.</p>
+      <p>Registering the same plugin twice applies its transformation two times.</p>
+      <p>Custom plugins implement a small interface with two optional methods.</p>
+      <p>See the API reference for the full list of built-in plugins and options.</p>
+    </main></body></html>`;
+
+    const markdown = `# Escaping Reference
+
+Writing \\*not bold\\* keeps the asterisks visible in the rendered output.
+
+Writing \\_not italic\\_ keeps both underscores in the rendered output.
+
+Writing \\[not a link](nowhere) keeps the brackets and parentheses intact.
+
+\\# This line is not a heading because the hash is escaped in source.
+
+1\\. This line is not a numbered list item because the dot is escaped.
+
+\\- This line is not a bullet because the hyphen is escaped in source.
+
+\\\`not code\\\` keeps its backticks because both are escaped in the source.
+
+The plugin system lets you transform query results before they are returned.
+
+Each plugin receives the compiled query and can rewrite its output rows.
+
+Plugins are applied in the order they were registered on the instance.
+
+Registering the same plugin twice applies its transformation two times.
+
+Custom plugins implement a small interface with two optional methods.
+
+See the API reference for the full list of built-in plugins and options.`;
+
+    const url = 'http://mcp-escapes-fmt.local/docs/escaping';
+
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-escapes-fmt.local');
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
+    expect(pageResults[0].missingSegments).toBe(0);
+  });
+
+  it('preserves literal backslashes inside inline code and fenced code blocks', async () => {
+    // Backslashes are not escapes inside code spans or fenced blocks, and
+    // the HTML side keeps them verbatim in <code> / <pre>. Unescaping must
+    // only apply to prose, or regex and path examples stop matching.
+    const html = `<html><body><main>
+      <h1>Regular Expressions</h1>
+      <p>Match a digit sequence with <code>\\d+</code> and a word boundary with <code>\\b</code>.</p>
+      <p>Escape a literal underscore in the pattern as <code>snake\\_case</code> when needed.</p>
+      <p>The following example matches Windows paths in a configuration file entry.</p>
+      <pre><code>const re = /C:\\\\Users\\\\[a-z]+\\\\Documents/;
+const escaped = 'snake\\_case';</code></pre>
+      <p>Both forms are supported by the JavaScript regular expression engine natively.</p>
+      <p>The plugin system lets you transform query results before they are returned.</p>
+      <p>Each plugin receives the compiled query and can rewrite its output rows.</p>
+      <p>Plugins are applied in the order they were registered on the instance.</p>
+      <p>Registering the same plugin twice applies its transformation two times.</p>
+      <p>Custom plugins implement a small interface with two optional methods.</p>
+      <p>See the API reference for the full list of built-in plugins and options.</p>
+    </main></body></html>`;
+
+    const markdown = `# Regular Expressions
+
+Match a digit sequence with \`\\d+\` and a word boundary with \`\\b\`.
+
+Escape a literal underscore in the pattern as \`snake\\_case\` when needed.
+
+The following example matches Windows paths in a configuration file entry.
+
+\`\`\`js
+const re = /C:\\\\Users\\\\[a-z]+\\\\Documents/;
+const escaped = 'snake\\_case';
+\`\`\`
+
+Both forms are supported by the JavaScript regular expression engine natively.
+
+The plugin system lets you transform query results before they are returned.
+
+Each plugin receives the compiled query and can rewrite its output rows.
+
+Plugins are applied in the order they were registered on the instance.
+
+Registering the same plugin twice applies its transformation two times.
+
+Custom plugins implement a small interface with two optional methods.
+
+See the API reference for the full list of built-in plugins and options.`;
+
+    const url = 'http://mcp-escapes-code.local/docs/regex';
+
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-escapes-code.local');
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    const pageResults = result.details?.pageResults as Array<{ missingSegments: number }>;
+    expect(pageResults[0].missingSegments).toBe(0);
+  });
+
+  it('still detects genuinely missing content when markdown uses escapes', async () => {
+    // Unescaping must not mask real gaps: a passage present in HTML but
+    // absent from the markdown is still reported, even when the surrounding
+    // markdown is full of escaped punctuation.
+    const html = `<html><body><main>
+      <h1>Plugins</h1>
+      <p>Converts snake_case identifiers into camelCase for every result row.</p>
+      <p>Arrays are typed as string[] when the column holds multiple values.</p>
+      <p>This paragraph only exists in the HTML version of the documentation page.</p>
+      <p>Wildcards like *.example.com are matched against the request host.</p>
+      <p>The plugin system lets you transform query results before they are returned.</p>
+      <p>Each plugin receives the compiled query and can rewrite its output rows.</p>
+      <p>Plugins are applied in the order they were registered on the instance.</p>
+      <p>Registering the same plugin twice applies its transformation two times.</p>
+      <p>Custom plugins implement a small interface with two optional methods.</p>
+      <p>See the API reference for the full list of built-in plugins and options.</p>
+    </main></body></html>`;
+
+    const markdown = `# Plugins
+
+Converts snake\\_case identifiers into camelCase for every result row.
+
+Arrays are typed as string\\[] when the column holds multiple values.
+
+Wildcards like \\*.example.com are matched against the request host.
+
+The plugin system lets you transform query results before they are returned.
+
+Each plugin receives the compiled query and can rewrite its output rows.
+
+Plugins are applied in the order they were registered on the instance.
+
+Registering the same plugin twice applies its transformation two times.
+
+Custom plugins implement a small interface with two optional methods.
+
+See the API reference for the full list of built-in plugins and options.`;
+
+    const url = 'http://mcp-escapes-missing.local/docs/plugins';
+
+    server.use(
+      http.get(
+        url,
+        () =>
+          new HttpResponse(html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-escapes-missing.local');
+    const result = await check.run(ctx);
+    const pageResults = result.details?.pageResults as Array<{
+      missingSegments: number;
+      sampleDiffs: string[];
+    }>;
+    expect(pageResults[0].missingSegments).toBe(1);
+    expect(pageResults[0].sampleDiffs[0]).toContain('only exists in the HTML version');
+  });
 });
