@@ -23,6 +23,58 @@ export interface RenderingAnalysis {
   htmlLength: number;
 }
 
+/** The concrete content signals `hasSubstantiveContent` evaluates. */
+export type ContentSignals = Pick<
+  RenderingAnalysis,
+  'contentHeadings' | 'contentParagraphs' | 'codeBlocks' | 'hasMainContent' | 'visibleTextLength'
+>;
+
+/**
+ * Whether the measured content signals add up to a real documentation page:
+ * headings, prose paragraphs, code blocks, or a populated main region.
+ *
+ * This is the positive-evidence half of `analyzeRendering`'s `hasContent`
+ * verdict, exposed on its own so other checks can ask "does this page carry
+ * substantive documentation content?" without the "no SPA markers, so assume
+ * server-rendered" escape hatch that `hasContent` also accepts. A traditional
+ * server-rendered login page has no SPA markers yet is not documentation, so
+ * callers vetoing a weak signal (such as a login-looking page title) need
+ * this stricter question.
+ *
+ * The disjunction combines several independent positive signals; any one is
+ * enough. All text-length thresholds apply after chrome stripping
+ * (nav/header/footer/aside removed), so menu and breadcrumb text on an
+ * otherwise-empty SPA shell does not satisfy them.
+ *
+ * - visibleTextLength >= 1500: long page, possibly without semantic markup
+ *   (rare wall-of-text case where no headings parse).
+ * - contentHeadings >= 1 && visibleTextLength >= 500: short doc pages that
+ *   have a heading and a meaningful body. Catches div-soup renderers
+ *   (Archbee, custom Next.js setups) on legitimately short pages —
+ *   integration explainers, glossary entries, single-feature notes — that
+ *   used to be misclassified as sparse because their <500-char body sat
+ *   below the 1500 wall-of-text threshold. True SPA shells fail this
+ *   clause: their post-chrome-strip body is effectively empty (~0 chars),
+ *   nowhere near 500.
+ * - contentHeadings >= 3: multi-section pages (typical reference docs).
+ * - contentParagraphs >= 5: well-structured prose with semantic <p> tags.
+ * - hasMainContent && contentHeadings >= 1: pages with a populated <main>
+ *   region and at least one heading — the canonical doc-page shape.
+ * - codeBlocks >= 3: API references and code-heavy pages.
+ */
+export function hasSubstantiveContent(signals: ContentSignals): boolean {
+  const { contentHeadings, contentParagraphs, codeBlocks, hasMainContent, visibleTextLength } =
+    signals;
+  return (
+    visibleTextLength >= 1500 ||
+    (contentHeadings >= 1 && visibleTextLength >= 500) ||
+    contentHeadings >= 3 ||
+    contentParagraphs >= 5 ||
+    (hasMainContent && contentHeadings >= 1) ||
+    codeBlocks >= 3
+  );
+}
+
 /**
  * Analyze whether an HTML page contains server-rendered content or is
  * a client-side-rendered SPA shell.
@@ -99,37 +151,17 @@ export function analyzeRendering(html: string): RenderingAnalysis {
     hasMainContent = mainParagraphs >= 2 || mainCode >= 1;
   }
 
-  // Determine if the page has real content.
-  //
-  // The disjunction below combines several independent positive signals; any
-  // one is enough. All text-length thresholds apply after chrome stripping
-  // (nav/header/footer/aside removed above), so menu and breadcrumb text on
-  // an otherwise-empty SPA shell does not satisfy them.
-  //
-  // - visibleTextLength >= 1500: long page, possibly without semantic markup
-  //   (rare wall-of-text case where no headings parse).
-  // - contentHeadings >= 1 && visibleTextLength >= 500: short doc pages that
-  //   have a heading and a meaningful body. Catches div-soup renderers
-  //   (Archbee, custom Next.js setups) on legitimately short pages —
-  //   integration explainers, glossary entries, single-feature notes — that
-  //   used to be misclassified as sparse because their <500-char body sat
-  //   below the 1500 wall-of-text threshold. True SPA shells fail this
-  //   clause: their post-chrome-strip body is effectively empty (~0 chars),
-  //   nowhere near 500.
-  // - contentHeadings >= 3: multi-section pages (typical reference docs).
-  // - contentParagraphs >= 5: well-structured prose with semantic <p> tags.
-  // - hasMainContent && contentHeadings >= 1: pages with a populated <main>
-  //   region and at least one heading — the canonical doc-page shape.
-  // - codeBlocks >= 3: API references and code-heavy pages.
-  // - !hasSpaMarkers: traditional server-rendered HTML; not a shell candidate.
+  // Determine if the page has real content: either the positive signals in
+  // `hasSubstantiveContent` add up, or the page has no SPA markers at all
+  // (traditional server-rendered HTML; not a shell candidate).
   const hasContent =
-    visibleTextLength >= 1500 ||
-    (contentHeadings >= 1 && visibleTextLength >= 500) ||
-    contentHeadings >= 3 ||
-    contentParagraphs >= 5 ||
-    (hasMainContent && contentHeadings >= 1) ||
-    codeBlocks >= 3 ||
-    !hasSpaMarkers;
+    hasSubstantiveContent({
+      contentHeadings,
+      contentParagraphs,
+      codeBlocks,
+      hasMainContent,
+      visibleTextLength,
+    }) || !hasSpaMarkers;
 
   return {
     hasContent,

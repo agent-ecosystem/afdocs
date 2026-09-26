@@ -212,6 +212,78 @@ describe('auth-gate-detection', () => {
     expect(result.details?.accessible).toBe(1);
   });
 
+  it('does not flag API reference pages titled "Authenticate ..." (#107)', async () => {
+    // Thin server-rendered shell like a Fern API reference page: nav chrome,
+    // a couple of section headings, no form. Only the title mentions auth.
+    server.use(
+      http.get(
+        'http://test.local/docs/page1',
+        () =>
+          new HttpResponse(
+            '<html><head><title>Authenticate Bearer Token Get | NVIDIA NeMo Platform</title></head>' +
+              '<body><nav><a href="/">Home</a><a href="/reference">API Reference</a></nav>' +
+              '<main><h3>Response</h3><h3>Errors</h3></main></body></html>',
+            { status: 200, headers: { 'Content-Type': 'text/html' } },
+          ),
+      ),
+    );
+
+    const content = `# Docs\n## Links\n- [Page 1](http://test.local/docs/page1): First\n`;
+    const result = await check.run(makeCtx(content));
+    expect(result.status).toBe('pass');
+    expect(result.details?.accessible).toBe(1);
+    expect(result.details?.softAuthGate).toBe(0);
+  });
+
+  it('does not flag docs pages about signing in when the body has real content', async () => {
+    const paragraph =
+      '<p>' + 'Explains how the sign-in flow works in enough detail. '.repeat(3) + '</p>';
+    server.use(
+      http.get(
+        'http://test.local/docs/page1',
+        () =>
+          new HttpResponse(
+            '<html><head><title>Sign in with SSO | Acme Docs</title></head><body><main>' +
+              '<h1>Sign in with SSO</h1>' +
+              paragraph +
+              '<h2>Configure your identity provider</h2>' +
+              paragraph +
+              '<pre><code>acme login --sso https://idp.example.com</code></pre>' +
+              '<h2>Troubleshooting</h2>' +
+              paragraph +
+              '</main></body></html>',
+            { status: 200, headers: { 'Content-Type': 'text/html' } },
+          ),
+      ),
+    );
+
+    const content = `# Docs\n## Links\n- [Page 1](http://test.local/docs/page1): First\n`;
+    const result = await check.run(makeCtx(content));
+    expect(result.status).toBe('pass');
+    expect(result.details?.accessible).toBe(1);
+    expect(result.details?.softAuthGate).toBe(0);
+  });
+
+  it('still flags a login-titled page whose body is a bare SSO launcher', async () => {
+    server.use(
+      http.get(
+        'http://test.local/docs/page1',
+        () =>
+          new HttpResponse(
+            '<html><head><title>Log in | Acme</title></head><body>' +
+              '<h1>Log in</h1><p>Use your company account to continue.</p>' +
+              '<a href="https://idp.example.com/start">Continue with SSO</a></body></html>',
+            { status: 200, headers: { 'Content-Type': 'text/html' } },
+          ),
+      ),
+    );
+
+    const content = `# Docs\n## Links\n- [Page 1](http://test.local/docs/page1): First\n`;
+    const result = await check.run(makeCtx(content));
+    expect(result.status).toBe('fail');
+    expect(result.details?.softAuthGate).toBe(1);
+  });
+
   it('treats non-SSO redirects as accessible', async () => {
     server.use(
       http.get(

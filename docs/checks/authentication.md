@@ -27,7 +27,7 @@ AFDocs detects several forms of auth gating:
 
 - **HTTP status codes**: 401 (Unauthorized) and 403 (Forbidden) responses.
 - **SSO redirects**: Redirects to known SSO providers including Okta, Auth0, Microsoft login, Google Accounts, and Salesforce, plus common SSO subdomain patterns (`sso.`, `idp.`, `auth.`, `login.`).
-- **Soft auth gates**: Pages returning 200 but containing login form indicators: password input fields, page titles starting with "sign in" or "log in", or forms with SAML/OAuth/OpenID action URLs.
+- **Soft auth gates**: Pages returning 200 but containing login form indicators: password input fields, forms with SAML/OAuth/OpenID action URLs, or page titles starting or ending with "sign in" or "log in". A title alone only counts when the page body has no substantive documentation content (headings, prose, code blocks), so public docs about authentication, such as an API reference for a sign-in endpoint, are not mistaken for a login wall.
 
 ### How to fix
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analyzeRendering } from '../../../src/helpers/detect-rendering.js';
+import { analyzeRendering, hasSubstantiveContent } from '../../../src/helpers/detect-rendering.js';
 
 describe('analyzeRendering', () => {
   it('passes for traditional server-rendered HTML with no SPA markers', () => {
@@ -230,5 +230,38 @@ describe('analyzeRendering', () => {
     const result = analyzeRendering('');
     expect(result.hasContent).toBe(true); // No SPA markers = assume content
     expect(result.hasSpaMarkers).toBe(false);
+  });
+});
+
+describe('hasSubstantiveContent', () => {
+  it('is false for a server-rendered login page that hasContent accepts via the no-SPA-markers rule', () => {
+    const html =
+      '<html><head><title>Sign in</title></head><body>' +
+      '<h1>Sign in</h1><p>Use your company account to continue.</p>' +
+      '<a href="https://idp.example.com/start">Continue with SSO</a></body></html>';
+    const analysis = analyzeRendering(html);
+    expect(analysis.hasSpaMarkers).toBe(false);
+    expect(analysis.hasContent).toBe(true);
+    expect(hasSubstantiveContent(analysis)).toBe(false);
+  });
+
+  it('is true for a short doc page with a heading and a meaningful body', () => {
+    const body = 'This section explains one feature in a few sentences. '.repeat(12);
+    const html = `<html><body><main><h1>Feature overview</h1><div>${body}</div></main></body></html>`;
+    const analysis = analyzeRendering(html);
+    expect(analysis.contentHeadings).toBe(1);
+    expect(analysis.visibleTextLength).toBeGreaterThanOrEqual(500);
+    expect(hasSubstantiveContent(analysis)).toBe(true);
+  });
+
+  it('agrees with hasContent whenever SPA markers are present', () => {
+    const shell = '<html><body><div id="__next"><nav>Docs</nav></div></body></html>';
+    const rich =
+      '<html><body><div id="__next"><main><h2>Install</h2><h2>Configure</h2><h2>Deploy</h2></main></div></body></html>';
+    for (const html of [shell, rich]) {
+      const analysis = analyzeRendering(html);
+      expect(analysis.hasSpaMarkers).toBe(true);
+      expect(hasSubstantiveContent(analysis)).toBe(analysis.hasContent);
+    }
   });
 });
