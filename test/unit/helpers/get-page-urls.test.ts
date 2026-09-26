@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import {
   getPageUrls,
+  getUrlsFromCachedLlmsTxtWithOmitted,
   getUrlsFromSitemap,
   discoverAndSamplePages,
   parseSitemapUrls,
@@ -17,6 +18,7 @@ import {
 } from '../../../src/helpers/get-page-urls.js';
 import { MAX_SITEMAP_URLS } from '../../../src/constants.js';
 import { createContext } from '../../../src/runner.js';
+import { fetchPage } from '../../../src/helpers/fetch-page.js';
 import type { DiscoveredFile } from '../../../src/types.js';
 import { mockSitemapNotFound } from '../../helpers/mock-sitemap-not-found.js';
 
@@ -26,6 +28,22 @@ beforeAll(() => {
   server.listen({ onUnhandledRequest: 'bypass' });
   return () => server.close();
 });
+
+/** Serve a minimal HTML page at each URL, for pages the sampler verifies. */
+function mockHtmlPage(...urls: string[]): void {
+  server.use(
+    ...urls.map((url) =>
+      http.get(
+        url,
+        () =>
+          new HttpResponse('<!DOCTYPE html><html><body>ok</body></html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    ),
+  );
+}
 
 describe('parseSitemapUrls', () => {
   it('extracts <loc> URLs from a regular sitemap', () => {
@@ -1604,6 +1622,128 @@ describe('getPageUrls', () => {
     expect(result.urls).toEqual(['http://walk-empty.local/docs/page']);
   });
 
+  // ── Self-links and duplicate indexes (issue #111) ──
+
+  function textFile(content: string) {
+    return () =>
+      new HttpResponse(content, { status: 200, headers: { 'Content-Type': 'text/plain' } });
+  }
+
+  it('ignores a root llms.txt link to itself (issue #111)', async () => {
+    const rootContent = `# Docs\nThis file: [llms.txt](http://self-link.local/llms.txt)\n- [Workers](http://self-link.local/workers/llms.txt)\n- [Intro](http://self-link.local/docs/intro): Intro\n`;
+    const workersContent = `# Workers\n- [Guide](http://self-link.local/workers/guide/index.md): Guide\n`;
+    let rootFetches = 0;
+    server.use(
+      http.get('http://self-link.local/llms.txt', () => {
+        rootFetches++;
+        return textFile(rootContent)();
+      }),
+      http.get('http://self-link.local/workers/llms.txt', textFile(workersContent)),
+    );
+
+    const ctx = makeCtx('http://self-link.local', rootContent);
+    const result = await getUrlsFromCachedLlmsTxtWithOmitted(ctx);
+    // The nested index is still walked at depth 1, not recorded as omitted.
+    expect(result.pageUrls).toEqual([
+      'http://self-link.local/docs/intro',
+      'http://self-link.local/workers/guide/',
+    ]);
+    expect(result.omittedTxtUrls).toEqual([]);
+    expect(rootFetches).toBe(0);
+  });
+
+  it('recognizes a self-link that differs only by scheme and www (issue #111)', async () => {
+    const rootContent = `# Docs\n[Self](https://www.self-www.local/llms.txt)\n- [Guide](http://self-www.local/docs/guide): Guide\n`;
+    let rootFetches = 0;
+    server.use(
+      http.get('https://www.self-www.local/llms.txt', () => {
+        rootFetches++;
+        return textFile(rootContent)();
+      }),
+    );
+
+    const ctx = makeCtx('http://self-www.local', rootContent);
+    const result = await getUrlsFromCachedLlmsTxtWithOmitted(ctx);
+    expect(result.pageUrls).toEqual(['http://self-www.local/docs/guide']);
+    expect(result.omittedTxtUrls).toEqual([]);
+    expect(rootFetches).toBe(0);
+  });
+
+  it('recognizes a self-link to the URL the root llms.txt redirected to', async () => {
+    const rootContent = `# Docs\n[Self](http://self-redir.local/docs/llms.txt)\n- [Guide](http://self-redir.local/docs/guide): Guide\n`;
+    let fetches = 0;
+    server.use(
+      http.get('http://self-redir.local/docs/llms.txt', () => {
+        fetches++;
+        return textFile(rootContent)();
+      }),
+    );
+
+    const ctx = makeCtx('http://self-redir.local');
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: {
+        discoveredFiles: [
+          {
+            url: 'http://self-redir.local/llms.txt',
+            content: rootContent,
+            status: 200,
+            redirected: true,
+            redirectUrl: 'http://self-redir.local/docs/llms.txt',
+          },
+        ],
+      },
+    });
+    const result = await getUrlsFromCachedLlmsTxtWithOmitted(ctx);
+    expect(result.pageUrls).toEqual(['http://self-redir.local/docs/guide']);
+    expect(result.omittedTxtUrls).toEqual([]);
+    expect(fetches).toBe(0);
+  });
+
+  it('does not count a nested index linking back to the root as an omitted subtree', async () => {
+    const rootContent = `# Docs\n- [Workers](http://back-link.local/workers/llms.txt)\n- [Cache](http://back-link.local/cache/llms.txt)\n`;
+    const workersContent = `# Workers\nUp: [root](http://back-link.local/llms.txt) · [cache](http://back-link.local/cache/llms.txt)\n- [Guide](http://back-link.local/workers/guide): Guide\n- [Deep](http://back-link.local/workers/deep/llms.txt)\n`;
+    const cacheContent = `# Cache\n- [Deep](http://back-link.local/workers/deep/llms.txt)\n- [Overview](http://back-link.local/cache/overview): Overview\n`;
+    server.use(
+      http.get('http://back-link.local/workers/llms.txt', textFile(workersContent)),
+      http.get('http://back-link.local/cache/llms.txt', textFile(cacheContent)),
+    );
+
+    const ctx = makeCtx('http://back-link.local', rootContent);
+    const result = await getUrlsFromCachedLlmsTxtWithOmitted(ctx);
+    expect(result.pageUrls).toEqual([
+      'http://back-link.local/workers/guide',
+      'http://back-link.local/cache/overview',
+    ]);
+    // Root and sibling links are not omitted subtrees; the depth-2 index
+    // linked from both nested indexes is recorded once.
+    expect(result.omittedTxtUrls).toEqual(['http://back-link.local/workers/deep/llms.txt']);
+  });
+
+  it('walks a nested index linked more than once only once', async () => {
+    const rootContent = `# Docs\n- [Workers](http://dup-index.local/workers/llms.txt)\n- [Workers again](http://www.dup-index.local/workers/llms.txt)\n`;
+    const workersContent = `# Workers\n- [Guide](http://dup-index.local/workers/guide): Guide\n`;
+    let fetches = 0;
+    server.use(
+      http.get('http://dup-index.local/workers/llms.txt', () => {
+        fetches++;
+        return textFile(workersContent)();
+      }),
+      http.get('http://www.dup-index.local/workers/llms.txt', () => {
+        fetches++;
+        return textFile(workersContent)();
+      }),
+    );
+
+    const ctx = makeCtx('http://dup-index.local', rootContent);
+    const result = await getUrlsFromCachedLlmsTxtWithOmitted(ctx);
+    expect(result.pageUrls).toEqual(['http://dup-index.local/workers/guide']);
+    expect(fetches).toBe(1);
+  });
+
   // ── .md URL normalization ──
 
   it('normalizes .md URLs from llms.txt to HTML equivalents', async () => {
@@ -2353,6 +2493,7 @@ describe('originalMdUrls (issue #77)', () => {
       details: { discoveredFiles: discovered },
     });
     mockSitemapNotFound(server, 'http://test77a.local');
+    mockHtmlPage('http://test77a.local/docs/auth/index.html');
 
     const result = await discoverAndSamplePages(ctx);
     expect(result.urls).toContain('http://test77a.local/docs/auth/index.html');
@@ -2380,6 +2521,7 @@ describe('originalMdUrls (issue #77)', () => {
       details: { discoveredFiles: discovered },
     });
     mockSitemapNotFound(server, 'http://test77b.local');
+    mockHtmlPage('http://test77b.local/docs/guide');
 
     const result = await discoverAndSamplePages(ctx);
     expect(result.urls).toContain('http://test77b.local/docs/guide');
@@ -2406,6 +2548,7 @@ describe('originalMdUrls (issue #77)', () => {
       details: { discoveredFiles: discovered },
     });
     mockSitemapNotFound(server, 'http://test77c.local');
+    mockHtmlPage('http://test77c.local/docs/auth');
 
     const result = await discoverAndSamplePages(ctx);
     expect(result.urls).toContain('http://test77c.local/docs/auth');
@@ -2432,6 +2575,7 @@ describe('originalMdUrls (issue #77)', () => {
       details: { discoveredFiles: discovered },
     });
     mockSitemapNotFound(server, 'http://test95a.local');
+    mockHtmlPage('http://test95a.local/docs/auth.html');
 
     const result = await discoverAndSamplePages(ctx);
     expect(result.urls).toContain('http://test95a.local/docs/auth.html');
@@ -2458,6 +2602,7 @@ describe('originalMdUrls (issue #77)', () => {
       details: { discoveredFiles: discovered },
     });
     mockSitemapNotFound(server, 'http://test95b.local');
+    mockHtmlPage('http://test95b.local/docs/auth.md');
 
     const result = await discoverAndSamplePages(ctx);
     expect(result.urls).toContain('http://test95b.local/docs/auth.md');
@@ -2515,6 +2660,7 @@ describe('originalMdUrls (issue #77)', () => {
       details: { discoveredFiles: discovered },
     });
     mockSitemapNotFound(server, 'http://test77e.local');
+    mockHtmlPage('http://test77e.local/docs/auth');
 
     const result = await discoverAndSamplePages(ctx);
     // Both entries collapse to the HTML URL after normalization.
@@ -2543,6 +2689,9 @@ describe('originalMdUrls (issue #77)', () => {
       details: { discoveredFiles: discovered },
     });
     mockSitemapNotFound(server, 'http://test77f.local');
+    mockHtmlPage(
+      ...Array.from({ length: 5 }, (_, i) => `http://test77f.local/docs/p${i}/index.html`),
+    );
 
     const result = await discoverAndSamplePages(ctx);
     expect(result.urls).toHaveLength(2);
@@ -2590,11 +2739,185 @@ describe('originalMdUrls (issue #77)', () => {
       details: { discoveredFiles: discovered },
     });
     mockSitemapNotFound(server, 'http://test77g.local');
+    mockHtmlPage('http://test77g.local/docs/auth/index.html');
 
     const result = await discoverAndSamplePages(ctx);
     expect(result.urls).toContain('http://test77g.local/docs/auth/index.html');
     expect(result.originalMdUrls!['http://test77g.local/docs/auth/index.html']).toBe(
       'http://test77g.local/docs/auth/index.html.md',
     );
+  });
+});
+
+describe('markdown-only llms.txt links (issue #112)', () => {
+  function makeCtx(baseUrl: string, llmsTxtContent: string, opts?: Record<string, unknown>) {
+    const ctx = createContext(baseUrl, { requestDelay: 0, ...opts });
+    const discovered: DiscoveredFile[] = [
+      { url: `${baseUrl}/llms.txt`, content: llmsTxtContent, status: 200, redirected: false },
+    ];
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: { discoveredFiles: discovered },
+    });
+    mockSitemapNotFound(server, baseUrl);
+    return ctx;
+  }
+
+  const notFound = () => new HttpResponse('Not found', { status: 404 });
+
+  it('drops .md links whose HTML page does not exist and says so', async () => {
+    const content = `# Docs
+> Summary
+## Links
+- [Sitemap](http://md-only.local/sitemap-llms.md): Markdown sitemap
+- [Gone](http://md-only.local/docs/gone.md): Removed
+- [Guide](http://md-only.local/docs/guide.md): Guide
+- [Intro](http://md-only.local/docs/intro): Intro
+`;
+    let introFetches = 0;
+    server.use(
+      http.get('http://md-only.local/sitemap-llms', notFound),
+      http.get('http://md-only.local/docs/gone', () => new HttpResponse('', { status: 410 })),
+      http.get('http://md-only.local/docs/intro', () => {
+        introFetches++;
+        return new HttpResponse('<html></html>', { status: 200 });
+      }),
+    );
+    mockHtmlPage('http://md-only.local/docs/guide');
+
+    const ctx = makeCtx('http://md-only.local', content);
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toEqual([
+      'http://md-only.local/docs/guide',
+      'http://md-only.local/docs/intro',
+    ]);
+    expect(result.originalMdUrls).toEqual({
+      'http://md-only.local/docs/guide': 'http://md-only.local/docs/guide.md',
+    });
+    expect(result.warnings).toEqual([
+      'Skipped 2 llms.txt .md link(s) with no HTML page (markdown-only files such as http://md-only.local/sitemap-llms)',
+    ]);
+    // Only URLs derived from .md links are verified up front.
+    expect(introFetches).toBe(0);
+  });
+
+  it('reuses the verification response for the page checks that follow', async () => {
+    const content = `# Docs\n- [Guide](http://md-cache.local/docs/guide.md): Guide\n`;
+    let fetches = 0;
+    server.use(
+      http.get('http://md-cache.local/docs/guide', () => {
+        fetches++;
+        return new HttpResponse('<html><body>ok</body></html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }),
+    );
+
+    const ctx = makeCtx('http://md-cache.local', content);
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toEqual(['http://md-cache.local/docs/guide']);
+    const page = await fetchPage(ctx, 'http://md-cache.local/docs/guide');
+    expect(page.status).toBe(200);
+    expect(fetches).toBe(1);
+  });
+
+  it('backfills the sample from the unsampled URLs in deterministic order', async () => {
+    const links = Array.from(
+      { length: 5 },
+      (_, i) => `- [P${i}](http://md-backfill.local/docs/p${i}.md): Page ${i}`,
+    ).join('\n');
+    const content = `# Docs\n> Summary\n## Links\n${links}\n`;
+    // Sorted picks with maxLinksToTest 2 are p0 and p2 (stride 2.5); p0 is
+    // markdown-only, so p1 (first unpicked in sorted order) takes its place.
+    server.use(http.get('http://md-backfill.local/docs/p0', notFound));
+    mockHtmlPage(...Array.from({ length: 4 }, (_, i) => `http://md-backfill.local/docs/p${i + 1}`));
+
+    const ctx = makeCtx('http://md-backfill.local', content, {
+      maxLinksToTest: 2,
+      samplingStrategy: 'deterministic',
+    });
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toEqual([
+      'http://md-backfill.local/docs/p2',
+      'http://md-backfill.local/docs/p1',
+    ]);
+    expect(result.totalPages).toBe(5);
+    expect(result.sampled).toBe(true);
+    expect(Object.keys(result.originalMdUrls ?? {}).sort()).toEqual([
+      'http://md-backfill.local/docs/p1',
+      'http://md-backfill.local/docs/p2',
+    ]);
+  });
+
+  it('caps verification at twice maxLinksToTest and falls back to the base URL', async () => {
+    const links = Array.from(
+      { length: 10 },
+      (_, i) => `- [P${i}](http://md-all-gone.local/docs/p${i}.md): Page ${i}`,
+    ).join('\n');
+    const content = `# Docs\n> Summary\n## Links\n${links}\n`;
+    let fetches = 0;
+    server.use(
+      http.get('http://md-all-gone.local/docs/:page', () => {
+        fetches++;
+        return notFound();
+      }),
+    );
+
+    const ctx = makeCtx('http://md-all-gone.local', content, {
+      maxLinksToTest: 2,
+      samplingStrategy: 'deterministic',
+    });
+    const result = await discoverAndSamplePages(ctx);
+    expect(fetches).toBe(4);
+    expect(result.urls).toEqual(['http://md-all-gone.local']);
+    expect(result.originalMdUrls).toBeUndefined();
+    expect(result.warnings).toEqual([
+      'Skipped 4 llms.txt .md link(s) with no HTML page (markdown-only files such as http://md-all-gone.local/docs/p0); if the site serves real filenames, set --url-path-pattern',
+    ]);
+  });
+
+  it('keeps a page whose verification request fails', async () => {
+    const content = `# Docs\n- [Guide](http://md-neterr.local/docs/guide.md): Guide\n`;
+    server.use(http.get('http://md-neterr.local/docs/guide', () => HttpResponse.error()));
+
+    const ctx = makeCtx('http://md-neterr.local', content);
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toEqual(['http://md-neterr.local/docs/guide']);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('does not verify pages when discovery came from the sitemap', async () => {
+    const ctx = createContext('http://md-sitemap.local', { requestDelay: 0 });
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'fail',
+      message: 'No llms.txt found',
+      details: { discoveredFiles: [] },
+    });
+    let pageFetches = 0;
+    mockSitemapNotFound(server, 'http://md-sitemap.local');
+    server.use(
+      http.get(
+        'http://md-sitemap.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>http://md-sitemap.local/docs/a</loc></url></urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+      http.get('http://md-sitemap.local/docs/a', () => {
+        pageFetches++;
+        return notFound();
+      }),
+    );
+
+    const result = await discoverAndSamplePages(ctx);
+    expect(result.urls).toEqual(['http://md-sitemap.local/docs/a']);
+    expect(pageFetches).toBe(0);
   });
 });

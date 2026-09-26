@@ -2,7 +2,8 @@ import { extractMarkdownLinks } from '../checks/content-discoverability/llms-txt
 import { MAX_SITEMAP_URLS } from '../constants.js';
 import { getLlmsTxtFilesForAnalysis, selectCanonicalLlmsTxt } from './llms-txt.js';
 import { isNonPageUrl, isMdUrl, toHtmlUrl } from './to-md-urls.js';
-import { isSameSite } from './host-equivalence.js';
+import { isSameSite, canonicalHost } from './host-equivalence.js';
+import { fetchPage } from './fetch-page.js';
 import { isLocaleSegment, hasStructuralDuplication } from './locale-codes.js';
 import type { CheckContext, DiscoveredFile, UrlPathPattern } from '../types.js';
 
@@ -55,7 +56,7 @@ export async function getUrlsFromCachedLlmsTxtWithOriginals(
   const discovered = getLlmsTxtFilesForAnalysis(existsResult);
 
   const entries = extractLinksFromLlmsTxtFiles(discovered, ctx.options.urlPathPattern);
-  const result = await walkAggregateLinksWithOriginals(ctx, entries);
+  const result = await walkAggregateLinksWithOriginals(ctx, entries, discovered);
   return {
     pageUrls: result.pageUrls.map((p) => p.url),
     originalMdUrls: collectOriginalMdUrls(result.pageUrls),
@@ -69,7 +70,7 @@ export async function getUrlsFromCachedLlmsTxtWithOmitted(
   const discovered = getLlmsTxtFilesForAnalysis(existsResult);
 
   const entries = extractLinksFromLlmsTxtFiles(discovered, ctx.options.urlPathPattern);
-  const result = await walkAggregateLinksWithOriginals(ctx, entries);
+  const result = await walkAggregateLinksWithOriginals(ctx, entries, discovered);
   return {
     pageUrls: result.pageUrls.map((p) => p.url),
     omittedTxtUrls: result.omittedTxtUrls,
@@ -160,9 +161,25 @@ export interface AggregateWalkResult {
   omittedTxtUrls: string[];
 }
 
+/**
+ * Identity key for a `.txt` index URL. Scheme and fragment are ignored and
+ * `www.` is stripped, matching `isSameSite`, so a root llms.txt that links
+ * to itself as `https://www.example.com/llms.txt` is recognized when the
+ * walk started from `http://example.com/llms.txt`.
+ */
+function txtUrlKey(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return `${canonicalHost(parsed.hostname)}:${parsed.port}${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
 async function walkAggregateLinksWithOriginals(
   ctx: CheckContext,
   entries: DiscoveredPageUrl[],
+  sourceFiles: DiscoveredFile[],
 ): Promise<{ pageUrls: DiscoveredPageUrl[]; omittedTxtUrls: string[] }> {
   const pageUrls: DiscoveredPageUrl[] = [];
   const aggregateUrls: string[] = [];
@@ -172,13 +189,35 @@ async function walkAggregateLinksWithOriginals(
   const isAcceptedOrigin = (url: string): boolean =>
     isSameSite(url, ctx.origin) || isSameSite(url, siteOrigin);
 
+  // Every .txt index the walk has already accounted for: the root file(s)
+  // the entries came from, then each depth-1 index as it is queued, then
+  // each depth-2 index as it is recorded as omitted. Without the root seed,
+  // a root llms.txt that links to itself (issue #111) is re-fetched as a
+  // depth-1 index, which pushes every real nested index to depth 2 and out
+  // of the walk. The same set keeps an index linked twice from being walked
+  // or counted as omitted twice.
+  const seenTxt = new Set<string>();
+  for (const file of sourceFiles) {
+    for (const url of [file.url, file.redirectUrl]) {
+      const key = url === undefined ? null : txtUrlKey(url);
+      if (key !== null) seenTxt.add(key);
+    }
+  }
+  /** Record a .txt URL; false when it was already seen (or is malformed). */
+  const firstSighting = (url: string): boolean => {
+    const key = txtUrlKey(url);
+    if (key === null || seenTxt.has(key)) return false;
+    seenTxt.add(key);
+    return true;
+  };
+
   for (const entry of entries) {
     try {
       const parsed = new URL(entry.url);
       if (/\.txt$/i.test(parsed.pathname)) {
         // .txt files are either aggregate indexes to walk (same origin)
         // or external resources to skip — never page URLs themselves
-        if (isAcceptedOrigin(entry.url)) {
+        if (isAcceptedOrigin(entry.url) && firstSighting(entry.url)) {
           aggregateUrls.push(entry.url);
         }
       } else if (isAcceptedOrigin(entry.url)) {
@@ -219,8 +258,10 @@ async function walkAggregateLinksWithOriginals(
           if (!isAcceptedOrigin(subEntry.url)) continue;
 
           if (/\.txt$/i.test(parsed.pathname)) {
-            // Depth-1 .txt link: record as omitted rather than descending
-            omittedTxtUrls.push(subEntry.url);
+            // Depth-1 .txt link: record as omitted rather than descending.
+            // Links back to the root or to an index already walked are not
+            // omitted subtrees.
+            if (firstSighting(subEntry.url)) omittedTxtUrls.push(subEntry.url);
           } else if (!isNonPageUrl(subEntry.url)) {
             pageUrls.push(subEntry);
           }
@@ -282,7 +323,7 @@ async function fetchLlmsTxtUrls(
   const canonical = selectCanonicalLlmsTxt(discovered, ctx.baseUrl);
   const filesForAnalysis = canonical ? [canonical] : [];
   const entries = extractLinksFromLlmsTxtFiles(filesForAnalysis, ctx.options.urlPathPattern);
-  const result = await walkAggregateLinksWithOriginals(ctx, entries);
+  const result = await walkAggregateLinksWithOriginals(ctx, entries, filesForAnalysis);
   return {
     pageUrls: result.pageUrls.map((p) => p.url),
     originalMdUrls: collectOriginalMdUrls(result.pageUrls),
@@ -1105,29 +1146,55 @@ export async function discoverAndSamplePages(ctx: CheckContext): Promise<Sampled
   }
 
   const discovery = await getPageUrls(ctx);
-  let urls = discovery.urls;
-  const totalPages = urls.length;
+  const totalPages = discovery.urls.length;
+  const max = ctx.options.maxLinksToTest;
+  const sampled = totalPages > max;
 
-  const sampled = totalPages > ctx.options.maxLinksToTest;
+  // Order the candidates: the first maxLinksToTest are the sample, the rest
+  // are backfill for sampled URLs that turn out not to exist (issue #112).
+  let ordered = discovery.urls;
   if (sampled) {
     if (strategy === 'deterministic') {
-      // Sort lexicographically for a stable ordering, then pick evenly-spaced URLs.
-      urls.sort();
-      const stride = urls.length / ctx.options.maxLinksToTest;
-      const picked: string[] = [];
-      for (let i = 0; i < ctx.options.maxLinksToTest; i++) {
-        picked.push(urls[Math.floor(i * stride)]);
-      }
-      urls = picked;
+      // Sort lexicographically for a stable ordering, then pick evenly-spaced
+      // URLs. The unpicked URLs follow in sorted order so backfill is stable too.
+      const sorted = [...discovery.urls].sort();
+      const stride = sorted.length / max;
+      const pickedIdx = new Set<number>();
+      for (let i = 0; i < max; i++) pickedIdx.add(Math.floor(i * stride));
+      ordered = [
+        ...sorted.filter((_, i) => pickedIdx.has(i)),
+        ...sorted.filter((_, i) => !pickedIdx.has(i)),
+      ];
     } else {
       // "random" — Fisher-Yates shuffle
-      for (let i = urls.length - 1; i > 0; i--) {
+      ordered = [...discovery.urls];
+      for (let i = ordered.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [urls[i], urls[j]] = [urls[j], urls[i]];
+        [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
       }
-      urls = urls.slice(0, ctx.options.maxLinksToTest);
     }
   }
+
+  const { urls, skipped, verified } = await takeExistingPages(
+    ctx,
+    ordered,
+    max,
+    discovery.originalMdUrls,
+  );
+  const warnings = [...discovery.warnings];
+  if (skipped.length > 0) {
+    let warning = `Skipped ${skipped.length} llms.txt .md link(s) with no HTML page (markdown-only files such as ${skipped[0]})`;
+    // A handful of misses is markdown-only files. Most of the sample missing
+    // means the .md → page mapping itself is wrong for this site, which the
+    // user fixes with --url-path-pattern; we do not guess the pattern here
+    // (see working-notes/page-discovery-notes.md).
+    if (skipped.length >= 3 && skipped.length * 2 >= verified) {
+      warning += '; if the site serves real filenames, set --url-path-pattern';
+    }
+    warnings.push(warning);
+  }
+  // Mirror getPageUrls' final fallback so page checks always have a URL.
+  if (urls.length === 0) urls.push(ctx.baseUrl);
 
   // Filter originalMdUrls to the sampled subset so downstream checks
   // don't see entries for URLs that were filtered out.
@@ -1145,9 +1212,71 @@ export async function discoverAndSamplePages(ctx: CheckContext): Promise<Sampled
     urls,
     totalPages,
     sampled,
-    warnings: discovery.warnings,
+    warnings,
     sources: discovery.sources,
     originalMdUrls,
   };
   return ctx._sampledPages;
+}
+
+/**
+ * Take up to `max` URLs from `ordered`, skipping URLs that came from an
+ * llms.txt `.md` link whose HTML page does not exist (issue #112).
+ *
+ * Sites list markdown-only files such as `/sitemap-llms.md` in llms.txt.
+ * `normalizePageUrl` turns that into `/sitemap-llms`, a URL the site never
+ * served, and page-level checks then report 404s and content warnings on
+ * it. This is existence verification of the sampled pages only, not URL
+ * pattern detection: the mapping from `.md` links to page URLs stays a
+ * user-declared option (`urlPathPattern`, issue #95) and is never inferred
+ * from these results.
+ *
+ * Request budget (see working-notes/page-discovery-notes.md):
+ * - Only URLs with an `originalMdUrl` are fetched; sitemap and plain
+ *   llms.txt URLs are taken as-is.
+ * - The GET goes through `fetchPage`, so `page-size-html`,
+ *   `content-start-position`, `rendering-strategy`, and
+ *   `tabbed-content-serialization` reuse it from `ctx.htmlCache`. A full
+ *   run therefore makes no additional requests; a partial run that
+ *   includes none of those checks pays up to `max` extra GETs.
+ * - Candidates are taken in batches and capped at 2 × max so a site where
+ *   nothing resolves is not crawled.
+ */
+async function takeExistingPages(
+  ctx: CheckContext,
+  ordered: string[],
+  max: number,
+  originalMdUrls: Record<string, string> | undefined,
+): Promise<{ urls: string[]; skipped: string[]; verified: number }> {
+  if (!originalMdUrls) return { urls: ordered.slice(0, max), skipped: [], verified: 0 };
+
+  const urls: string[] = [];
+  const skipped: string[] = [];
+  let verified = 0;
+  let cursor = 0;
+  while (urls.length < max && cursor < ordered.length && cursor < 2 * max) {
+    const batch = ordered.slice(cursor, cursor + (max - urls.length));
+    cursor += batch.length;
+    const exists = await Promise.all(
+      batch.map((url) => {
+        if (!(url in originalMdUrls)) return true;
+        verified++;
+        return pageExists(ctx, url);
+      }),
+    );
+    batch.forEach((url, i) => (exists[i] ? urls : skipped).push(url));
+  }
+  return { urls, skipped, verified };
+}
+
+/** False when the URL answers 404 or 410; network errors keep the URL. */
+async function pageExists(ctx: CheckContext, url: string): Promise<boolean> {
+  try {
+    const page = await fetchPage(ctx, url);
+    return page.status !== 404 && page.status !== 410;
+  } catch {
+    // A transient failure should not reshape the sample; the page checks
+    // will report the error themselves.
+    return true;
+  }
 }
