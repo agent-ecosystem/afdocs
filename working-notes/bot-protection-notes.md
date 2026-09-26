@@ -108,6 +108,11 @@ warn.
 
 ## Field data (2026-09-26, one deterministic run per site, 20 pages, 200 ms)
 
+Harness: `working-notes/bot-protection-field-run.mjs` (`run`, `analyze`,
+`rescore`) over `working-notes/bot-protection-sites.txt`; ledgers land in the
+gitignored `bot-results/`. Re-score saved ledgers after any threshold change
+instead of re-running the sites.
+
 33 sites: the 20-site parity corpus plus 13 large vendor docs sites behind
 Akamai, Cloudflare, Imperva, or Fastly. Ledgers saved locally; re-scored
 offline after each tuning change rather than re-running against the sites.
