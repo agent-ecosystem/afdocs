@@ -1175,12 +1175,23 @@ export async function discoverAndSamplePages(ctx: CheckContext): Promise<Sampled
     }
   }
 
-  const { urls, skipped } = await takeExistingPages(ctx, ordered, max, discovery.originalMdUrls);
+  const { urls, skipped, verified } = await takeExistingPages(
+    ctx,
+    ordered,
+    max,
+    discovery.originalMdUrls,
+  );
   const warnings = [...discovery.warnings];
   if (skipped.length > 0) {
-    warnings.push(
-      `Skipped ${skipped.length} llms.txt .md link(s) with no HTML page (markdown-only files such as ${skipped[0]})`,
-    );
+    let warning = `Skipped ${skipped.length} llms.txt .md link(s) with no HTML page (markdown-only files such as ${skipped[0]})`;
+    // A handful of misses is markdown-only files. Most of the sample missing
+    // means the .md → page mapping itself is wrong for this site, which the
+    // user fixes with --url-path-pattern; we do not guess the pattern here
+    // (see working-notes/page-discovery-notes.md).
+    if (skipped.length >= 3 && skipped.length * 2 >= verified) {
+      warning += '; if the site serves real filenames, set --url-path-pattern';
+    }
+    warnings.push(warning);
   }
   // Mirror getPageUrls' final fallback so page checks always have a URL.
   if (urls.length === 0) urls.push(ctx.baseUrl);
@@ -1215,32 +1226,47 @@ export async function discoverAndSamplePages(ctx: CheckContext): Promise<Sampled
  * Sites list markdown-only files such as `/sitemap-llms.md` in llms.txt.
  * `normalizePageUrl` turns that into `/sitemap-llms`, a URL the site never
  * served, and page-level checks then report 404s and content warnings on
- * it. Only URLs with an `originalMdUrl` are fetched here, and the response
- * is cached on `ctx.htmlCache`, so the page checks that run next reuse it;
- * the only extra requests are for backfill candidates. Candidates are taken
- * in batches and capped at 2 × max so a site where nothing resolves does
- * not get crawled.
+ * it. This is existence verification of the sampled pages only, not URL
+ * pattern detection: the mapping from `.md` links to page URLs stays a
+ * user-declared option (`urlPathPattern`, issue #95) and is never inferred
+ * from these results.
+ *
+ * Request budget (see working-notes/page-discovery-notes.md):
+ * - Only URLs with an `originalMdUrl` are fetched; sitemap and plain
+ *   llms.txt URLs are taken as-is.
+ * - The GET goes through `fetchPage`, so `page-size-html`,
+ *   `content-start-position`, `rendering-strategy`, and
+ *   `tabbed-content-serialization` reuse it from `ctx.htmlCache`. A full
+ *   run therefore makes no additional requests; a partial run that
+ *   includes none of those checks pays up to `max` extra GETs.
+ * - Candidates are taken in batches and capped at 2 × max so a site where
+ *   nothing resolves is not crawled.
  */
 async function takeExistingPages(
   ctx: CheckContext,
   ordered: string[],
   max: number,
   originalMdUrls: Record<string, string> | undefined,
-): Promise<{ urls: string[]; skipped: string[] }> {
-  if (!originalMdUrls) return { urls: ordered.slice(0, max), skipped: [] };
+): Promise<{ urls: string[]; skipped: string[]; verified: number }> {
+  if (!originalMdUrls) return { urls: ordered.slice(0, max), skipped: [], verified: 0 };
 
   const urls: string[] = [];
   const skipped: string[] = [];
+  let verified = 0;
   let cursor = 0;
   while (urls.length < max && cursor < ordered.length && cursor < 2 * max) {
     const batch = ordered.slice(cursor, cursor + (max - urls.length));
     cursor += batch.length;
     const exists = await Promise.all(
-      batch.map((url) => (url in originalMdUrls ? pageExists(ctx, url) : true)),
+      batch.map((url) => {
+        if (!(url in originalMdUrls)) return true;
+        verified++;
+        return pageExists(ctx, url);
+      }),
     );
     batch.forEach((url, i) => (exists[i] ? urls : skipped).push(url));
   }
-  return { urls, skipped };
+  return { urls, skipped, verified };
 }
 
 /** False when the URL answers 404 or 410; network errors keep the URL. */

@@ -17,6 +17,11 @@ history alone does not carry the reasoning.
   fixed, and the validation runs against 20 documentation sites. Start
   with "Current approach" and "Markdown text extraction ordering" before
   touching `extractMarkdownText` or `extractHtmlText`.
+- `page-discovery-notes.md`: design history of page discovery in
+  `src/helpers/get-page-urls.ts`: the aggregate walker, `.md` link
+  normalization, `urlPathPattern`, and sample verification, with the
+  request-budget reasoning behind each and the alternatives rejected.
+  Read "Invariants" before changing how URLs are discovered or sampled.
 - `parity-sites.txt`: the 20 sites used to validate parity changes, with
   base URLs. Referenced throughout the parity notes.
 - `run-parity-baseline.sh`: runs the parity check against one of those

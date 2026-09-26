@@ -2875,7 +2875,9 @@ describe('markdown-only llms.txt links (issue #112)', () => {
     expect(fetches).toBe(4);
     expect(result.urls).toEqual(['http://md-all-gone.local']);
     expect(result.originalMdUrls).toBeUndefined();
-    expect(result.warnings[0]).toMatch(/^Skipped 4 llms\.txt \.md link\(s\)/);
+    expect(result.warnings).toEqual([
+      'Skipped 4 llms.txt .md link(s) with no HTML page (markdown-only files such as http://md-all-gone.local/docs/p0); if the site serves real filenames, set --url-path-pattern',
+    ]);
   });
 
   it('keeps a page whose verification request fails', async () => {
