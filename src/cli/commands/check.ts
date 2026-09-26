@@ -192,7 +192,7 @@ export function registerCheckCommand(program: Command): void {
 
       const quiet = !!opts.quiet;
 
-      if (format !== 'json' && !quiet) {
+      if (!quiet) {
         const parsed = new URL(url);
         const target =
           parsed.pathname && parsed.pathname !== '/'

@@ -1193,6 +1193,7 @@ describe('check command config integration', () => {
     expect(parsed.results[0].id).toBe('llms-txt-exists');
 
     const stderr = stderrSpy.mock.calls.map((c) => c[0]).join('');
+    expect(stderr).toContain('Running checks on cmd-json-progress.local...');
     expect(stderr).toContain('[1/1] llms-txt-exists... ');
 
     stdoutSpy.mockRestore();
