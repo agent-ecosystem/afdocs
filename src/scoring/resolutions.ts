@@ -381,7 +381,9 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
       'and exempt public documentation routes from behavioral enforcement. ' +
       'Intermittent interference means enforcement thresholds sit close to ' +
       'normal agent reading cadence, so small configuration changes or ' +
-      'ordinary traffic growth can tip it into sustained blocking.',
+      'ordinary traffic growth can tip it into sustained blocking. If the ' +
+      'enforcement is explicit rate limiting, add a Retry-After header to ' +
+      'the 429 so agents know how long to back off.',
     fail: () =>
       'Sustained automated fetching is effectively blocked. Treat public ' +
       'documentation paths as automation-friendly in your bot-management ' +

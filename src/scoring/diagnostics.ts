@@ -36,6 +36,36 @@ export function isScanDegradedByBotProtection(
   );
 }
 
+/**
+ * Which multi-page checks were computed from a partial sample. When the
+ * check itself warned or failed, the ledger says which checks made requests
+ * during the interference window, and only those are flagged; a check that
+ * finished before enforcement engaged measured the full sample. When only
+ * the run-level failure rate triggered the flag, there is no window to
+ * attribute and every multi-page check is flagged.
+ */
+export function getPartialSampleChecks(
+  results: Map<string, CheckResult>,
+  report: ReportResult,
+): ReadonlySet<string> | 'all' | 'none' {
+  if (!isScanDegradedByBotProtection(results, report)) return 'none';
+  const check = results.get('bot-protection-interference');
+  if (check?.status === 'warn' || check?.status === 'fail') {
+    const affected = check.details?.affectedChecks;
+    if (Array.isArray(affected)) return new Set(affected as string[]);
+  }
+  return 'all';
+}
+
+export function isPartialSampleCheck(
+  checkId: string,
+  partial: ReadonlySet<string> | 'all' | 'none',
+): boolean {
+  if (partial === 'none') return false;
+  if (partial === 'all') return true;
+  return partial.has(checkId);
+}
+
 interface FailureCounts {
   requests: number;
   failed: number;
@@ -399,12 +429,19 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       if (counts.fetchErrors > 0) kinds.push(`${counts.fetchErrors} connection errors`);
       const breakdown = kinds.length > 0 ? ` (${kinds.join(', ')})` : '';
 
+      const affected = check?.details?.affectedChecks;
+      const affectedNote =
+        Array.isArray(affected) && affected.length > 0
+          ? ` Checks that ran during the interference window: ${(affected as string[]).join(', ')}.`
+          : '';
+
       return (
         `${pct}% of HTTP requests during this scan failed or timed out${breakdown}. ` +
         'The site may be rate-limiting or tarpitting automated clients; ' +
         `multi-page check scores reflect only the ${responded} requests that completed, ` +
         'not the full site.' +
-        verdict
+        verdict +
+        affectedNote
       );
     },
     resolution:

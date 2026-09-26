@@ -74,11 +74,12 @@ describe('bot-protection-interference', () => {
 
   it('passes on a clean sustained scan', async () => {
     const ctx = makeCtx();
-    seed(ctx, fill(20));
+    seed(ctx, fill(60));
     const result = await check.run(ctx);
     expect(result.status).toBe('pass');
-    expect(result.message).toBe('No bot-protection interference observed across 20 requests');
-    expect(result.details?.requests).toBe(20);
+    expect(result.message).toBe('No bot-protection interference observed across 60 requests');
+    expect(result.details?.requests).toBe(60);
+    expect(result.details?.limitedEvidence).toBe(false);
     expect(result.details?.standaloneScan).toBe(false);
   });
 
@@ -236,6 +237,42 @@ describe('bot-protection-interference', () => {
     expect(result.status).toBe('pass');
     expect(result.details?.blockedResponses).toBe(30);
     expect(result.details?.failedRequests).toBe(0);
+  });
+
+  it('caps explicit 429s without Retry-After at warn and asks for the header', async () => {
+    const ctx = makeCtx();
+    const kinds: Kind[] = [...fill(24), ...fill(12, '429')];
+    seed(ctx, kinds);
+    // Unguided 429s are recorded as blocked by the client; mirror that here.
+    for (const r of ctx.fetchLedger!.records) if (r.status === 429) r.blocked = true;
+    const result = await check.run(ctx);
+    expect(result.status).toBe('warn');
+    expect(result.message).toContain('Rate limiting engaged after request #25');
+    expect(result.message).toContain(
+      '12 of 12 remaining requests returned HTTP 429 with no Retry-After',
+    );
+    expect(result.details?.visibleOnly).toBe(true);
+    expect(result.details?.blockedResponses).toBe(12);
+  });
+
+  it('still fails on sustained 403 denials across checks', async () => {
+    const ctx = makeCtx();
+    seed(ctx, [...fill(24), ...fill(12, '403')]);
+    const result = await check.run(ctx);
+    expect(result.status).toBe('fail');
+    expect(result.details?.visibleOnly).toBe(false);
+    expect(result.message).toContain('12 denied responses');
+  });
+
+  it('lists only the checks that ran during the interference window', async () => {
+    const ctx = makeCtx();
+    const kinds = fill(30);
+    kinds[15] = 'stall';
+    kinds[22] = 'stall';
+    seed(ctx, kinds, (i) => (i < 10 ? 'early-check' : i < 20 ? 'mid-check' : 'late-check'));
+    const result = await check.run(ctx);
+    expect(result.status).toBe('warn');
+    expect(result.details?.affectedChecks).toEqual(['mid-check', 'late-check']);
   });
 
   it('notes limited evidence on a short clean run', async () => {

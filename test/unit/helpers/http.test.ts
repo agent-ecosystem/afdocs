@@ -815,7 +815,7 @@ describe('createHttpClient', () => {
       expect(await response.text()).toBe(challenge);
     });
 
-    it('classifies 503 and unhonored 429 as blocked, honored 429 as not', async () => {
+    it('classifies 503 and unguided 429 as blocked, guided 429 as not', async () => {
       const observer = observerFor();
       let call = 0;
       globalThis.fetch = vi.fn(async () => {
@@ -823,7 +823,9 @@ describe('createHttpClient', () => {
         if (call === 1) return makeResponse(503);
         if (call === 2) return makeResponse(429);
         if (call === 3) return makeResponse(429, { 'Retry-After': '1' });
-        return makeResponse(200);
+        if (call === 4) return makeResponse(200);
+        // A Retry-After longer than the client will wait is still guidance.
+        return makeResponse(429, { 'Retry-After': '120' });
       });
       const client = createHttpClient({
         requestDelay: 0,
@@ -836,10 +838,14 @@ describe('createHttpClient', () => {
       const p = client.fetch('http://example.com/c');
       await vi.advanceTimersByTimeAsync(1500);
       await p;
-      expect(observer.records.map((r) => [r.status, r.blocked ?? false])).toEqual([
-        [503, true],
-        [429, true],
-        [200, false],
+      await client.fetch('http://example.com/d');
+      expect(
+        observer.records.map((r) => [r.status, r.blocked ?? false, r.retryAfter ?? null]),
+      ).toEqual([
+        [503, true, null],
+        [429, true, null],
+        [200, false, null],
+        [429, false, '120'],
       ]);
     });
 

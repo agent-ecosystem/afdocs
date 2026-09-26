@@ -4,7 +4,11 @@ import type { CategoryScore, CheckScore, Grade, ScoreCap, ScoreResult } from './
 import { getCheckWeight } from './weights.js';
 import { getCheckProportion } from './proportions.js';
 import { getCoefficient } from './coefficients.js';
-import { evaluateDiagnostics, isScanDegradedByBotProtection } from './diagnostics.js';
+import {
+  evaluateDiagnostics,
+  getPartialSampleChecks,
+  isPartialSampleCheck,
+} from './diagnostics.js';
 import { getResolution } from './resolutions.js';
 import { computeTagScores } from './tag-scores.js';
 
@@ -52,7 +56,7 @@ export function computeScore(report: ReportResult): ScoreResult {
   // computed from a partial sample. Their scores still count (the spec keeps
   // a flagged run as useful evidence); the flag tells the reader what the
   // number measures.
-  const partialSample = isScanDegradedByBotProtection(resultMap, report);
+  const partialSample = getPartialSampleChecks(resultMap, report);
 
   // Compute per-check scores
   const checkScores: Record<string, CheckScore> = {};
@@ -80,7 +84,8 @@ export function computeScore(report: ReportResult): ScoreResult {
       earnedScore,
       maxScore: effectiveWeight,
       scoreDisplayMode: isNotApplicable ? 'notApplicable' : 'numeric',
-      ...(partialSample && PAGE_LEVEL_CHECKS.has(result.id) && { partialSample: true }),
+      ...(PAGE_LEVEL_CHECKS.has(result.id) &&
+        isPartialSampleCheck(result.id, partialSample) && { partialSample: true }),
     };
   }
 

@@ -811,6 +811,25 @@ describe('diagnostics', () => {
       expect(diag!.message).toContain('intermittent interference');
     });
 
+    it('names the checks that ran during the interference window', () => {
+      const results = resultsMap(
+        r('bot-protection-interference', 'warn', {
+          requests: 200,
+          failedRequests: 2,
+          stalledBodies: 2,
+          challengePages: 0,
+          fetchErrors: 0,
+          affectedChecks: ['auth-gate-detection'],
+        }),
+      );
+      const diag = evaluateDiagnostics(results, defaultReport()).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag!.message).toContain(
+        'Checks that ran during the interference window: auth-gate-detection.',
+      );
+    });
+
     it('triggers when the check fails', () => {
       const results = resultsMap(r('bot-protection-interference', 'fail'));
       const diag = evaluateDiagnostics(results, defaultReport()).find(

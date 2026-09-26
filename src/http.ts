@@ -48,12 +48,14 @@ function usableRetryAfter(header: string | null): number | undefined {
  * A response that denied the request without necessarily carrying a
  * challenge body. Plain 403 and 503 are ambiguous (an auth gate is 403 from
  * the first request), so the ledger only treats them as interference when
- * the block rate climbs during the scan. A 429 with a usable Retry-After is
- * the spec's preferred form of enforcement and is never counted.
+ * the denial rate climbs during the scan. A 429 that carries any
+ * Retry-After is the spec's preferred form of enforcement (the agent is told
+ * how long to back off) and is never counted, even when the value is longer
+ * than this client is willing to wait.
  */
 function isBlockedStatus(status: number, retryAfter: string | null): boolean {
   if (status === 403 || status === 503) return true;
-  return status === 429 && usableRetryAfter(retryAfter) === undefined;
+  return status === 429 && !retryAfter;
 }
 
 function decodeBody(chunks: Uint8Array[], contentType: string): string {
@@ -173,6 +175,7 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
           const retryAfter = response.headers.get('Retry-After');
           const record: FetchRecord = { seq: ++seq, url, status: response.status, outcome: 'ok' };
           if (isBlockedStatus(response.status, retryAfter)) record.blocked = true;
+          if (response.status === 429 && retryAfter) record.retryAfter = retryAfter;
           observer?.onRecord(record);
 
           const contentType = response.headers.get('content-type') ?? '';

@@ -83,12 +83,14 @@ export interface FetchRecord {
   /** Label of the bot-challenge signature matched in the body, when one was found. */
   challenge?: string;
   /**
-   * The response denied the request without a challenge body: 403, 503, or a
-   * 429 with no usable Retry-After. Not a failure on its own (an auth-gated
-   * site is 403 from the first request); it becomes interference evidence
-   * only when the block rate climbs as the scan progresses.
+   * The response denied the request: 403, 503, or a 429 with no Retry-After
+   * header at all. Not a failure on its own (an auth-gated site is 403 from
+   * the first request); it becomes interference evidence only when the
+   * denial rate climbs as the scan progresses.
    */
   blocked?: boolean;
+  /** Raw Retry-After header on a 429, when the server sent one. */
+  retryAfter?: string;
   /** Error message for `stalled-body` and `fetch-error` outcomes. */
   error?: string;
   /** The check that made the request, when the runner attributed it. */

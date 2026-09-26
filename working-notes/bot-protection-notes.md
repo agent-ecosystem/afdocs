@@ -41,12 +41,21 @@ v0.6.0 checks merging into `spec-v0.6.0`.
   with an HTML body under 100KB is read by the client itself so the ledger
   can look for a challenge signature even when the caller only wanted the
   status. Larger bodies are left to the caller.
-- **Honored 429s are not interference.** The spec's recommended action
-  prefers `429` + `Retry-After` over tarpits. The client retries them; a 429
-  with a usable Retry-After is recorded as `ok`. A 429 without one, and
-  plain 403/503, are recorded as `blocked` and count only when the denial
-  rate climbs during the run (`blockTrend`). An auth-gated site is 403 from
-  the first request and belongs to `auth-gate-detection`.
+- **Guided 429s are not interference; unguided ones cap at warn.** The
+  spec's recommended action prefers `429` + `Retry-After` over tarpits. A
+  429 carrying any Retry-After (even one longer than the client will wait)
+  is recorded as `ok` with `retryAfter` set. A 429 with no header, and plain
+  403/503, are recorded as `blocked` and count only when the denial rate
+  climbs during the run (`blockTrend`). When every counted failure is an
+  explicit 429 (`visibleOnly`), the verdict is capped at warn: it is visible
+  to agents, unlike a tarpit, so it must not grade like one. An auth-gated
+  site is 403 from the first request and belongs to `auth-gate-detection`.
+- **Partial-sample flags are attributed.** `details.affectedChecks` lists
+  the checks with at least one request at or after onset. Scoring and the
+  formatters flag only those (`getPartialSampleChecks`); the spec's literal
+  "every multi-page check" is what happens when only the rate trigger fired
+  and there is no onset to attribute to. Field data: val.town's two
+  challenged requests at #202-203 affected one check, not sixteen.
 - **Trends need a span.** Outside standalone mode, the late-third events
   must come from ≥ `MIN_CHECKS_SPANNED` (2) distinct checks, so one check's
   URL class (fabricated 404 probes, `.md` variants) cannot look like
@@ -93,8 +102,30 @@ warn.
 - A warn on two stalls in four hundred requests still flags every multi-page
   check as a partial sample. That is what the spec's inverted dependency
   says; the diagnostic message carries the percentage so readers can judge.
-- No production corpus yet beyond the one CDN case. Thresholds are
-  reasoned, not fitted; revisit when parity runs produce interference data.
+- Thresholds were reasoned first and then checked against one field run
+  (below); they are not fitted to a large corpus. Revisit when parity runs
+  produce more interference data.
+
+## Field data (2026-09-26, one deterministic run per site, 20 pages, 200 ms)
+
+33 sites: the 20-site parity corpus plus 13 large vendor docs sites behind
+Akamai, Cloudflare, Imperva, or Fastly. Ledgers saved locally; re-scored
+offline after each tuning change rather than re-running against the sites.
+
+| Site                     | Requests | Outcome | What happened                                                                                                                                 |
+| ------------------------ | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 30 sites                 | 166–698  | pass    | zero stalls, challenges, or denials; no trend fired (includes developers.cloudflare.com, which carries Cloudflare's JSD script on every page) |
+| apple, oracle, anthropic | 22–24    | pass    | discovery found ≤1 page; "limited evidence" (drove the floor from 20 to 50)                                                                   |
+| docs.github.com          | 238      | warn    | after #182, 57/57 remaining requests 429 with no Retry-After, across 4 checks; was fail before the visible-only cap                           |
+| docs.gitlab.com          | 288      | warn    | 44 Cloudflare challenge pages (403) on every `.md` URL and fabricated path from request #2; HTML pages fine; 13 checks affected               |
+| docs.val.town            | 215      | warn    | 2 × 429 carrying a Cloudflare challenge body at #202–203, then recovery; 1 check affected; the page returned 200 minutes later                |
+| learn.microsoft.com      | 651      | n/a     | run hit the 12-minute cap inside sitemap discovery (651 × 200); a discovery problem, not interference                                         |
+
+Takeaways: no false positives on clean sites at these thresholds; the
+vendor-marker tier was necessary (Cloudflare's own docs would otherwise
+have failed); explicit rate limiting is common enough (GitHub) that it
+needed its own grade; attribution turned val.town's warn from a scorecard
+full of "(partial sample)" into one flagged check.
 
 ## Two triggers for the partial-sample flag
 

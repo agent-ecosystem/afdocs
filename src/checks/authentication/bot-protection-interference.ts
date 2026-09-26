@@ -13,8 +13,12 @@ import type { CheckContext, CheckResult, FetchRecord } from '../../types.js';
  */
 export const MIN_REQUESTS_FOR_EVIDENCE = 5;
 
-/** A pass on fewer requests than this says so: it is weak evidence of absence. */
-export const LIMITED_EVIDENCE_REQUESTS = 20;
+/**
+ * A pass on fewer requests than this says so: it is weak evidence of absence.
+ * Discovery probes alone (llms.txt candidates, sitemap locations) account for
+ * roughly 20 requests, so a run that found one page still makes about 22.
+ */
+export const LIMITED_EVIDENCE_REQUESTS = 50;
 
 /**
  * Fail threshold: once interference has started, at least this fraction of
@@ -192,8 +196,18 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const volumeCorrelated = failureTrend.correlated || blockCorrelated;
 
   const blockedResponses = records.filter((r) => r.blocked === true).length;
+
   const interferenceEvents = summary.stalledBodies + summary.challengePages;
   const failed = records.filter(isFailure).length;
+  // Explicit 429s are the spec's preferred enforcement mode: an error the
+  // agent can see and react to, unlike a tarpit or a challenge served as
+  // 200. When every counted failure is an unguided 429, the verdict is
+  // capped at warn and the message asks for Retry-After instead.
+  const visibleOnly =
+    interferenceEvents === 0 &&
+    summary.fetchErrors === 0 &&
+    blockCorrelated &&
+    records.filter((r) => r.blocked === true).every((r) => r.status === 429);
   const challengePagesServedAs200 = records.filter(
     (r) => r.challenge !== undefined && r.status !== null && r.status >= 200 && r.status < 300,
   ).length;
@@ -279,10 +293,18 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const postOnsetFailureRate = postOnset.length > 0 ? postOnsetFailures / postOnset.length : 0;
 
   const sustained =
-    (failed >= MIN_POST_ONSET_FAILURES && failed / summary.requests >= SUSTAINED_FAILURE_RATE) ||
-    (postOnset.length >= MIN_POST_ONSET_REQUESTS &&
-      postOnsetFailures >= MIN_POST_ONSET_FAILURES &&
-      postOnsetFailureRate >= SUSTAINED_FAILURE_RATE);
+    !visibleOnly &&
+    ((failed >= MIN_POST_ONSET_FAILURES && failed / summary.requests >= SUSTAINED_FAILURE_RATE) ||
+      (postOnset.length >= MIN_POST_ONSET_REQUESTS &&
+        postOnsetFailures >= MIN_POST_ONSET_FAILURES &&
+        postOnsetFailureRate >= SUSTAINED_FAILURE_RATE));
+
+  // Checks that made at least one request during the interference window.
+  // Their multi-page results were computed on whatever sample survived;
+  // checks that finished before onset were not.
+  const affectedChecks = [
+    ...new Set(postOnset.map((r) => r.checkId).filter((c): c is string => c !== undefined)),
+  ];
 
   const vantageNote = vantage ? `; scanned from ${vantage}` : '';
   const kinds = describeKinds(
@@ -293,7 +315,12 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   );
 
   let message: string;
-  if (sustained) {
+  if (visibleOnly) {
+    message =
+      `Rate limiting engaged after request #${records[onsetIndex].seq}: ` +
+      `${postOnsetFailures} of ${postOnset.length} remaining requests returned HTTP 429 with no Retry-After ` +
+      `(explicit, so visible to agents; reported as intermittent rather than sustained interference)${vantageNote}`;
+  } else if (sustained) {
     message =
       `Sustained interference: after request #${records[onsetIndex].seq}, ` +
       `${postOnsetFailures} of ${postOnset.length} requests (${Math.round(postOnsetFailureRate * 100)}%) ` +
@@ -321,10 +348,12 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     message,
     details: {
       ...baseDetails,
+      visibleOnly,
       onsetRequest: records[onsetIndex].seq,
       postOnsetRequests: postOnset.length,
       postOnsetFailures,
       postOnsetFailureRate: Math.round(postOnsetFailureRate * 100),
+      affectedChecks,
     },
   };
 }
