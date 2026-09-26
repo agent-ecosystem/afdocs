@@ -1,5 +1,6 @@
 import { registerCheck } from '../registry.js';
 import { discoverAndSamplePages } from '../../helpers/get-page-urls.js';
+import { analyzeRendering, hasSubstantiveContent } from '../../helpers/detect-rendering.js';
 import type { CheckContext, CheckResult } from '../../types.js';
 
 type PageClassification = 'accessible' | 'auth-required' | 'soft-auth-gate' | 'auth-redirect';
@@ -46,16 +47,29 @@ function detectLoginForm(body: string): string | undefined {
   }
 
   // Check page title for login indicators.
-  // Only match titles that suggest the page IS a login form, not pages that
-  // mention login as a topic (e.g. "unable to login" in a knowledge base article).
-  // We require the login keyword to appear at the start or after a separator.
+  //
+  // The title is the weakest signal here, so it is hedged twice:
+  //
+  // 1. Only login-intent phrases count ("sign in", "log in", "login"), and only
+  //    at the start of the title or after a separator. Pages that mention
+  //    login as a topic ("unable to login" in a knowledge base article) do not
+  //    match. Bare "authenticate"/"authentication" is deliberately not a
+  //    pattern: real login walls title themselves "Sign in"/"Log in", while
+  //    "Authenticate ..." is a common title for public API reference pages
+  //    about auth endpoints (issue #107).
+  // 2. A matching title alone does not classify the page. If the body carries
+  //    substantive documentation content (headings, prose, code blocks, as
+  //    measured by the rendering analysis), it is a docs page about signing
+  //    in, not a login form. A real login page has a near-empty body, and one
+  //    that does not almost always has a password input or SSO form action,
+  //    which are matched on their own above and below.
   const titleMatch = /<title[^>]*>(.*?)<\/title>/i.exec(sample);
   if (titleMatch) {
     const title = titleMatch[1].toLowerCase().trim();
     if (
-      /^(sign\s*in|log\s*in)\b/.test(title) ||
-      /[|\-–—:]\s*(sign\s*in|log\s*in)\s*$/i.test(title) ||
-      /^authenticate\b/.test(title)
+      (/^(sign\s*in|log\s*in)\b/.test(title) ||
+        /[|\-–—:]\s*(sign\s*in|log\s*in)\s*$/i.test(title)) &&
+      !hasSubstantiveContent(analyzeRendering(body))
     ) {
       return `Page title suggests login: "${titleMatch[1].trim()}"`;
     }
