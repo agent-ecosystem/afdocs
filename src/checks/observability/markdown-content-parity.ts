@@ -303,6 +303,107 @@ function walkNode(node: Node): string {
   return walkContent(el);
 }
 
+/** ASCII punctuation that a backslash escapes (CommonMark §2.4). */
+const ESCAPABLE_PUNCTUATION = new Set('!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~');
+
+/**
+ * Find the start of the next backtick run of exactly `runLength` backticks
+ * at or after `from`, or -1 if none precedes a blank line. Per CommonMark
+ * §6.1 a code span closes only on a run of the same length, and inline
+ * content never crosses a paragraph boundary, so a stray backtick cannot
+ * pair with one hundreds of lines later and swallow the text between.
+ */
+function findClosingBacktickRun(text: string, from: number, runLength: number): number {
+  const n = text.length;
+  let i = from;
+  while (i < n) {
+    const ch = text[i];
+    if (ch === '`') {
+      let j = i;
+      while (j < n && text[j] === '`') j++;
+      if (j - i === runLength) return i;
+      i = j;
+      continue;
+    }
+    if (ch === '\n') {
+      let j = i + 1;
+      while (j < n && (text[j] === ' ' || text[j] === '\t')) j++;
+      if (j >= n || text[j] === '\n') return -1;
+    }
+    i++;
+  }
+  return -1;
+}
+
+/**
+ * Single left-to-right pass that replaces inline code spans with
+ * \x00CODE{n}\x00 placeholders and backslash-escaped punctuation with
+ * \x00ESC{n}\x00 placeholders, following CommonMark's inline rules:
+ *
+ * - A backtick run of length N opens a code span closed by the next run of
+ *   exactly N backticks (so `` `a` `` contains a literal backtick and a
+ *   bare ``` in prose with no partner is just text). Content keeps
+ *   backslashes verbatim, as <code> does in HTML, and gets the spec's
+ *   one-space trim when it both starts and ends with a space.
+ * - Outside code spans, a backslash followed by ASCII punctuation is that
+ *   punctuation as literal text: snake\_case renders as snake_case,
+ *   string\[] as string[], \*not bold\* keeps its asterisks (issue #110).
+ *   The escaped character is stashed so the heading/list/link/emphasis
+ *   regexes never see it as syntax, and restored after they run.
+ *
+ * Fenced blocks must already be placeholder-protected; their content is
+ * opaque here.
+ */
+function protectCodeSpansAndEscapes(text: string, codeSpans: string[], escapes: string[]): string {
+  const n = text.length;
+  const out: string[] = [];
+  let i = 0;
+  let plainStart = 0;
+
+  while (i < n) {
+    const ch = text[i];
+
+    if (ch === '\\' && i + 1 < n && ESCAPABLE_PUNCTUATION.has(text[i + 1])) {
+      out.push(text.slice(plainStart, i));
+      const idx = escapes.length;
+      escapes.push(text[i + 1]);
+      out.push(`\x00ESC${idx}\x00`);
+      i += 2;
+      plainStart = i;
+      continue;
+    }
+
+    if (ch === '`') {
+      let j = i;
+      while (j < n && text[j] === '`') j++;
+      const runLength = j - i;
+      const close = findClosingBacktickRun(text, j, runLength);
+      if (close === -1) {
+        // Unmatched run: literal text. Skip past it so its backticks are
+        // not re-examined as potential openers.
+        i = j;
+        continue;
+      }
+      out.push(text.slice(plainStart, i));
+      let content = text.slice(j, close);
+      if (content.startsWith(' ') && content.endsWith(' ') && content.trim().length > 0) {
+        content = content.slice(1, -1);
+      }
+      const idx = codeSpans.length;
+      codeSpans.push(content);
+      out.push(`\x00CODE${idx}\x00`);
+      i = close + runLength;
+      plainStart = i;
+      continue;
+    }
+
+    i++;
+  }
+
+  out.push(text.slice(plainStart));
+  return out.join('');
+}
+
 /**
  * Extract plain text from markdown by stripping all formatting.
  *
@@ -319,6 +420,10 @@ function walkNode(node: Node): string {
  * if processed normally, even though that "1. " is part of the heading
  * text on the HTML side. Protecting heading content keeps the bullet/
  * numbered-list passes from touching it.
+ *
+ * Backslash-escaped punctuation is likewise placeholder-protected and then
+ * restored as the bare character, so "snake\_case" in markdown matches
+ * "snake_case" in HTML and "\*literal\*" is not stripped as emphasis.
  */
 function extractMarkdownText(markdown: string): string {
   let text = markdown;
@@ -348,48 +453,16 @@ function extractMarkdownText(markdown: string): string {
     },
   );
 
-  // Step 2: Protect inline code spans from subsequent stripping.
-  // Replace `...` with placeholders so link/emphasis regexes don't
-  // modify literal content that the HTML side preserves as-is.
-  //
-  // Multi-backtick spans (`` `...` ``, ``` ``...`` ```, etc.) must be
-  // processed before single-backtick spans. CommonMark allows using N
-  // backticks as delimiters to include literal backticks in code spans.
-  // If single-backtick matching runs first, it misparses the delimiters
-  // and pairs stray backticks with distant ones, swallowing large chunks
-  // of surrounding text into protected placeholders. This prevents
-  // bullet/emphasis stripping from running on those lines.
-  //
-  // Per CommonMark, a backtick string is a run of backticks NOT preceded
-  // or followed by another backtick. The lookbehind/lookahead assertions
-  // enforce this so that `` inside ``` isn't treated as a valid delimiter.
+  // Step 2: Protect inline code spans and backslash escapes from
+  // subsequent stripping. Both are placeholder-protected in one
+  // left-to-right pass (see protectCodeSpansAndEscapes) because CommonMark
+  // resolves them positionally: a backslash before a backtick consumes it
+  // (\`literal\` is prose, not a code span), while a backslash inside an
+  // open code span is literal content (`C:\Users\` is one span). Neither
+  // ordering of two independent regex passes gets both cases right.
   const codeSpans: string[] = [];
-  text = text.replace(/(?<!`)``(?!`)([\s\S]*?)(?<!`)``(?!`)/g, (_match, content) => {
-    const idx = codeSpans.length;
-    // CommonMark space stripping: if content starts and ends with a space
-    // and isn't entirely spaces, strip one space from each end. This matches
-    // what HTML rendering produces (browsers show the trimmed content).
-    let trimmed = content;
-    if (trimmed.startsWith(' ') && trimmed.endsWith(' ') && trimmed.trim().length > 0) {
-      trimmed = trimmed.slice(1, -1);
-    }
-    codeSpans.push(trimmed);
-    return `\x00CODE${idx}\x00`;
-  });
-  // Single-backtick spans: content may include backtick runs of length != 1
-  // (e.g. ` ``` ` where the triple backtick is content, not a closer).
-  // Both opening and closing delimiters require (?<!`) and (?!`) to ensure
-  // they are standalone single backticks, not part of a multi-backtick run.
-  // This prevents bare ``` in prose from cascading into distant backtick pairing.
-  text = text.replace(/(?<!`)`(?!`)((?:[^`]|`{2,})+)(?<!`)`(?!`)/g, (_match, content) => {
-    const idx = codeSpans.length;
-    let trimmed = content;
-    if (trimmed.startsWith(' ') && trimmed.endsWith(' ') && trimmed.trim().length > 0) {
-      trimmed = trimmed.slice(1, -1);
-    }
-    codeSpans.push(trimmed);
-    return `\x00CODE${idx}\x00`;
-  });
+  const escapes: string[] = [];
+  text = protectCodeSpansAndEscapes(text, codeSpans, escapes);
 
   // Step 3: Protect heading lines from list-marker stripping. Headings
   // like "### 1. How well are X supported?" survive into the HTML as
@@ -441,7 +514,11 @@ function extractMarkdownText(markdown: string): string {
     // Remove horizontal rules
     .replace(/^[-*_]{3,}$/gm, '');
 
-  // Step 7: Restore code content (without backticks/fence markers).
+  // Step 7: Restore escaped characters as their literal selves, then code
+  // content (without backticks/fence markers). Escapes are restored after
+  // formatting is stripped so a restored * or _ is never re-read as emphasis.
+  // eslint-disable-next-line no-control-regex
+  text = text.replace(/\x00ESC(\d+)\x00/g, (_match, idxStr) => escapes[parseInt(idxStr, 10)]);
   // eslint-disable-next-line no-control-regex
   text = text.replace(/\x00CODE(\d+)\x00/g, (_match, idxStr) => codeSpans[parseInt(idxStr, 10)]);
   // eslint-disable-next-line no-control-regex
