@@ -202,9 +202,30 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
           // requestTimeout", so a large page on a slow link that keeps
           // making progress is not mistaken for a tarpit. A total cap
           // catches a deliberate trickle.
-          const readStreamedBody = async (stream: ReadableStream<Uint8Array>): Promise<string> => {
+          const bodyError = (err: unknown): unknown => {
+            // A stall recorded by an earlier read of this response (the eager
+            // inspection branch) wins over the abort the caller then sees.
+            if (record.outcome === 'stalled-body') {
+              return new BodyReadTimeoutError(record.error ?? 'Body read stalled', { cause: err });
+            }
+            record.outcome = 'body-error';
+            record.error = err instanceof Error ? err.message : String(err);
+            return err;
+          };
+
+          interface StreamedBody {
+            body: string;
+            /** True when `maxBytes` was reached; the body is unusable and the reader was cancelled. */
+            truncated: boolean;
+          }
+
+          const readStreamedBody = async (
+            stream: ReadableStream<Uint8Array>,
+            maxBytes = Infinity,
+          ): Promise<StreamedBody> => {
             const reader = stream.getReader();
             const chunks: Uint8Array[] = [];
+            let received = 0;
             const state: { stalled: 'idle' | 'total' | null } = { stalled: null };
             let idleTimer: ReturnType<typeof setTimeout> | undefined;
             const giveUp = (kind: 'idle' | 'total') => {
@@ -222,54 +243,97 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
               while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
-                if (value) chunks.push(value);
+                if (value) {
+                  chunks.push(value);
+                  received += value.byteLength;
+                  if (received > maxBytes) {
+                    void reader.cancel().catch(() => undefined);
+                    return { body: '', truncated: true };
+                  }
+                }
                 armIdle();
               }
             } catch (err) {
               if (state.stalled) throw stallError(state.stalled, err);
-              throw err;
+              throw bodyError(err);
             } finally {
               clearTimeout(idleTimer);
               clearTimeout(totalTimer);
             }
             if (state.stalled) throw stallError(state.stalled);
-            return decodeBody(chunks, contentType);
+            return { body: decodeBody(chunks, contentType), truncated: false };
           };
 
           // Fallback for responses without a readable stream (test doubles):
-          // guard the whole text() call with the idle timeout instead.
+          // race the whole text() call against the idle timeout. The abort is
+          // still signalled, but the race is what guarantees the guard when a
+          // double ignores the controller.
           const readWholeBody = async (): Promise<string> => {
-            const state: { stalled: boolean } = { stalled: false };
-            const bodyTimeout = setTimeout(() => {
-              state.stalled = true;
-              controller.abort();
-            }, timeoutMs);
+            let bodyTimeout: ReturnType<typeof setTimeout> | undefined;
+            const timedOut = new Promise<never>((_resolve, reject) => {
+              bodyTimeout = setTimeout(() => {
+                controller.abort();
+                reject(stallError('idle'));
+              }, timeoutMs);
+            });
             try {
-              return await response.text();
+              return await Promise.race([response.text(), timedOut]);
             } catch (err) {
-              if (state.stalled) throw stallError('idle', err);
-              throw err;
+              if (err instanceof BodyReadTimeoutError) throw err;
+              if (record.outcome === 'stalled-body') throw stallError('idle', err);
+              throw bodyError(err);
             } finally {
               clearTimeout(bodyTimeout);
             }
           };
 
-          const readBody = async (): Promise<string> => {
-            const body = response.body
-              ? await readStreamedBody(response.body)
-              : await readWholeBody();
+          // The body may be re-pointed at one branch of a tee below, so the
+          // eager inspection of a denied response and the caller's own read
+          // never compete for the same stream.
+          let bodyStream = response.body;
+          let inspected = false;
+          const inspect = (body: string) => {
+            if (inspected) return;
+            inspected = true;
             observer?.onBody(record, body, contentType);
+          };
+
+          const readBody = async (): Promise<string> => {
+            if (record.outcome === 'stalled-body') {
+              throw new BodyReadTimeoutError(record.error ?? 'Body read stalled');
+            }
+            const body = bodyStream
+              ? (await readStreamedBody(bodyStream)).body
+              : await readWholeBody();
+            inspect(body);
             return body;
           };
 
           // A denied HTML response is read eagerly so the ledger inspects it
           // for a challenge signature even when the caller only wanted the
-          // status. Block pages are tiny; anything larger than a challenge
-          // page could be is left to the caller.
+          // status. The cap is enforced while streaming (not just from
+          // Content-Length): the inspection branch of a tee stops at the
+          // challenge-page size limit, and the caller keeps the other branch,
+          // so an arbitrarily large denied page is never buffered here.
           let eagerBody: string | undefined;
           if (record.blocked && /text\/html/i.test(contentType)) {
             const length = Number(response.headers.get('content-length'));
-            if (!(length > MAX_CHALLENGE_PAGE_LENGTH)) eagerBody = await readBody();
+            if (length > MAX_CHALLENGE_PAGE_LENGTH) {
+              // Too large to be a challenge page; nothing to inspect.
+            } else if (bodyStream) {
+              const [inspectBranch, callerBranch] = bodyStream.tee();
+              bodyStream = callerBranch;
+              const { body, truncated } = await readStreamedBody(
+                inspectBranch,
+                MAX_CHALLENGE_PAGE_LENGTH,
+              );
+              if (!truncated) {
+                inspect(body);
+                eagerBody = body;
+              }
+            } else {
+              eagerBody = await readBody();
+            }
           }
           const eager = eagerBody;
 

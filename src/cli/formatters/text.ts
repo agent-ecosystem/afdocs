@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import type { ReportResult, CheckResult } from '../../types.js';
 import { SPEC_BASE_URL, specCheckUrl } from '../../constants.js';
 import { getResolution } from '../../scoring/resolutions.js';
-import { getPartialSampleChecks, isPartialSampleCheck } from '../../scoring/diagnostics.js';
+import { isScanDegradedByBotProtection } from '../../scoring/diagnostics.js';
 import { PAGE_LEVEL_CHECKS } from '../../scoring/score.js';
 import { describeNetworkContext } from '../../helpers/network-context.js';
 
@@ -378,7 +378,7 @@ const RENDERING_SENSITIVE_CHECKS = new Set(['page-size-html', 'content-start-pos
 function formatResult(
   result: CheckResult,
   allResults?: CheckResult[],
-  partialSample: ReadonlySet<string> | 'all' | 'none' = 'none',
+  partialSample = false,
 ): string {
   const icon = STATUS_ICONS[result.status] ?? '?';
   const color = STATUS_COLORS[result.status] ?? ((s: string) => s);
@@ -386,7 +386,7 @@ function formatResult(
 
   // Flag multi-page checks computed from a partial sample when bot protection
   // degraded the scan (the spec's inverted dependency on every multi-page check).
-  if (PAGE_LEVEL_CHECKS.has(result.id) && isPartialSampleCheck(result.id, partialSample)) {
+  if (partialSample && PAGE_LEVEL_CHECKS.has(result.id)) {
     line += `\n      ${chalk.dim('Note: bot protection interfered with the scan; this result was computed from the pages that responded')}`;
   }
 
@@ -449,7 +449,7 @@ export function formatText(report: ReportResult, options?: FormatTextOptions): s
   lines.push('');
 
   const resultMap = new Map(report.results.map((r) => [r.id, r]));
-  const partialSample = getPartialSampleChecks(resultMap, report);
+  const partialSample = isScanDegradedByBotProtection(resultMap, report);
 
   // Group by category
   const byCategory = new Map<string, CheckResult[]>();

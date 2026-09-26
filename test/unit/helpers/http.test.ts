@@ -880,6 +880,114 @@ describe('createHttpClient', () => {
     });
   });
 
+  describe('review follow-ups', () => {
+    const enc = new TextEncoder();
+
+    it('guards the fallback text() read even when the double ignores abort', async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({ 'content-type': 'text/html' }),
+            url: 'http://example.com/page',
+            redirected: false,
+            // Never settles and never looks at the signal.
+            text: () => new Promise<string>(() => undefined),
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+      const records: FetchRecord[] = [];
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer: { onRecord: (r) => records.push(r), onBody: () => undefined },
+      });
+      const response = await client.fetch('http://example.com/page');
+      const assertion = expect(response.text()).rejects.toThrow(/Body read timed out after 5000ms/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+      expect(records[0].outcome).toBe('stalled-body');
+    });
+
+    it('records a non-timeout body failure as body-error', async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({ 'content-type': 'text/html' }),
+            url: 'http://example.com/page',
+            redirected: false,
+            body: new ReadableStream<Uint8Array>({
+              start(c) {
+                c.enqueue(enc.encode('<html>'));
+                c.error(new TypeError('terminated'));
+              },
+            }),
+            text: async () => '',
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+      const records: FetchRecord[] = [];
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer: { onRecord: (r) => records.push(r), onBody: () => undefined },
+      });
+      const response = await client.fetch('http://example.com/page');
+      await expect(response.text()).rejects.toThrow('terminated');
+      expect(records[0].outcome).toBe('body-error');
+      expect(records[0].error).toBe('terminated');
+    });
+
+    it('caps the eager read of a chunked denied body and leaves the caller a readable body', async () => {
+      // No Content-Length: the cap must be enforced while streaming.
+      const chunk = enc.encode('<p>' + 'x'.repeat(30_000) + '</p>');
+      let sent = 0;
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Headers({ 'content-type': 'text/html' }),
+            url: 'http://example.com/page',
+            redirected: false,
+            body: new ReadableStream<Uint8Array>({
+              pull(c) {
+                if (sent === 5) {
+                  c.close();
+                  return;
+                }
+                sent++;
+                c.enqueue(sent === 1 ? enc.encode('<html><body>') : chunk);
+              },
+            }),
+            text: async () => '',
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+      const { createFetchLedger } = await import('../../../src/helpers/fetch-ledger.js');
+      const ledger = createFetchLedger();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer: ledger,
+      });
+      const response = await client.fetch('http://example.com/page');
+      expect(ledger.records[0].blocked).toBe(true);
+      expect(ledger.records[0].challenge).toBeUndefined();
+      // The caller still gets the whole body from its own tee branch.
+      const body = await response.text();
+      expect(body.length).toBeGreaterThan(100_000);
+      expect(body.startsWith('<html><body>')).toBe(true);
+      expect(ledger.records[0].outcome).toBe('ok');
+    });
+  });
+
   describe('concurrency and rate limiting', () => {
     it('enforces requestDelay between requests', async () => {
       const timestamps: number[] = [];

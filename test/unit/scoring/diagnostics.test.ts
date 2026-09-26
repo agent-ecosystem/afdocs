@@ -805,10 +805,44 @@ describe('diagnostics', () => {
       );
       expect(diag).toBeDefined();
       expect(diag!.severity).toBe('warning');
-      expect(diag!.message).toContain('4% of HTTP requests during this scan failed or timed out');
+      expect(diag!.message).toContain(
+        '4% of HTTP requests during this scan failed, timed out, or were denied',
+      );
       expect(diag!.message).toContain('4 stalled bodies');
       expect(diag!.message).toContain('only the 96 requests that completed');
       expect(diag!.message).toContain('intermittent interference');
+    });
+
+    it('reports denial-only interference from the check counts, not the request summary', () => {
+      const results = resultsMap(
+        r('bot-protection-interference', 'warn', {
+          requests: 238,
+          failedRequests: 57,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 0,
+          deniedCounted: 57,
+          affectedChecks: ['redirect-behavior', 'auth-gate-detection'],
+        }),
+      );
+      const report = {
+        ...defaultReport(),
+        // The run-level summary knows nothing about correlated denials.
+        requestSummary: {
+          requests: 238,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 0,
+          failed: 0,
+          failureRate: 0,
+        },
+      };
+      const diag = evaluateDiagnostics(results, report).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag!.message).toContain('24% of HTTP requests');
+      expect(diag!.message).toContain('57 denied responses');
+      expect(diag!.message).toContain('only the 181 requests that completed');
     });
 
     it('names the checks that ran during the interference window', () => {

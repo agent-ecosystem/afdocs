@@ -50,12 +50,25 @@ v0.6.0 checks merging into `spec-v0.6.0`.
   explicit 429 (`visibleOnly`), the verdict is capped at warn: it is visible
   to agents, unlike a tarpit, so it must not grade like one. An auth-gated
   site is 403 from the first request and belongs to `auth-gate-detection`.
-- **Partial-sample flags are attributed.** `details.affectedChecks` lists
-  the checks with at least one request at or after onset. Scoring and the
-  formatters flag only those (`getPartialSampleChecks`); the spec's literal
-  "every multi-page check" is what happens when only the rate trigger fired
-  and there is no onset to attribute to. Field data: val.town's two
-  challenged requests at #202-203 affected one check, not sixteen.
+- **Partial-sample flags follow the spec literally; attribution is
+  explanatory.** On warn/fail every multi-page check is flagged
+  (`isScanDegradedByBotProtection`). `details.affectedChecks` lists the
+  checks with at least one request at or after onset and the diagnostic
+  message names them. Field data: val.town's two challenged requests at
+  #202-203 touched one check; flagging only that one was tried and reverted
+  on review because the spec's inverted dependency is unconditional. If the
+  spec is ever loosened to "checks that ran during the window", the
+  attribution is already there to act on.
+- **Body-read failures are recorded.** A body read that fails for a reason
+  other than a stall (connection reset mid-body, decoder error) sets outcome
+  `body-error`; it counts with `fetch-error` in `fetchErrors`.
+- **Markdown is never sniffed.** An explicit non-HTML content type
+  short-circuits challenge detection; `looksLikeHtml` runs only when the
+  response has no content type at all.
+- **The eager read of a denied response is capped while streaming.** The
+  body is teed; the inspection branch stops at `MAX_CHALLENGE_PAGE_LENGTH`
+  and the caller keeps the other branch, so a chunked denied page without
+  Content-Length is never buffered here beyond the cap.
 - **Trends need a span.** Outside standalone mode, the late-third events
   must come from ≥ `MIN_CHECKS_SPANNED` (2) distinct checks, so one check's
   URL class (fabricated 404 probes, `.md` variants) cannot look like
@@ -146,4 +159,3 @@ even when the check was skipped or filtered out.
 - `SPEC_VERSION` stays at v0.5.0 until all five v0.6.0 checks land on the
   integration branch.
 - No score cap for a failing check. Spec weight is High, not Critical.
-- No CLI flag to override the network-context classification.

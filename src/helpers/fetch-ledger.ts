@@ -96,8 +96,14 @@ export const MAX_CHALLENGE_PAGE_LENGTH = 100_000;
 export function detectChallengePage(body: string, contentType: string): string | undefined {
   if (body.length > MAX_CHALLENGE_PAGE_LENGTH) return undefined;
 
-  const isHtml = /text\/html|application\/xhtml/i.test(contentType) || looksLikeHtml(body);
-  if (!isHtml) return undefined;
+  // An explicit non-HTML type (markdown, plain text, JSON, XML) is taken at
+  // its word: markdown with raw HTML examples must not be sniffed into an
+  // HTML classification. Sniffing is only for responses with no type.
+  if (contentType) {
+    if (!/html/i.test(contentType)) return undefined;
+  } else if (!looksLikeHtml(body)) {
+    return undefined;
+  }
 
   const sample = body.slice(0, SIGNATURE_SCAN_LENGTH);
 
@@ -147,6 +153,7 @@ export function isFailedRecord(record: FetchRecord): boolean {
   return (
     record.outcome === 'stalled-body' ||
     record.outcome === 'fetch-error' ||
+    record.outcome === 'body-error' ||
     record.challenge !== undefined
   );
 }
@@ -157,7 +164,7 @@ export function summarizeRequests(records: readonly FetchRecord[]): RequestSumma
   let fetchErrors = 0;
   for (const r of records) {
     if (r.outcome === 'stalled-body') stalledBodies++;
-    else if (r.outcome === 'fetch-error') fetchErrors++;
+    else if (r.outcome === 'fetch-error' || r.outcome === 'body-error') fetchErrors++;
     if (r.challenge !== undefined) challengePages++;
   }
   const failed = records.filter(isFailedRecord).length;

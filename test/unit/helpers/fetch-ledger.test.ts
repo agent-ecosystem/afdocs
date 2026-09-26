@@ -117,6 +117,19 @@ describe('detectChallengePage', () => {
     expect(detectChallengePage(body, 'text/html')).toBeUndefined();
   });
 
+  it('never sniffs an explicitly typed markdown body, even one with raw HTML', () => {
+    const md =
+      '# Embedding\n\nPaste this snippet:\n\n<html><head><title>Just a moment...</title></head><body><div id="cf-browser-verification"></div></body></html>\n';
+    expect(detectChallengePage(md, 'text/markdown; charset=utf-8')).toBeUndefined();
+    expect(detectChallengePage(md, 'text/plain')).toBeUndefined();
+  });
+
+  it('sniffs only when the response has no content type', () => {
+    const body =
+      '<html><head><title>Just a moment...</title></head><body><div id="cf-browser-verification"></div></body></html>';
+    expect(detectChallengePage(body, '')).toBe('Cloudflare challenge');
+  });
+
   it('ignores markdown bodies', () => {
     const md = '# Turnstile\n\nAdd the `cf-turnstile` class and load challenges.cloudflare.com.\n';
     expect(detectChallengePage(md, 'text/markdown')).toBeUndefined();
@@ -168,14 +181,15 @@ describe('summarizeRequests', () => {
       { seq: 3, url: 'u3', status: null, outcome: 'fetch-error', error: 'ECONNRESET' },
       { seq: 4, url: 'u4', status: 200, outcome: 'ok', challenge: 'Cloudflare challenge' },
       { seq: 5, url: 'u5', status: 404, outcome: 'ok' },
+      { seq: 6, url: 'u6', status: 200, outcome: 'body-error', error: 'terminated' },
     ];
     expect(summarizeRequests(records)).toEqual({
-      requests: 5,
+      requests: 6,
       stalledBodies: 1,
       challengePages: 1,
-      fetchErrors: 1,
-      failed: 3,
-      failureRate: 60,
+      fetchErrors: 2,
+      failed: 4,
+      failureRate: 67,
     });
   });
 

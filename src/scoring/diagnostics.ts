@@ -36,58 +36,40 @@ export function isScanDegradedByBotProtection(
   );
 }
 
-/**
- * Which multi-page checks were computed from a partial sample. When the
- * check itself warned or failed, the ledger says which checks made requests
- * during the interference window, and only those are flagged; a check that
- * finished before enforcement engaged measured the full sample. When only
- * the run-level failure rate triggered the flag, there is no window to
- * attribute and every multi-page check is flagged.
- */
-export function getPartialSampleChecks(
-  results: Map<string, CheckResult>,
-  report: ReportResult,
-): ReadonlySet<string> | 'all' | 'none' {
-  if (!isScanDegradedByBotProtection(results, report)) return 'none';
-  const check = results.get('bot-protection-interference');
-  if (check?.status === 'warn' || check?.status === 'fail') {
-    const affected = check.details?.affectedChecks;
-    if (Array.isArray(affected)) return new Set(affected as string[]);
-  }
-  return 'all';
-}
-
-export function isPartialSampleCheck(
-  checkId: string,
-  partial: ReadonlySet<string> | 'all' | 'none',
-): boolean {
-  if (partial === 'none') return false;
-  if (partial === 'all') return true;
-  return partial.has(checkId);
-}
-
 interface FailureCounts {
   requests: number;
   failed: number;
   stalledBodies: number;
   challengePages: number;
   fetchErrors: number;
+  /** Denied responses the check counted as failures (only when the denial rate climbed). */
+  denied: number;
 }
 
+/**
+ * When the check warned or failed, its own counts are authoritative: they
+ * include denied responses that a climbing block rate turned into failures,
+ * which the run-level request summary does not know about. The summary is
+ * the fallback for runs where the check did not run.
+ */
 function failureCounts(
   results: Map<string, CheckResult>,
   report: ReportResult,
 ): FailureCounts | undefined {
-  if (report.requestSummary) return report.requestSummary;
-  const d = results.get('bot-protection-interference')?.details;
-  if (!d) return undefined;
-  return {
-    requests: (d.requests as number) ?? 0,
-    failed: (d.failedRequests as number) ?? 0,
-    stalledBodies: (d.stalledBodies as number) ?? 0,
-    challengePages: (d.challengePages as number) ?? 0,
-    fetchErrors: (d.fetchErrors as number) ?? 0,
-  };
+  const check = results.get('bot-protection-interference');
+  const d = check?.details;
+  if (d && (check?.status === 'warn' || check?.status === 'fail')) {
+    return {
+      requests: (d.requests as number) ?? 0,
+      failed: (d.failedRequests as number) ?? 0,
+      stalledBodies: (d.stalledBodies as number) ?? 0,
+      challengePages: (d.challengePages as number) ?? 0,
+      fetchErrors: (d.fetchErrors as number) ?? 0,
+      denied: (d.deniedCounted as number) ?? 0,
+    };
+  }
+  if (report.requestSummary) return { ...report.requestSummary, denied: 0 };
+  return undefined;
 }
 
 interface DiagnosticDefinition {
@@ -427,6 +409,7 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       if (counts.stalledBodies > 0) kinds.push(`${counts.stalledBodies} stalled bodies`);
       if (counts.challengePages > 0) kinds.push(`${counts.challengePages} challenge pages`);
       if (counts.fetchErrors > 0) kinds.push(`${counts.fetchErrors} connection errors`);
+      if (counts.denied > 0) kinds.push(`${counts.denied} denied responses`);
       const breakdown = kinds.length > 0 ? ` (${kinds.join(', ')})` : '';
 
       const affected = check?.details?.affectedChecks;
@@ -436,7 +419,7 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
           : '';
 
       return (
-        `${pct}% of HTTP requests during this scan failed or timed out${breakdown}. ` +
+        `${pct}% of HTTP requests during this scan failed, timed out, or were denied${breakdown}. ` +
         'The site may be rate-limiting or tarpitting automated clients; ' +
         `multi-page check scores reflect only the ${responded} requests that completed, ` +
         'not the full site.' +

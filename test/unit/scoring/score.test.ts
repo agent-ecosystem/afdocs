@@ -652,7 +652,7 @@ describe('computeScore', () => {
       expect(score.checkScores['page-size-html'].earnedScore).toBe(7);
     });
 
-    it('flags only the checks that ran during the interference window when known', () => {
+    it('flags every multi-page check on warn, even those that finished before onset', () => {
       const report = makeReport(
         [
           makeResult('page-size-html', 'page-size', 'pass', {
@@ -671,7 +671,7 @@ describe('computeScore', () => {
       );
       const score = computeScore(report);
       expect(score.checkScores['auth-gate-detection'].partialSample).toBe(true);
-      expect(score.checkScores['page-size-html'].partialSample).toBeUndefined();
+      expect(score.checkScores['page-size-html'].partialSample).toBe(true);
     });
 
     it('does not flag anything on a clean run', () => {

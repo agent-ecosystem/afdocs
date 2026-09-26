@@ -300,8 +300,8 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
         postOnsetFailureRate >= SUSTAINED_FAILURE_RATE));
 
   // Checks that made at least one request during the interference window.
-  // Their multi-page results were computed on whatever sample survived;
-  // checks that finished before onset were not.
+  // Reported so a reader can tell which multi-page results were computed on
+  // whatever sample survived; the spec flags every multi-page check.
   const affectedChecks = [
     ...new Set(postOnset.map((r) => r.checkId).filter((c): c is string => c !== undefined)),
   ];
@@ -349,6 +349,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     details: {
       ...baseDetails,
       visibleOnly,
+      deniedCounted: blockCorrelated
+        ? records.filter((r) => r.blocked === true && !isFailedRecord(r)).length
+        : 0,
       onsetRequest: records[onsetIndex].seq,
       postOnsetRequests: postOnset.length,
       postOnsetFailures,

@@ -11,7 +11,7 @@
 //
 // Requires `npm run build` first (imports from dist/). <outdir> should be
 // gitignored (bot-results/ at the repo root is a fine choice).
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const repo = resolve(new URL('..', import.meta.url).pathname);
@@ -22,6 +22,7 @@ const { summarizeRequests } = await import(`${repo}/dist/helpers/fetch-ledger.js
 const [mode, ...args] = process.argv.slice(2);
 
 async function run(slug, url, outdir) {
+  mkdirSync(outdir, { recursive: true });
   const started = Date.now();
   const results = [];
   let ctx;

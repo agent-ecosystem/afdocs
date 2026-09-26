@@ -70,8 +70,10 @@ export interface CheckContext {
  *   request timeout (the tarpit signature).
  * - `fetch-error`: no response at all (connection failure, header-phase
  *   timeout, abort).
+ * - `body-error`: headers arrived but the body read failed for a reason
+ *   other than a stall (connection reset mid-body, decoding failure).
  */
-export type FetchOutcome = 'ok' | 'stalled-body' | 'fetch-error';
+export type FetchOutcome = 'ok' | 'stalled-body' | 'fetch-error' | 'body-error';
 
 export interface FetchRecord {
   /** 1-based completion order within the run. */
@@ -91,7 +93,7 @@ export interface FetchRecord {
   blocked?: boolean;
   /** Raw Retry-After header on a 429, when the server sent one. */
   retryAfter?: string;
-  /** Error message for `stalled-body` and `fetch-error` outcomes. */
+  /** Error message for `stalled-body`, `fetch-error`, and `body-error` outcomes. */
   error?: string;
   /** The check that made the request, when the runner attributed it. */
   checkId?: string;
@@ -139,7 +141,7 @@ export interface RequestSummary {
   stalledBodies: number;
   /** Responses whose body matched a bot-challenge signature. */
   challengePages: number;
-  /** Requests that produced no response at all. */
+  /** Requests that produced no response, or whose body read failed for a reason other than a stall. */
   fetchErrors: number;
   /** stalledBodies + challengePages + fetchErrors. */
   failed: number;
