@@ -84,6 +84,8 @@ When your `llms.txt` uses [progressive disclosure](https://agentdocsspec.com/spe
 
 This means deeply nested `llms.txt` structures aren't penalized. The output distinguishes directly-verified pages from omitted subtrees.
 
+Links back to an index the walker has already seen are ignored: a root `llms.txt` that lists its own URL, a nested index that links back to the root, or the same index linked twice. None of these trigger another fetch or count as an omitted subtree, so a self-reference does not change the depth of anything else.
+
 **Why not walk recursively?** A recursive walk would fetch every nested `.txt` file before any checks run. For a site like Alchemy, that's ~86 aggregate files across three levels. For a multi-product site like Microsoft Learn, it could be hundreds. A safety cap (e.g. 200 files) would silently truncate results, producing incomplete coverage numbers with no indication they're partial. Keeping the walker at depth 1 makes the HTTP footprint predictable, makes the runs more performant, and makes the results reproducible.
 
 **Run per-product for deeper visibility.** Organizations with large multi-product sites typically run `afdocs` at the per-product level, which gives full coverage visibility into each section without the cost of walking the entire tree:

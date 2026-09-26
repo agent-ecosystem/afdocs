@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse, passthrough } from 'msw';
 import { setupServer } from 'msw/node';
 import { createContext } from '../../../src/runner.js';
 import { getCheck } from '../../../src/checks/registry.js';
@@ -11,6 +11,19 @@ const server = setupServer();
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: 'bypass' });
+  // Page sampling verifies that pages derived from llms.txt .md links exist
+  // (issue #112). Serve a plain HTML page for any URL a test does not mock
+  // itself; handlers added later by the tests take precedence. Markdown URLs
+  // pass through so unmocked .md candidates stay unreachable, as before.
+  server.use(
+    http.get('http://test.local/*', ({ request }) => {
+      if (/\.mdx?$/.test(new URL(request.url).pathname)) return passthrough();
+      return new HttpResponse('<!DOCTYPE html><html><body>ok</body></html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      });
+    }),
+  );
   return () => server.close();
 });
 
