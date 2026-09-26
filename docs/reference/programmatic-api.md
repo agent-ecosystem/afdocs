@@ -63,6 +63,27 @@ const curatedReport = await runChecks('https://docs.example.com', {
 
 All options are optional. The defaults match the CLI defaults.
 
+### Progress events
+
+Pass an `onProgress` callback to observe each check as it starts and completes. The runner calls it with a `start` event before a check runs and a `complete` event after, carrying the check's 1-based position and the total number of selected checks. The `complete` event also includes the `CheckResult` and the wall-clock duration in milliseconds. The CLI's stderr progress output is built on this callback.
+
+```ts
+import { runChecks } from 'afdocs';
+import type { CheckProgressEvent } from 'afdocs';
+
+const report = await runChecks('https://docs.example.com', {
+  onProgress: (event: CheckProgressEvent) => {
+    if (event.phase === 'start') {
+      console.error(`[${event.index}/${event.total}] ${event.checkId}...`);
+    } else {
+      console.error(`  ${event.result.status} in ${event.durationMs}ms`);
+    }
+  },
+});
+```
+
+Skipped checks (excluded via `skipCheckIds` or gated by an unmet dependency) still emit both events, with a `skip` result on completion.
+
 ## Run a single check
 
 For more control, create a context and run individual checks:
@@ -142,6 +163,9 @@ import type {
   ReportResult,
   RunnerOptions,
   CheckOptions,
+  CheckProgressEvent, // CheckProgressStartEvent | CheckProgressCompleteEvent
+  CheckProgressStartEvent,
+  CheckProgressCompleteEvent,
   SamplingStrategy, // 'random' | 'deterministic' | 'curated' | 'none'
   AgentDocsConfig,
   CuratedPageEntry,

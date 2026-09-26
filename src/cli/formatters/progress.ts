@@ -23,7 +23,7 @@ export function formatProgressEvent(event: CheckProgressEvent): string {
 
   const details = event.result.details ?? {};
   const parts: string[] = [];
-  const tested = details.testedPages ?? details.tested;
+  const tested = details.testedPages;
   if (typeof tested === 'number') {
     parts.push(`${tested} tested`);
   }
