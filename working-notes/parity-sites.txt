@@ -1,0 +1,24 @@
+# Sites referenced in PARITY-CHECK-NOTES.md, with best-guess base URLs.
+# Format: <slug> <url>
+# Lines starting with # are comments.
+
+anthropic           https://platform.claude.com/docs/en/home
+loops               https://loops.so/docs
+resend              https://resend.com/docs
+neon                https://neon.tech/docs
+posthog             https://posthog.com/docs
+valtown             https://docs.val.town
+daytona             https://daytona.io/docs
+stripe              https://docs.stripe.com
+vercel              https://vercel.com/docs
+knock               https://docs.knock.app
+mongodb             https://www.mongodb.com/docs
+cloudflare          https://developers.cloudflare.com
+supabase            https://supabase.com/docs
+pinecone            https://docs.pinecone.io
+openai              https://developers.openai.com/api/docs
+plaid               https://plaid.com/docs
+agentskillimpl      https://agentskillimplementation.com
+agentdocsspec       https://agentdocsspec.com
+dacharycarey        https://dacharycarey.com
+afdocsdev           https://afdocs.dev
