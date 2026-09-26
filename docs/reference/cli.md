@@ -118,11 +118,12 @@ afdocs check https://docs.example.com --max-links 100
 
 ### URL discovery
 
-| Flag                           | Default     | Description                                                         |
-| ------------------------------ | ----------- | ------------------------------------------------------------------- |
-| `--doc-locale <code>`          | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)          |
-| `--doc-version <version>`      | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`, `latest`)    |
-| `--url-path-pattern <pattern>` | `clean`     | How llms.txt `.md` links map to page URLs: `clean`, `html`, or `md` |
+| Flag                           | Default     | Description                                                                                            |
+| ------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------ |
+| `--doc-locale <code>`          | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)                                             |
+| `--doc-version <version>`      | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`, `latest`)                                       |
+| `--url-path-pattern <pattern>` | `clean`     | How llms.txt `.md` links map to page URLs: `clean`, `html`, or `md`                                    |
+| `--network-context <class>`    | detected    | Where the scan runs from, reported with bot-protection findings: `developer-machine`, `ci`, or `cloud` |
 
 When `afdocs` discovers pages from a sitemap or `llms.txt`, it automatically filters out duplicate locale and version variants so you get a representative sample of unique content.
 

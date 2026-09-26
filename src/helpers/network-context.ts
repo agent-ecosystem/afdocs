@@ -59,12 +59,14 @@ export function detectNetworkContext(
   env: Record<string, string | undefined> = process.env,
 ): NetworkContext {
   for (const name of CI_INDICATORS) {
-    if (isSet(env[name])) return { classification: 'ci', indicator: name };
+    if (isSet(env[name])) return { classification: 'ci', source: 'environment', indicator: name };
   }
   for (const name of CLOUD_INDICATORS) {
-    if (isSet(env[name])) return { classification: 'cloud', indicator: name };
+    if (isSet(env[name])) {
+      return { classification: 'cloud', source: 'environment', indicator: name };
+    }
   }
-  return { classification: 'developer-machine' };
+  return { classification: 'developer-machine', source: 'environment' };
 }
 
 export function describeNetworkContext(ctx: NetworkContext): string {

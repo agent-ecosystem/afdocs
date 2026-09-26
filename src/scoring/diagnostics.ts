@@ -10,6 +10,12 @@ import { MIN_PAGES_FOR_SCORING } from '../constants.js';
 export const PARTIAL_SAMPLE_FAILURE_RATE = 0.2;
 
 /**
+ * The failure-rate trigger needs a sample worth a percentage. Two failed
+ * discovery probes in a ten-request subset run are not a degraded scan.
+ */
+export const MIN_REQUESTS_FOR_RATE_TRIGGER = 20;
+
+/**
  * The spec's "Bot Protection Degrading Scan Reliability" effect has two
  * triggers, and both are honored: the check returning warn or fail (its
  * inverted dependency on every multi-page check), or the run-level fetch
@@ -23,7 +29,11 @@ export function isScanDegradedByBotProtection(
   if (check?.status === 'warn' || check?.status === 'fail') return true;
 
   const s = report.requestSummary;
-  return !!s && s.requests > 0 && s.failed / s.requests >= PARTIAL_SAMPLE_FAILURE_RATE;
+  return (
+    !!s &&
+    s.requests >= MIN_REQUESTS_FOR_RATE_TRIGGER &&
+    s.failed / s.requests >= PARTIAL_SAMPLE_FAILURE_RATE
+  );
 }
 
 interface FailureCounts {

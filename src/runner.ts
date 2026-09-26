@@ -120,7 +120,9 @@ export function createContext(baseUrl: string, options?: Partial<RunnerOptions>)
     htmlCache: new Map(),
     _curatedPages: options?.curatedPages,
     fetchLedger,
-    networkContext: detectNetworkContext(),
+    networkContext: merged.networkContext
+      ? { classification: merged.networkContext, source: 'option' }
+      : detectNetworkContext(),
   };
 }
 
@@ -192,6 +194,10 @@ export async function runChecks(
         dependsOn: normalizeDeps(check.dependsOn).flat(),
       };
     } else {
+      // Attribute the requests this check makes to it, so run-level
+      // evidence can tell "failures climbed across the scan" from "one
+      // check's URL class failed".
+      if (ctx.fetchLedger) ctx.fetchLedger.currentCheckId = check.id;
       try {
         result = await check.run(ctx);
       } catch (err) {
@@ -201,6 +207,8 @@ export async function runChecks(
           status: 'error',
           message: `Check error: ${err instanceof Error ? err.message : String(err)}`,
         };
+      } finally {
+        if (ctx.fetchLedger) ctx.fetchLedger.currentCheckId = undefined;
       }
     }
 

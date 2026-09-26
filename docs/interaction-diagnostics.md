@@ -86,7 +86,7 @@ These diagnostics appear in the "Interaction Diagnostics" section of the `--form
 
 ## Bot protection degrading scan reliability
 
-**Triggers when** the [`bot-protection-interference`](/checks/authentication#bot-protection-interference) check warns or fails, or when at least 20% of the HTTP requests made during the run failed or timed out (stalled bodies, challenge pages, or connection errors), whichever comes first.
+**Triggers when** the [`bot-protection-interference`](/checks/authentication#bot-protection-interference) check warns or fails, or when at least 20% of the HTTP requests made during the run failed or timed out (stalled bodies, challenge pages, or connection errors). The rate trigger needs at least 20 requests, so two failed discovery probes in a short subset run do not count as a degraded scan.
 
 **What it means**: Behavioral bot enforcement engaged partway through the scan. Requests that would have succeeded in isolation began to stall, get challenged, or fail, and every check still running scored whatever sample survived. The site's scores can look reasonable while being computed from a fraction of the intended pages. Per-check "failed to fetch" counts are scattered and easy to miss, so this diagnostic aggregates them at run level.
 

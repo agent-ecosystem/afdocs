@@ -31,7 +31,7 @@ describe('detectChallengePage', () => {
     expect(detectChallengePage(body, 'text/html')).toBeDefined();
   });
 
-  it('detects vendor markers for PerimeterX, DataDome, Incapsula, AWS WAF', () => {
+  it('detects challenge-page artifacts for PerimeterX, DataDome, Incapsula, Akamai', () => {
     expect(
       detectChallengePage('<html><body><div id="px-captcha"></div></body></html>', 'text/html'),
     ).toBe('PerimeterX/HUMAN challenge');
@@ -49,10 +49,53 @@ describe('detectChallengePage', () => {
     ).toBe('Imperva/Incapsula challenge');
     expect(
       detectChallengePage(
-        '<html><body><script>window.AwsWafIntegration = {}</script></body></html>',
+        "<html><head><title>Access Denied</title></head><body><h1>Access Denied</h1><p>You don't have permission to access this page.</p><p>Reference #18.4f3a1b02.1727300000.2a1c9f</p></body></html>",
         'text/html',
       ),
-    ).toBe('AWS WAF challenge');
+    ).toBe('Akamai block page');
+  });
+
+  it('detects the Cloudflare block page even though it has headings and prose', () => {
+    const body = `<html><head><title>Attention Required! | Cloudflare</title></head><body>
+      <div class="cf-wrapper"><h1>Sorry, you have been blocked</h1>
+      <h2>Why have I been blocked?</h2><p>This website is using a security service to protect itself from online attacks. The action you just performed triggered the security solution.</p>
+      <h2>What can I do to resolve this?</h2><p>You can email the site owner to let them know you were blocked. Please include what you were doing when this page came up and the Cloudflare Ray ID found at the bottom of this page.</p>
+      <p>Cloudflare Ray ID: 8c1234567890abcd</p></div></body></html>`;
+    expect(detectChallengePage(body, 'text/html')).toBe('Cloudflare block page');
+  });
+
+  it('never counts vendor SDK markers on their own', () => {
+    // Cloudflare Bot Management injects its JS-detections script into every
+    // page; a Next.js shell carries it with no content to veto on.
+    const shell =
+      '<html><head><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></head>' +
+      '<body><div id="__next"></div><script src="/_next/static/chunks/main.js"></script></body></html>';
+    expect(detectChallengePage(shell, 'text/html')).toBeUndefined();
+
+    const datadomeShell =
+      '<html><head><script src="https://js.datadome.co/tags.js"></script></head><body><div id="root"></div></body></html>';
+    expect(detectChallengePage(datadomeShell, 'text/html')).toBeUndefined();
+
+    const recaptchaShell =
+      '<html><head><script src="https://www.google.com/recaptcha/api.js"></script></head><body><div id="root"></div></body></html>';
+    expect(detectChallengePage(recaptchaShell, 'text/html')).toBeUndefined();
+  });
+
+  it('uses a vendor marker only to name the vendor behind a phrase match', () => {
+    const body =
+      '<html><head><script src="https://js.datadome.co/tags.js"></script></head>' +
+      '<body><p>Please complete the security check to continue.</p></body></html>';
+    expect(detectChallengePage(body, 'text/html')).toBe('DataDome challenge');
+  });
+
+  it('vetoes a phrase match on a page with substantive documentation content', () => {
+    const body = `<html><head><title>Troubleshooting</title></head><body><main>
+      <h1>Troubleshooting access errors</h1>
+      <h2>Verify you are human</h2><p>If the site shows a "verify you are human" prompt, your network may be flagged. Complete the check once and the session continues normally for the rest of the day.</p>
+      <h2>Rate limits</h2><p>The API returns 429 with a Retry-After header when you exceed the quota. Back off for the indicated interval before retrying the request.</p>
+      <h2>Support</h2><p>Contact support with the request id if the problem persists after following the steps above.</p>
+      </main></body></html>`;
+    expect(detectChallengePage(body, 'text/html')).toBeUndefined();
   });
 
   it('detects generic browser-verification phrasing', () => {
@@ -101,7 +144,19 @@ describe('InMemoryFetchLedger', () => {
 
     expect(ledger.records.map((r) => r.url)).toEqual(['http://x/a', 'http://x/b']);
     expect(ledger.records[0].challenge).toBeUndefined();
-    expect(ledger.records[1].challenge).toBe('Challenge page title');
+    expect(ledger.records[1].challenge).toBe('Cloudflare challenge');
+  });
+});
+
+describe('InMemoryFetchLedger check attribution', () => {
+  it('stamps records with the current check id', () => {
+    const ledger = createFetchLedger();
+    ledger.currentCheckId = 'page-size-html';
+    ledger.onRecord({ seq: 1, url: 'http://x/a', status: 200, outcome: 'ok' });
+    ledger.currentCheckId = undefined;
+    ledger.onRecord({ seq: 2, url: 'http://x/b', status: 200, outcome: 'ok' });
+    expect(ledger.records[0].checkId).toBe('page-size-html');
+    expect(ledger.records[1].checkId).toBeUndefined();
   });
 });
 

@@ -846,16 +846,32 @@ describe('diagnostics', () => {
       const report = {
         ...defaultReport(),
         requestSummary: {
-          requests: 10,
-          stalledBodies: 2,
+          requests: 20,
+          stalledBodies: 4,
           challengePages: 0,
           fetchErrors: 0,
-          failed: 2,
+          failed: 4,
           failureRate: 20,
         },
       };
       const diags = evaluateDiagnostics(resultsMap(), report);
       expect(diags.find((d) => d.id === 'bot-protection-scan-reliability')).toBeDefined();
+    });
+
+    it('needs at least 20 requests before the rate alone can trigger it', () => {
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 10,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 2,
+          failed: 2,
+          failureRate: 20,
+        },
+      };
+      const diags = evaluateDiagnostics(resultsMap(), report);
+      expect(diags.find((d) => d.id === 'bot-protection-scan-reliability')).toBeUndefined();
     });
 
     it('does not trigger below the failure-rate threshold when the check passed', () => {

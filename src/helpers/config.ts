@@ -3,7 +3,11 @@ import { dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { AgentDocsConfig, PageConfigEntry } from '../types.js';
 import { validateNumber } from '../validation.js';
-import { VALID_SAMPLING_STRATEGIES, VALID_URL_PATH_PATTERNS } from '../constants.js';
+import {
+  VALID_SAMPLING_STRATEGIES,
+  VALID_URL_PATH_PATTERNS,
+  VALID_NETWORK_CONTEXTS,
+} from '../constants.js';
 
 const CONFIG_FILENAMES = ['agent-docs.config.yml', 'agent-docs.config.yaml'];
 
@@ -96,6 +100,16 @@ function validateOptions(options: Record<string, unknown>, source: string): void
   ) {
     throw new Error(
       `${source}: options.urlPathPattern must be one of: ${VALID_URL_PATH_PATTERNS.join(', ')}`,
+    );
+  }
+  if (
+    options.networkContext != null &&
+    !VALID_NETWORK_CONTEXTS.includes(
+      options.networkContext as string as (typeof VALID_NETWORK_CONTEXTS)[number],
+    )
+  ) {
+    throw new Error(
+      `${source}: options.networkContext must be one of: ${VALID_NETWORK_CONTEXTS.join(', ')}`,
     );
   }
   for (const [field, constraints] of NUMERIC_OPTION_RULES) {

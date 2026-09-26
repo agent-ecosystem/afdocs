@@ -1,4 +1,10 @@
-import type { CheckOptions, SamplingStrategy, SizeThresholds, UrlPathPattern } from './types.js';
+import type {
+  CheckOptions,
+  NetworkContextClass,
+  SamplingStrategy,
+  SizeThresholds,
+  UrlPathPattern,
+} from './types.js';
 
 export const VALID_SAMPLING_STRATEGIES: readonly SamplingStrategy[] = [
   'random',
@@ -8,6 +14,12 @@ export const VALID_SAMPLING_STRATEGIES: readonly SamplingStrategy[] = [
 ];
 
 export const VALID_URL_PATH_PATTERNS: readonly UrlPathPattern[] = ['clean', 'html', 'md'];
+
+export const VALID_NETWORK_CONTEXTS: readonly NetworkContextClass[] = [
+  'developer-machine',
+  'ci',
+  'cloud',
+];
 
 export const DEFAULT_THRESHOLDS: SizeThresholds = {
   pass: 50_000,

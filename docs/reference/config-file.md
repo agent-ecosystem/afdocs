@@ -95,6 +95,7 @@ Override default runner options. All fields are optional:
 | `preferredVersion`      | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`)                                                   |
 | `canonicalOrigin`       |             | The production base URL (origin, or origin plus a path prefix) your content links to                     |
 | `llmsTxtUrl`            |             | Explicit llms.txt URL to use as canonical (overrides the discovery heuristic; see CLI docs)              |
+| `networkContext`        | detected    | Where the scan runs from, reported with bot-protection findings: `developer-machine`, `ci`, or `cloud`   |
 | `thresholds.pass`       | `50000`     | Page size pass threshold in characters                                                                   |
 | `thresholds.fail`       | `100000`    | Page size fail threshold in characters                                                                   |
 | `coveragePassThreshold` | `95`        | `llms-txt-coverage` pass threshold: minimum coverage % to pass (higher = stricter)                       |

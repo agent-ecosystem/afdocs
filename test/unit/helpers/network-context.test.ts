@@ -6,12 +6,16 @@ import {
 
 describe('detectNetworkContext', () => {
   it('defaults to a developer machine with no indicators', () => {
-    expect(detectNetworkContext({})).toEqual({ classification: 'developer-machine' });
+    expect(detectNetworkContext({})).toEqual({
+      classification: 'developer-machine',
+      source: 'environment',
+    });
   });
 
   it('classifies CI runners and names the indicator', () => {
     expect(detectNetworkContext({ GITHUB_ACTIONS: 'true' })).toEqual({
       classification: 'ci',
+      source: 'environment',
       indicator: 'GITHUB_ACTIONS',
     });
     expect(detectNetworkContext({ CI: 'true' }).classification).toBe('ci');
@@ -26,6 +30,7 @@ describe('detectNetworkContext', () => {
   it('classifies cloud execution environments', () => {
     expect(detectNetworkContext({ AWS_LAMBDA_FUNCTION_NAME: 'fn' })).toEqual({
       classification: 'cloud',
+      source: 'environment',
       indicator: 'AWS_LAMBDA_FUNCTION_NAME',
     });
     expect(detectNetworkContext({ CODESPACES: 'true' }).classification).toBe('cloud');
@@ -46,10 +51,14 @@ describe('detectNetworkContext', () => {
 
 describe('describeNetworkContext', () => {
   it('renders each classification', () => {
-    expect(describeNetworkContext({ classification: 'ci' })).toBe('CI infrastructure');
-    expect(describeNetworkContext({ classification: 'cloud' })).toBe('cloud infrastructure');
-    expect(describeNetworkContext({ classification: 'developer-machine' })).toBe(
-      'a developer machine',
+    expect(describeNetworkContext({ classification: 'ci', source: 'option' })).toBe(
+      'CI infrastructure',
     );
+    expect(describeNetworkContext({ classification: 'cloud', source: 'environment' })).toBe(
+      'cloud infrastructure',
+    );
+    expect(
+      describeNetworkContext({ classification: 'developer-machine', source: 'environment' }),
+    ).toBe('a developer machine');
   });
 });

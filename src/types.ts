@@ -82,8 +82,17 @@ export interface FetchRecord {
   outcome: FetchOutcome;
   /** Label of the bot-challenge signature matched in the body, when one was found. */
   challenge?: string;
+  /**
+   * The response denied the request without a challenge body: 403, 503, or a
+   * 429 with no usable Retry-After. Not a failure on its own (an auth-gated
+   * site is 403 from the first request); it becomes interference evidence
+   * only when the block rate climbs as the scan progresses.
+   */
+  blocked?: boolean;
   /** Error message for `stalled-body` and `fetch-error` outcomes. */
   error?: string;
+  /** The check that made the request, when the runner attributed it. */
+  checkId?: string;
 }
 
 /**
@@ -99,6 +108,8 @@ export interface FetchObserver {
 
 export interface FetchLedger extends FetchObserver {
   readonly records: readonly FetchRecord[];
+  /** Set by the runner around each check so records carry the check that made them. */
+  currentCheckId?: string;
 }
 
 export type NetworkContextClass = 'developer-machine' | 'ci' | 'cloud';
@@ -112,6 +123,8 @@ export type NetworkContextClass = 'developer-machine' | 'ci' | 'cloud';
  */
 export interface NetworkContext {
   classification: NetworkContextClass;
+  /** Whether the classification came from environment detection or an explicit option. */
+  source: 'environment' | 'option';
   /** The environment variable that drove the classification, when one did. */
   indicator?: string;
 }
@@ -190,6 +203,12 @@ export interface CheckOptions {
   parityWarnThreshold?: number;
   /** CSS selectors to strip from HTML before parity comparison (e.g. '[data-markdown-ignore]'). */
   parityExclusions?: string[];
+  /**
+   * Explicit network vantage point for the scan, overriding environment
+   * detection. Reported alongside bot-protection findings so a reader can
+   * tell a datacenter-origin scan from a residential one.
+   */
+  networkContext?: NetworkContextClass;
   /**
    * Explicit URL to use as the canonical llms.txt for downstream sampling and
    * analysis. When set, the standard candidate-discovery heuristic is bypassed

@@ -2,45 +2,78 @@ import type { FetchLedger as FetchLedgerLike, FetchRecord, RequestSummary } from
 import { looksLikeHtml } from './detect-markdown.js';
 import { analyzeRendering, hasSubstantiveContent } from './detect-rendering.js';
 
+interface Signature {
+  label: string;
+  pattern: RegExp;
+}
+
 /**
- * Bot-challenge signatures, checked against the first part of an HTML body.
- *
- * Two tiers: vendor markers (script paths, form ids, cookie names that only a
- * challenge page carries) and interstitial phrasing (what the page says to a
- * human). Any match makes the page a candidate; the candidate is then vetoed
- * if the body carries substantive documentation content, because a real docs
- * page about Cloudflare Turnstile or reCAPTCHA legitimately mentions these
- * markers while a challenge interstitial is near-empty.
+ * Artifacts that only a challenge interstitial or block page carries: the
+ * vendor's challenge-page element ids, incident strings, or page titles.
+ * A match is conclusive on its own and is never vetoed. Titles are anchored
+ * at the start so prose mentioning them does not match.
  */
-const CHALLENGE_SIGNATURES: Array<{ label: string; pattern: RegExp }> = [
+const ARTIFACT_SIGNATURES: Signature[] = [
   {
     label: 'Cloudflare challenge',
     pattern:
-      /cf-browser-verification|_cf_chl_opt|\/cdn-cgi\/challenge-platform|cf-challenge-running|cf-turnstile|challenges\.cloudflare\.com/i,
+      /cf-browser-verification|_cf_chl_opt|cf_chl_prog|cf-challenge-running|<title[^>]*>\s*just a moment/i,
+  },
+  {
+    label: 'Cloudflare block page',
+    pattern: /<title[^>]*>\s*attention required!?\s*\|\s*cloudflare/i,
   },
   {
     label: 'Imperva/Incapsula challenge',
-    pattern:
-      /_incapsula_resource|incapsula incident|request unsuccessful\. incapsula|pardon our interruption/i,
+    pattern: /request unsuccessful\. incapsula|incapsula incident id|pardon our interruption/i,
   },
-  { label: 'PerimeterX/HUMAN challenge', pattern: /perimeterx|px-captcha|_pxhd=|px-cdn\.net/i },
-  { label: 'DataDome challenge', pattern: /datadome|captcha-delivery\.com/i },
-  { label: 'AWS WAF challenge', pattern: /awswafintegration|aws-waf-token|\/awswaf\//i },
   {
-    label: 'Akamai bot manager',
-    pattern: /akamai.{0,80}bot|reference #\d+\.[0-9a-f]+\.\d+\.[0-9a-f]+/i,
+    label: 'PerimeterX/HUMAN challenge',
+    pattern: /px-captcha|<title[^>]*>\s*access to this page has been denied/i,
   },
-  { label: 'CAPTCHA', pattern: /hcaptcha\.com|h-captcha|g-recaptcha|recaptcha\/api\.js/i },
+  { label: 'DataDome challenge', pattern: /captcha-delivery\.com/i },
+  {
+    label: 'Akamai block page',
+    pattern: /reference&#32;#\s*\d|reference #\d+\.[0-9a-f]+\.\d+\.[0-9a-f]+/i,
+  },
+];
+
+/**
+ * What an interstitial says to a human. Prose on a documentation page can
+ * say the same things, so a phrase match is vetoed when the body carries
+ * substantive documentation content; a real interstitial is near-empty.
+ */
+const PHRASE_SIGNATURES: Signature[] = [
   {
     label: 'Browser verification interstitial',
     pattern:
-      /checking your browser before accessing|checking if the site connection is secure|verify(?:ing)? (?:that )?you are (?:not a robot|human|a human)|please complete the security check|enable javascript and cookies to continue|are you a robot\?|bot verification|human verification/i,
+      /checking your browser before accessing|checking if the site connection is secure|verify(?:ing)? (?:that )?you are (?:not a robot|human|a human)|please complete the security check|enable javascript and cookies to continue|are you a robot\?|bot verification|human verification|sorry, you have been blocked/i,
   },
   {
     label: 'Challenge page title',
     pattern:
-      /<title[^>]*>\s*(?:just a moment|attention required|access denied|pardon our interruption|one more step|please wait\.\.\.|security check|verifying|bot verification|human verification|are you a human)/i,
+      /<title[^>]*>\s*(?:access denied|one more step|please wait\.\.\.|security check|verifying\b|bot verification|human verification|are you a human)/i,
   },
+];
+
+/**
+ * Vendor SDKs, tags, and widgets that protected sites inject into every
+ * ordinary page: Cloudflare's JS-detections script, Imperva's resource
+ * script, DataDome's tag, PerimeterX's client, AWS WAF's integration, and
+ * CAPTCHA widgets on forms. Their presence says the site uses the vendor,
+ * not that this response is a challenge, so they are never evidence on
+ * their own. They only name the vendor when a phrase signature matched.
+ */
+const VENDOR_MARKERS: Signature[] = [
+  {
+    label: 'Cloudflare challenge',
+    pattern: /\/cdn-cgi\/challenge-platform|cf-turnstile|challenges\.cloudflare\.com/i,
+  },
+  { label: 'Imperva/Incapsula challenge', pattern: /_incapsula_resource|incapsula/i },
+  { label: 'PerimeterX/HUMAN challenge', pattern: /perimeterx|px-cdn\.net|px-cloud\.net|_pxhd/i },
+  { label: 'DataDome challenge', pattern: /datadome/i },
+  { label: 'AWS WAF challenge', pattern: /awswafintegration|aws-waf-token|awswaf\.com/i },
+  { label: 'CAPTCHA widget', pattern: /hcaptcha\.com|h-captcha|g-recaptcha|recaptcha\/api\.js/i },
 ];
 
 /** How much of a body to scan for signatures. Challenge pages are small. */
@@ -67,15 +100,20 @@ export function detectChallengePage(body: string, contentType: string): string |
   if (!isHtml) return undefined;
 
   const sample = body.slice(0, SIGNATURE_SCAN_LENGTH);
-  const match = CHALLENGE_SIGNATURES.find((sig) => sig.pattern.test(sample));
-  if (!match) return undefined;
+
+  const artifact = ARTIFACT_SIGNATURES.find((sig) => sig.pattern.test(sample));
+  if (artifact) return artifact.label;
+
+  const phrase = PHRASE_SIGNATURES.find((sig) => sig.pattern.test(sample));
+  if (!phrase) return undefined;
 
   // Veto: a page with real documentation content is a docs page that
-  // mentions the marker, not an interstitial. Parsing is only paid for
-  // candidates, so the common path stays a cheap regex.
+  // happens to use the phrase, not an interstitial. Parsing is only paid
+  // for candidates, so the common path stays a cheap regex.
   if (hasSubstantiveContent(analyzeRendering(body))) return undefined;
 
-  return match.label;
+  const vendor = VENDOR_MARKERS.find((sig) => sig.pattern.test(sample));
+  return vendor ? vendor.label : phrase.label;
 }
 
 /**
@@ -84,8 +122,12 @@ export function detectChallengePage(body: string, contentType: string): string |
  */
 export class InMemoryFetchLedger implements FetchLedgerLike {
   readonly records: FetchRecord[] = [];
+  currentCheckId?: string;
 
   onRecord(record: FetchRecord): void {
+    if (this.currentCheckId !== undefined && record.checkId === undefined) {
+      record.checkId = this.currentCheckId;
+    }
     this.records.push(record);
   }
 

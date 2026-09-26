@@ -289,6 +289,23 @@ describe('validateRunnerOptions', () => {
     }
   });
 
+  describe('enum: networkContext', () => {
+    it('rejects an unknown network context', () => {
+      const result = validateRunnerOptions({
+        networkContext: 'datacenter' as RunnerOptions['networkContext'],
+      });
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].field).toBe('networkContext');
+      expect(result.errors[0].message).toContain('developer-machine');
+    });
+
+    for (const ctx of ['developer-machine', 'ci', 'cloud'] as const) {
+      it(`accepts "${ctx}"`, () => {
+        expect(validateRunnerOptions({ networkContext: ctx }).valid).toBe(true);
+      });
+    }
+  });
+
   describe('constraint: curated requires pages', () => {
     it('errors for curated with no curatedPages', () => {
       const result = validateRunnerOptions({ samplingStrategy: 'curated' });

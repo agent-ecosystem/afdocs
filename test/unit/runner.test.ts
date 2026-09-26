@@ -772,3 +772,30 @@ describe('runChecks onProgress', () => {
     }
   });
 });
+
+describe('runChecks fetch ledger', () => {
+  it('attributes each request to the check that made it', async () => {
+    server.use(
+      http.get('http://ledger-test.local/llms.txt', () => new HttpResponse(null, { status: 404 })),
+      http.get(
+        'http://ledger-test.local/docs/llms.txt',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+    mockSitemapNotFound(server, 'http://ledger-test.local');
+
+    const report = await runChecks('http://ledger-test.local', {
+      requestDelay: 0,
+      checkIds: ['llms-txt-exists', 'bot-protection-interference'],
+    });
+    const bot = report.results.find((r) => r.id === 'bot-protection-interference')!;
+    expect(bot.status).toBe('pass');
+    expect(report.requestSummary!.requests).toBeGreaterThan(0);
+    expect(report.networkContext?.source).toBe('environment');
+  });
+
+  it('uses an explicit networkContext option over detection', () => {
+    const ctx = createContext('http://example.com', { networkContext: 'cloud' });
+    expect(ctx.networkContext).toEqual({ classification: 'cloud', source: 'option' });
+  });
+});

@@ -14,16 +14,25 @@ beforeAll(() => {
   return () => server.close();
 });
 
-type Kind = 'ok' | 'stall' | 'challenge' | 'error' | '429';
+type Kind = 'ok' | 'stall' | 'challenge' | 'error' | '429' | '403';
 
-/** Build a ledger from a compact list of request kinds, in order. */
-function seed(ctx: CheckContext, kinds: Kind[]): void {
+/**
+ * Build a ledger from a compact list of request kinds, in order. `checkOf`
+ * attributes each record to a check; the default alternates between two
+ * checks so trend rules that require a span across checks are satisfied.
+ */
+function seed(
+  ctx: CheckContext,
+  kinds: Kind[],
+  checkOf: (i: number) => string = (i) => (i % 2 === 0 ? 'check-a' : 'check-b'),
+): void {
   kinds.forEach((kind, i) => {
     const rec: FetchRecord = {
       seq: i + 1,
       url: `http://test.local/p${i + 1}`,
       status: 200,
       outcome: 'ok',
+      checkId: checkOf(i),
     };
     if (kind === 'stall') {
       rec.outcome = 'stalled-body';
@@ -36,6 +45,9 @@ function seed(ctx: CheckContext, kinds: Kind[]): void {
       rec.error = 'fetch failed';
     } else if (kind === '429') {
       rec.status = 429;
+    } else if (kind === '403') {
+      rec.status = 403;
+      rec.blocked = true;
     }
     ctx.fetchLedger!.onRecord(rec);
   });
@@ -50,7 +62,7 @@ describe('bot-protection-interference', () => {
 
   function makeCtx(): CheckContext {
     const ctx = createContext('http://test.local', { requestDelay: 0 });
-    ctx.networkContext = { classification: 'developer-machine' };
+    ctx.networkContext = { classification: 'developer-machine', source: 'environment' };
     return ctx;
   }
 
@@ -142,13 +154,15 @@ describe('bot-protection-interference', () => {
     const ctx = makeCtx();
     const kinds = fill(30);
     kinds[21] = 'error';
-    kinds[25] = 'error';
+    kinds[24] = 'error';
     kinds[29] = 'error';
     seed(ctx, kinds);
     const result = await check.run(ctx);
     expect(result.status).toBe('warn');
     expect(result.message).toContain('Failures climbed as the scan progressed');
-    expect(result.message).toContain('0 of 10 early requests failed vs 3 of 10 late requests');
+    expect(result.message).toContain(
+      '0 of 10 early requests failed vs 3 of 10 late requests across 2 checks',
+    );
     expect(result.details?.volumeCorrelated).toBe(true);
     expect(result.details?.onsetRequest).toBe(22);
   });
@@ -156,9 +170,13 @@ describe('bot-protection-interference', () => {
   it('fails on a silent block: connection errors dominate after onset', async () => {
     const ctx = makeCtx();
     const kinds: Kind[] = [
-      ...fill(22),
+      ...fill(24),
       'error',
       'ok',
+      'error',
+      'error',
+      'ok',
+      'error',
       'error',
       'error',
       'ok',
@@ -173,13 +191,74 @@ describe('bot-protection-interference', () => {
     expect(result.details?.challengePages).toBe(0);
   });
 
+  it('warns, not fails, on a short cluster of stalls at the tail of a run', async () => {
+    const ctx = makeCtx();
+    seed(ctx, [...fill(100), 'stall', 'stall', 'stall', 'stall', 'stall']);
+    const result = await check.run(ctx);
+    expect(result.status).toBe('warn');
+    expect(result.details?.postOnsetRequests).toBe(5);
+    expect(result.details?.stalledBodies).toBe(5);
+  });
+
+  it('ignores a late failure cluster that comes from a single check', async () => {
+    const ctx = makeCtx();
+    const kinds = fill(30);
+    kinds[21] = 'error';
+    kinds[25] = 'error';
+    kinds[29] = 'error';
+    // Everything late belongs to one check (e.g. fabricated 404 probes).
+    seed(ctx, kinds, (i) => (i < 20 ? 'check-a' : 'http-status-codes'));
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details?.volumeCorrelated).toBe(false);
+    expect((result.details?.failureTrend as { lateChecksSpanned: number }).lateChecksSpanned).toBe(
+      1,
+    );
+  });
+
+  it('warns when denials climb across checks late in the scan', async () => {
+    const ctx = makeCtx();
+    const kinds = fill(30);
+    for (const i of [21, 23, 26, 28]) kinds[i] = '403';
+    seed(ctx, kinds);
+    const result = await check.run(ctx);
+    expect(result.status).toBe('warn');
+    expect(result.message).toContain('Denials climbed as the scan progressed');
+    expect(result.message).toContain('0 of 10 early requests were denied vs 4 of 10 late requests');
+    expect(result.details?.blockedResponses).toBe(4);
+    expect(result.details?.failedRequests).toBe(4);
+  });
+
+  it('does not treat a site that is 403 from the first request as interference', async () => {
+    const ctx = makeCtx();
+    seed(ctx, fill(30, '403'));
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details?.blockedResponses).toBe(30);
+    expect(result.details?.failedRequests).toBe(0);
+  });
+
+  it('notes limited evidence on a short clean run', async () => {
+    const ctx = makeCtx();
+    seed(ctx, fill(8));
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.message).toContain('limited evidence: only 8 requests observed');
+    expect(result.details?.limitedEvidence).toBe(true);
+  });
+
   it('records the network context in details', async () => {
     const ctx = makeCtx();
-    ctx.networkContext = { classification: 'ci', indicator: 'GITHUB_ACTIONS' };
+    ctx.networkContext = {
+      classification: 'ci',
+      source: 'environment',
+      indicator: 'GITHUB_ACTIONS',
+    };
     seed(ctx, [...fill(10), 'stall', 'ok', 'ok']);
     const result = await check.run(ctx);
     expect(result.details?.networkContext).toEqual({
       classification: 'ci',
+      source: 'environment',
       indicator: 'GITHUB_ACTIONS',
     });
     expect(result.message).toContain('scanned from CI infrastructure');
@@ -236,6 +315,43 @@ describe('bot-protection-interference', () => {
       expect(result.status).toBe('pass');
       expect(result.details?.standaloneScan).toBe(true);
       expect(result.details?.requests as number).toBeGreaterThanOrEqual(6);
+    });
+
+    it('records a real stalled body when a page never finishes streaming', async () => {
+      const llmsTxt = mockSite(6);
+      server.use(
+        http.get(
+          'http://test.local/docs/page3',
+          () =>
+            new HttpResponse(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('<html><body>'));
+                  // never closes: a tarpit holds the connection open
+                },
+              }),
+              { status: 200, headers: { 'Content-Type': 'text/html' } },
+            ),
+        ),
+      );
+      const ctx = createContext('http://test.local', { requestDelay: 0, requestTimeout: 300 });
+      ctx.networkContext = { classification: 'developer-machine', source: 'environment' };
+      const discovered: DiscoveredFile[] = [
+        { url: 'http://test.local/llms.txt', content: llmsTxt, status: 200, redirected: false },
+      ];
+      ctx.previousResults.set('llms-txt-exists', {
+        id: 'llms-txt-exists',
+        category: 'content-discoverability',
+        status: 'pass',
+        message: 'Found',
+        details: { discoveredFiles: discovered },
+      });
+
+      const result = await check.run(ctx);
+      expect(result.status).toBe('warn');
+      expect(result.details?.stalledBodies).toBe(1);
+      expect(result.details?.samples).toMatchObject({ stalled: ['http://test.local/docs/page3'] });
+      expect(result.message).toContain('1 stalled body');
     });
 
     it('produces a report with a request summary via runChecks --checks', async () => {

@@ -26,7 +26,7 @@ for (const result of report.results) {
 - `testedPages` — number of pages tested by page-level checks (present when page discovery ran)
 - `samplingStrategy` — the sampling strategy used (`random`, `deterministic`, `curated`, or `none`)
 - `requestSummary` — aggregate of every HTTP request the run made: `requests`, `stalledBodies`, `challengePages`, `fetchErrors`, `failed`, and `failureRate` (0–100). Feeds the [bot protection scan-reliability diagnostic](/interaction-diagnostics#bot-protection-degrading-scan-reliability)
-- `networkContext` — where the scan ran from, classified from environment variables as `developer-machine`, `ci`, or `cloud` (with the `indicator` variable when one matched). Never includes an IP address
+- `networkContext` — where the scan ran from: `developer-machine`, `ci`, or `cloud`, with `source` set to `environment` (classified from environment variables, with the `indicator` variable that matched) or `option` (the `networkContext` runner option). Never includes an IP address
 
 ## Run with options
 

@@ -638,6 +638,242 @@ describe('createHttpClient', () => {
     });
   });
 
+  describe('streamed body reads', () => {
+    const enc = new TextEncoder();
+
+    function streamResponse(
+      stream: ReadableStream<Uint8Array>,
+      init?: { status?: number; headers?: Record<string, string> },
+    ): Response {
+      const status = init?.status ?? 200;
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'text/html', ...init?.headers }),
+        url: 'http://example.com/page',
+        redirected: false,
+        body: stream,
+        text: async () => {
+          throw new Error('text() should not be used when a body stream exists');
+        },
+      } as unknown as Response;
+    }
+
+    function observerFor() {
+      const records: FetchRecord[] = [];
+      return {
+        records,
+        onRecord: (r: FetchRecord) => {
+          records.push(r);
+        },
+        onBody: () => undefined,
+      };
+    }
+
+    it('decodes a body that arrives in chunks', async () => {
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(enc.encode('<html>'));
+              c.enqueue(enc.encode('héllo'));
+              c.enqueue(enc.encode('</html>'));
+              c.close();
+            },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const response = await client.fetch('http://example.com/page');
+      expect(await response.text()).toBe('<html>héllo</html>');
+    });
+
+    it('treats no bytes for requestTimeout as a stalled body', async () => {
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(enc.encode('<html><body>'));
+              // never closes
+            },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+      const observer = observerFor();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const response = await client.fetch('http://example.com/page');
+      const assertion = expect(response.text()).rejects.toThrow(/Body read timed out after 5000ms/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+      expect(observer.records[0].outcome).toBe('stalled-body');
+    });
+
+    it('does not treat a slow but progressing body as a stall', async () => {
+      // One chunk per second for 12 seconds: longer than requestTimeout in
+      // total, but never idle for more than a second.
+      let sent = 0;
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(
+          new ReadableStream({
+            pull(c) {
+              return new Promise<void>((resolve) => {
+                setTimeout(() => {
+                  c.enqueue(enc.encode('x'));
+                  if (++sent === 12) c.close();
+                  resolve();
+                }, 1000);
+              });
+            },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+      const observer = observerFor();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const response = await client.fetch('http://example.com/page');
+      const textPromise = response.text();
+      await vi.advanceTimersByTimeAsync(13_000);
+      expect(await textPromise).toBe('x'.repeat(12));
+      expect(observer.records[0].outcome).toBe('ok');
+    });
+
+    it('caps a body that keeps trickling forever', async () => {
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(
+          new ReadableStream({
+            pull(c) {
+              return new Promise<void>((resolve) => {
+                setTimeout(() => {
+                  try {
+                    c.enqueue(enc.encode('x'));
+                  } catch {
+                    // stream was cancelled by the client; the mock just stops
+                  }
+                  resolve();
+                }, 1000);
+              });
+            },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+      const observer = observerFor();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const response = await client.fetch('http://example.com/page');
+      const assertion = expect(response.text()).rejects.toThrow(/Body read exceeded 20000ms/);
+      await vi.advanceTimersByTimeAsync(21_000);
+      await assertion;
+      expect(observer.records[0].outcome).toBe('stalled-body');
+      expect(observer.records[0].error).toMatch(/trickling/);
+    });
+
+    it('flags denied responses and inspects their HTML eagerly', async () => {
+      const challenge =
+        '<html><head><title>Just a moment...</title></head><body><div id="cf-browser-verification"></div></body></html>';
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(enc.encode(challenge));
+              c.close();
+            },
+          }),
+          { status: 403 },
+        ),
+      ) as unknown as typeof fetch;
+      const { createFetchLedger } = await import('../../../src/helpers/fetch-ledger.js');
+      const ledger = createFetchLedger();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer: ledger,
+      });
+      const response = await client.fetch('http://example.com/page');
+      // The caller never reads the body; the ledger already inspected it.
+      expect(ledger.records[0].blocked).toBe(true);
+      expect(ledger.records[0].challenge).toBe('Cloudflare challenge');
+      expect(response.status).toBe(403);
+      expect(await response.text()).toBe(challenge);
+    });
+
+    it('classifies 503 and unhonored 429 as blocked, honored 429 as not', async () => {
+      const observer = observerFor();
+      let call = 0;
+      globalThis.fetch = vi.fn(async () => {
+        call++;
+        if (call === 1) return makeResponse(503);
+        if (call === 2) return makeResponse(429);
+        if (call === 3) return makeResponse(429, { 'Retry-After': '1' });
+        return makeResponse(200);
+      });
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      await client.fetch('http://example.com/a');
+      await client.fetch('http://example.com/b');
+      const p = client.fetch('http://example.com/c');
+      await vi.advanceTimersByTimeAsync(1500);
+      await p;
+      expect(observer.records.map((r) => [r.status, r.blocked ?? false])).toEqual([
+        [503, true],
+        [429, true],
+        [200, false],
+      ]);
+    });
+
+    it('leaves oversized denied bodies to the caller', async () => {
+      const big = '<html><body>' + 'x'.repeat(200_000) + '</body></html>';
+      const textSpy = vi.fn(async () => big);
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Headers({
+              'content-type': 'text/html',
+              'content-length': String(big.length),
+            }),
+            url: 'http://example.com/page',
+            redirected: false,
+            text: textSpy,
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+      const observer = observerFor();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      await client.fetch('http://example.com/page');
+      expect(textSpy).not.toHaveBeenCalled();
+      expect(observer.records[0].blocked).toBe(true);
+    });
+  });
+
   describe('concurrency and rate limiting', () => {
     it('enforces requestDelay between requests', async () => {
       const timestamps: number[] = [];
