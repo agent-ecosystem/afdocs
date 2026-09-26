@@ -1777,3 +1777,60 @@ describe('formatJson', () => {
     expect(parsed.scoring).toBeDefined();
   });
 });
+
+describe('formatText bot protection', () => {
+  it('notes partial-sample results and the network context when the check warns', () => {
+    const report = makeReport({
+      results: [
+        {
+          id: 'page-size-html',
+          category: 'page-size',
+          status: 'pass',
+          message: 'All 6 pages within limits',
+        },
+        {
+          id: 'bot-protection-interference',
+          category: 'authentication',
+          status: 'warn',
+          message: 'Intermittent interference',
+          details: {
+            samples: {
+              stalled: ['http://example.com/slow'],
+              challenged: [
+                {
+                  url: 'http://example.com/verify',
+                  status: 200,
+                  challenge: 'Cloudflare challenge',
+                },
+              ],
+              errored: [],
+            },
+          },
+        },
+      ],
+      summary: { total: 2, pass: 1, warn: 1, fail: 0, skip: 0, error: 0 },
+      networkContext: { classification: 'cloud', indicator: 'K_SERVICE' },
+    });
+    const output = formatText(report, { verbose: true });
+    expect(output).toContain('Scanned from cloud infrastructure');
+    expect(output).toContain('bot protection interfered with the scan');
+    expect(output).toContain('http://example.com/slow');
+    expect(output).toContain('HTTP 200, Cloudflare challenge');
+  });
+
+  it('adds no note on a clean run', () => {
+    const report = makeReport({
+      results: [
+        { id: 'page-size-html', category: 'page-size', status: 'pass', message: 'ok' },
+        {
+          id: 'bot-protection-interference',
+          category: 'authentication',
+          status: 'pass',
+          message: 'clean',
+        },
+      ],
+      summary: { total: 2, pass: 2, warn: 0, fail: 0, skip: 0, error: 0 },
+    });
+    expect(formatText(report)).not.toContain('bot protection interfered');
+  });
+});

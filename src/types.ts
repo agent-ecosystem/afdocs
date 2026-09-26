@@ -53,6 +53,100 @@ export interface CheckContext {
   _sampledPages?: SampledPages;
   /** Curated page list from config or --urls, used by the curated sampling strategy. */
   _curatedPages?: PageConfigEntry[];
+  /**
+   * Ledger of every HTTP request the run has made so far, in completion order.
+   * `bot-protection-interference` reads it as run-level evidence; it has no
+   * fetch phase of its own.
+   */
+  fetchLedger?: FetchLedger;
+  /** Coarse classification of where the scan is running from. */
+  networkContext?: NetworkContext;
+}
+
+/**
+ * How a single HTTP request ended, from the scanner's point of view.
+ * - `ok`: headers arrived and, if the body was read, it completed.
+ * - `stalled-body`: headers arrived but the body never finished within the
+ *   request timeout (the tarpit signature).
+ * - `fetch-error`: no response at all (connection failure, header-phase
+ *   timeout, abort).
+ * - `body-error`: headers arrived but the body read failed for a reason
+ *   other than a stall (connection reset mid-body, decoding failure).
+ */
+export type FetchOutcome = 'ok' | 'stalled-body' | 'fetch-error' | 'body-error';
+
+export interface FetchRecord {
+  /** 1-based completion order within the run. */
+  seq: number;
+  url: string;
+  /** HTTP status, or null when no response arrived. */
+  status: number | null;
+  outcome: FetchOutcome;
+  /** Label of the bot-challenge signature matched in the body, when one was found. */
+  challenge?: string;
+  /**
+   * The response denied the request: 403, 503, or a 429 with no Retry-After
+   * header at all. Not a failure on its own (an auth-gated site is 403 from
+   * the first request); it becomes interference evidence only when the
+   * denial rate climbs as the scan progresses.
+   */
+  blocked?: boolean;
+  /** Raw Retry-After header on a 429, when the server sent one. */
+  retryAfter?: string;
+  /** Error message for `stalled-body`, `fetch-error`, and `body-error` outcomes. */
+  error?: string;
+  /** The check that made the request, when the runner attributed it. */
+  checkId?: string;
+}
+
+/**
+ * Hooks the HTTP client calls as requests complete. Implemented by
+ * `FetchLedger`; the client itself stays free of detection logic.
+ */
+export interface FetchObserver {
+  /** Called once per request when headers arrive or the request fails. The record is mutated in place if the body later stalls. */
+  onRecord(record: FetchRecord): void;
+  /** Called when a body read completes, so the observer can inspect content. */
+  onBody(record: FetchRecord, body: string, contentType: string): void;
+}
+
+export interface FetchLedger extends FetchObserver {
+  readonly records: readonly FetchRecord[];
+  /** Set by the runner around each check so records carry the check that made them. */
+  currentCheckId?: string;
+}
+
+export type NetworkContextClass = 'developer-machine' | 'ci' | 'cloud';
+
+/**
+ * Coarse classification of the scan's network vantage point. Bot enforcement
+ * is commonly keyed to client reputation, so a datacenter-origin scan can
+ * trigger enforcement that residential traffic would not. Reports carry this
+ * classification rather than the scanner's IP address, since reports are
+ * often shared.
+ */
+export interface NetworkContext {
+  classification: NetworkContextClass;
+  /** Whether the classification came from environment detection or an explicit option. */
+  source: 'environment' | 'option';
+  /** The environment variable that drove the classification, when one did. */
+  indicator?: string;
+}
+
+/** Run-level aggregate of the fetch ledger, attached to every report. */
+export interface RequestSummary {
+  /** Total requests made during the run (honored 429 retries are not counted separately). */
+  requests: number;
+  /** Requests whose body never finished within the timeout. */
+  stalledBodies: number;
+  /** Responses whose body matched a bot-challenge signature. */
+  challengePages: number;
+  /** Requests that produced no response, or whose body read failed for a reason other than a stall. */
+  fetchErrors: number;
+  /** stalledBodies + challengePages + fetchErrors. */
+  failed: number;
+  /** failed / requests, as a 0-100 percentage (rounded). */
+  failureRate: number;
 }
 
 export type SamplingStrategy = 'random' | 'deterministic' | 'curated' | 'none';
@@ -113,6 +207,12 @@ export interface CheckOptions {
   parityWarnThreshold?: number;
   /** CSS selectors to strip from HTML before parity comparison (e.g. '[data-markdown-ignore]'). */
   parityExclusions?: string[];
+  /**
+   * Explicit network vantage point for the scan, overriding environment
+   * detection. Reported alongside bot-protection findings so a reader can
+   * tell a datacenter-origin scan from a residential one.
+   */
+  networkContext?: NetworkContextClass;
   /**
    * Explicit URL to use as the canonical llms.txt for downstream sampling and
    * analysis. When set, the standard candidate-discovery heuristic is bypassed
@@ -228,6 +328,10 @@ export interface ReportResult {
   testedPages?: number;
   /** The sampling strategy used for this run. */
   samplingStrategy?: SamplingStrategy;
+  /** Aggregate of every HTTP request the run made. Feeds the bot-protection scan-reliability diagnostic. */
+  requestSummary?: RequestSummary;
+  /** Where the scan ran from, coarsely classified. */
+  networkContext?: NetworkContext;
 }
 
 export interface AgentDocsConfig {

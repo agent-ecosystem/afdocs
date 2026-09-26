@@ -778,4 +778,175 @@ describe('diagnostics', () => {
       expect(diag!.message).toContain('3 pages were');
     });
   });
+  describe('bot-protection-scan-reliability', () => {
+    it('triggers when the check warns, regardless of the failure rate', () => {
+      const results = resultsMap(
+        r('bot-protection-interference', 'warn', {
+          requests: 100,
+          failedRequests: 4,
+          stalledBodies: 4,
+          challengePages: 0,
+          fetchErrors: 0,
+        }),
+      );
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 100,
+          stalledBodies: 4,
+          challengePages: 0,
+          fetchErrors: 0,
+          failed: 4,
+          failureRate: 4,
+        },
+      };
+      const diag = evaluateDiagnostics(results, report).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag).toBeDefined();
+      expect(diag!.severity).toBe('warning');
+      expect(diag!.message).toContain(
+        '4% of HTTP requests during this scan failed, timed out, or were denied',
+      );
+      expect(diag!.message).toContain('4 stalled bodies');
+      expect(diag!.message).toContain('only the 96 requests that completed');
+      expect(diag!.message).toContain('intermittent interference');
+    });
+
+    it('reports denial-only interference from the check counts, not the request summary', () => {
+      const results = resultsMap(
+        r('bot-protection-interference', 'warn', {
+          requests: 238,
+          failedRequests: 57,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 0,
+          deniedCounted: 57,
+          affectedChecks: ['redirect-behavior', 'auth-gate-detection'],
+        }),
+      );
+      const report = {
+        ...defaultReport(),
+        // The run-level summary knows nothing about correlated denials.
+        requestSummary: {
+          requests: 238,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 0,
+          failed: 0,
+          failureRate: 0,
+        },
+      };
+      const diag = evaluateDiagnostics(results, report).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag!.message).toContain('24% of HTTP requests');
+      expect(diag!.message).toContain('57 denied responses');
+      expect(diag!.message).toContain('only the 181 requests that completed');
+    });
+
+    it('names the checks that ran during the interference window', () => {
+      const results = resultsMap(
+        r('bot-protection-interference', 'warn', {
+          requests: 200,
+          failedRequests: 2,
+          stalledBodies: 2,
+          challengePages: 0,
+          fetchErrors: 0,
+          affectedChecks: ['auth-gate-detection'],
+        }),
+      );
+      const diag = evaluateDiagnostics(results, defaultReport()).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag!.message).toContain(
+        'Checks that ran during the interference window: auth-gate-detection.',
+      );
+    });
+
+    it('triggers when the check fails', () => {
+      const results = resultsMap(r('bot-protection-interference', 'fail'));
+      const diag = evaluateDiagnostics(results, defaultReport()).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag).toBeDefined();
+      expect(diag!.message).toContain('sustained interference');
+    });
+
+    it('triggers on a high run-level failure rate even when the check passed', () => {
+      const results = resultsMap(r('bot-protection-interference', 'pass'));
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 50,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 12,
+          failed: 12,
+          failureRate: 24,
+        },
+      };
+      const diag = evaluateDiagnostics(results, report).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag).toBeDefined();
+      expect(diag!.message).toContain('24% of HTTP requests');
+      expect(diag!.message).toContain('12 connection errors');
+      expect(diag!.message).not.toContain('interference.');
+    });
+
+    it('triggers on a high failure rate when the check did not run', () => {
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 20,
+          stalledBodies: 4,
+          challengePages: 0,
+          fetchErrors: 0,
+          failed: 4,
+          failureRate: 20,
+        },
+      };
+      const diags = evaluateDiagnostics(resultsMap(), report);
+      expect(diags.find((d) => d.id === 'bot-protection-scan-reliability')).toBeDefined();
+    });
+
+    it('needs at least 20 requests before the rate alone can trigger it', () => {
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 10,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 2,
+          failed: 2,
+          failureRate: 20,
+        },
+      };
+      const diags = evaluateDiagnostics(resultsMap(), report);
+      expect(diags.find((d) => d.id === 'bot-protection-scan-reliability')).toBeUndefined();
+    });
+
+    it('does not trigger below the failure-rate threshold when the check passed', () => {
+      const results = resultsMap(r('bot-protection-interference', 'pass'));
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 50,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 5,
+          failed: 5,
+          failureRate: 10,
+        },
+      };
+      const diags = evaluateDiagnostics(results, report);
+      expect(diags.find((d) => d.id === 'bot-protection-scan-reliability')).toBeUndefined();
+    });
+
+    it('does not trigger with no evidence at all', () => {
+      const diags = evaluateDiagnostics(resultsMap(), defaultReport());
+      expect(diags.find((d) => d.id === 'bot-protection-scan-reliability')).toBeUndefined();
+    });
+  });
 });

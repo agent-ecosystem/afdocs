@@ -558,4 +558,37 @@ describe('formatScorecard', () => {
     expect(output).toContain('Interaction Diagnostics');
     expect(output).toContain('Only 1 page was discovered');
   });
+  describe('bot protection', () => {
+    it('marks partial-sample checks and shows the network context', () => {
+      const report = makeReport({
+        results: [
+          {
+            id: 'page-size-html',
+            category: 'page-size',
+            status: 'pass',
+            message: 'All 6 pages within limits',
+          },
+        ],
+        networkContext: { classification: 'ci', indicator: 'GITHUB_ACTIONS' },
+      });
+      const score = makeScoreResult({
+        checkScores: {
+          'page-size-html': {
+            baseWeight: 7,
+            coefficient: 1,
+            effectiveWeight: 7,
+            proportion: 1,
+            earnedScore: 7,
+            maxScore: 7,
+            scoreDisplayMode: 'numeric',
+            partialSample: true,
+          },
+        },
+        resolutions: {},
+      });
+      const output = formatScorecard(report, score);
+      expect(output).toContain('Scanned from CI infrastructure');
+      expect(output).toMatch(/page-size-html\s+All 6 pages within limits \(partial sample\)/);
+    });
+  });
 });

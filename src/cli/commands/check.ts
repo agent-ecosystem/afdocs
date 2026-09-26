@@ -10,6 +10,7 @@ import type {
   RunnerOptions,
   SamplingStrategy,
   UrlPathPattern,
+  NetworkContextClass,
 } from '../../types.js';
 import { findConfig, validatePages } from '../../helpers/config.js';
 import { validateRunnerOptions } from '../../validation.js';
@@ -41,6 +42,10 @@ export function registerCheckCommand(program: Command): void {
     .option(
       '--url-path-pattern <pattern>',
       'How llms.txt .md links map to page URLs: clean (strip extension, default), html (replace with .html), or md (keep .md)',
+    )
+    .option(
+      '--network-context <class>',
+      'Where the scan runs from, for bot-protection findings: developer-machine, ci, or cloud (default: detected from environment)',
     )
     .option('--doc-locale <code>', 'Preferred locale for URL discovery (e.g. en, fr, ja)')
     .option('--doc-version <version>', 'Preferred version for URL discovery (e.g. v3, 2.x, latest)')
@@ -207,6 +212,8 @@ export function registerCheckCommand(program: Command): void {
         (opts.docLocale as string | undefined) ?? config?.options?.preferredLocale;
       const preferredVersion =
         (opts.docVersion as string | undefined) ?? config?.options?.preferredVersion;
+      const networkContext =
+        (opts.networkContext as string | undefined) ?? config?.options?.networkContext;
 
       let canonicalOrigin: string | undefined;
       const rawCanonical =
@@ -311,6 +318,7 @@ export function registerCheckCommand(program: Command): void {
         ...(urlPathPattern && { urlPathPattern: urlPathPattern as UrlPathPattern }),
         ...(preferredLocale && { preferredLocale }),
         ...(preferredVersion && { preferredVersion }),
+        ...(networkContext && { networkContext: networkContext as NetworkContextClass }),
         ...(canonicalOrigin && { canonicalOrigin }),
         ...(llmsTxtUrl && { llmsTxtUrl }),
         ...(coveragePassThreshold != null && { coveragePassThreshold }),

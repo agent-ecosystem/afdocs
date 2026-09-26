@@ -39,6 +39,7 @@ export const CHECK_WEIGHTS: Record<string, CheckWeight> = {
   'http-status-codes': w('high'),
   'llms-txt-directive-html': w('high', 0.6),
   'llms-txt-directive-md': w('medium', 0.6),
+  'bot-protection-interference': w('high', 0.5),
 
   // Medium
   'llms-txt-valid': w('medium', 0.75),

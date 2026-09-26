@@ -17,6 +17,13 @@ export type {
   SamplingStrategy,
   CuratedPageEntry,
   PageConfigEntry,
+  FetchRecord,
+  FetchOutcome,
+  FetchObserver,
+  FetchLedger,
+  NetworkContext,
+  NetworkContextClass,
+  RequestSummary,
 } from './types.js';
 
 export {
@@ -29,7 +36,13 @@ export {
 export { validateRunnerOptions } from './validation.js';
 export type { ValidationResult, ValidationIssue } from './validation.js';
 export { createContext, normalizeUrl, runChecks } from './runner.js';
-export { createHttpClient } from './http.js';
+export { createHttpClient, BodyReadTimeoutError } from './http.js';
+export {
+  createFetchLedger,
+  detectChallengePage,
+  summarizeRequests,
+} from './helpers/fetch-ledger.js';
+export { detectNetworkContext } from './helpers/network-context.js';
 export { getAllChecks, getCheck, getChecksSorted, extractMarkdownLinks } from './checks/index.js';
 
 // Scoring

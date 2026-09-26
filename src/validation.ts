@@ -1,5 +1,14 @@
-import type { RunnerOptions, SamplingStrategy, UrlPathPattern } from './types.js';
-import { VALID_SAMPLING_STRATEGIES, VALID_URL_PATH_PATTERNS } from './constants.js';
+import type {
+  NetworkContextClass,
+  RunnerOptions,
+  SamplingStrategy,
+  UrlPathPattern,
+} from './types.js';
+import {
+  VALID_NETWORK_CONTEXTS,
+  VALID_SAMPLING_STRATEGIES,
+  VALID_URL_PATH_PATTERNS,
+} from './constants.js';
 import { getAllChecks } from './checks/registry.js';
 
 export interface ValidationIssue {
@@ -178,6 +187,17 @@ export function validateRunnerOptions(options: Partial<RunnerOptions>): Validati
     errors.push({
       field: 'urlPathPattern',
       message: `Invalid URL path pattern "${options.urlPathPattern}". Must be one of: ${VALID_URL_PATH_PATTERNS.join(', ')}`,
+    });
+  }
+
+  // Network context enum
+  if (
+    options.networkContext !== undefined &&
+    !VALID_NETWORK_CONTEXTS.includes(options.networkContext as NetworkContextClass)
+  ) {
+    errors.push({
+      field: 'networkContext',
+      message: `Invalid network context "${options.networkContext}". Must be one of: ${VALID_NETWORK_CONTEXTS.join(', ')}`,
     });
   }
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createHttpClient } from '../../../src/http.js';
+import { createHttpClient, BodyReadTimeoutError } from '../../../src/http.js';
+import type { FetchRecord } from '../../../src/types.js';
 
 describe('createHttpClient', () => {
   const originalFetch = globalThis.fetch;
@@ -316,6 +317,674 @@ describe('createHttpClient', () => {
       const text = await response.text();
 
       expect(text).toBe(original);
+    });
+  });
+
+  describe('body read timeout', () => {
+    /**
+     * A tarpitting server (e.g. bot management on a CDN edge) sends headers
+     * promptly, then holds the connection open and never finishes the body.
+     * fetch() resolves at the header phase, so the header timeout never
+     * fires; the guard has to cover the body read itself. Real undici
+     * rejects an in-flight text() when the request signal aborts, so the
+     * mock reproduces that contract.
+     */
+    function makeTarpitFetch(contentType: string) {
+      return vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        const signal = init?.signal;
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers({ 'content-type': contentType }),
+          url: 'http://example.com/page',
+          redirected: false,
+          text: () =>
+            new Promise<string>((_resolve, reject) => {
+              signal?.addEventListener('abort', () =>
+                reject(new DOMException('This operation was aborted', 'AbortError')),
+              );
+            }),
+        } as unknown as Response;
+      }) as unknown as typeof fetch;
+    }
+
+    it('aborts a stalled body read after requestTimeout', async () => {
+      globalThis.fetch = makeTarpitFetch('text/html');
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const response = await client.fetch('http://example.com/page');
+
+      const textPromise = response.text();
+      const assertion = expect(textPromise).rejects.toThrow(/Body read timed out after 5000ms/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+    });
+
+    it('aborts a stalled body read on the origin-rewrite path', async () => {
+      globalThis.fetch = makeTarpitFetch('text/plain');
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        canonicalOrigin: 'https://prod.example.com',
+        targetOrigin: 'https://preview.local',
+      });
+
+      const fetchPromise = client.fetch('http://preview.local/page');
+      const assertion = expect(fetchPromise).rejects.toThrow(/Body read timed out after 5000ms/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+    });
+
+    it('short-circuits later fetches of a URL whose body already stalled', async () => {
+      const fetchMock = makeTarpitFetch('text/html');
+      globalThis.fetch = fetchMock;
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const first = await client.fetch('http://example.com/page');
+      const assertion = expect(first.text()).rejects.toThrow(/Body read timed out/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Same URL: rejected immediately, no network request, no timer needed.
+      await expect(client.fetch('http://example.com/page')).rejects.toThrow(
+        /Body read timed out after 5000ms/,
+      );
+      await expect(client.fetch('http://example.com/page')).rejects.toBeInstanceOf(
+        BodyReadTimeoutError,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // A different URL is still fetched.
+      await client.fetch('http://example.com/other');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('passes through non-timeout body read errors unchanged', async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({ 'content-type': 'text/html' }),
+            url: 'http://example.com/page',
+            redirected: false,
+            text: async () => {
+              throw new TypeError('terminated');
+            },
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const response = await client.fetch('http://example.com/page');
+
+      await expect(response.text()).rejects.toThrow('terminated');
+    });
+
+    it('reads a normal body through the wrapped response', async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({ 'content-type': 'text/html' }),
+            url: 'http://example.com/page',
+            redirected: false,
+            text: async () => '<html>content</html>',
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const response = await client.fetch('http://example.com/page');
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('<html>content</html>');
+    });
+  });
+
+  describe('observer', () => {
+    function makeObserver() {
+      const records: FetchRecord[] = [];
+      const bodies: Array<{ url: string; contentType: string; body: string }> = [];
+      return {
+        records,
+        bodies,
+        onRecord: (r: FetchRecord) => {
+          records.push(r);
+        },
+        onBody: (r: FetchRecord, body: string, ct: string) => {
+          bodies.push({ url: r.url, contentType: ct, body });
+        },
+      };
+    }
+
+    it('records a successful response and its body', async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({ 'content-type': 'text/html' }),
+            url: 'http://example.com/page',
+            redirected: false,
+            text: async () => '<html>hi</html>',
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+
+      const observer = makeObserver();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const response = await client.fetch('http://example.com/page');
+      await response.text();
+
+      expect(observer.records).toEqual([
+        { seq: 1, url: 'http://example.com/page', status: 200, outcome: 'ok' },
+      ]);
+      expect(observer.bodies).toEqual([
+        { url: 'http://example.com/page', contentType: 'text/html', body: '<html>hi</html>' },
+      ]);
+    });
+
+    it('records a fetch error when no response arrives', async () => {
+      globalThis.fetch = vi.fn(async () => {
+        throw new TypeError('fetch failed');
+      }) as unknown as typeof fetch;
+
+      const observer = makeObserver();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      await expect(client.fetch('http://example.com/down')).rejects.toThrow('fetch failed');
+
+      expect(observer.records).toEqual([
+        {
+          seq: 1,
+          url: 'http://example.com/down',
+          status: null,
+          outcome: 'fetch-error',
+          error: 'fetch failed',
+        },
+      ]);
+    });
+
+    it('marks the record as stalled when the body read times out', async () => {
+      globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        const signal = init?.signal;
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers({ 'content-type': 'text/html' }),
+          url: 'http://example.com/tarpit',
+          redirected: false,
+          text: () =>
+            new Promise<string>((_resolve, reject) => {
+              signal?.addEventListener('abort', () =>
+                reject(new DOMException('This operation was aborted', 'AbortError')),
+              );
+            }),
+        } as unknown as Response;
+      }) as unknown as typeof fetch;
+
+      const observer = makeObserver();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const response = await client.fetch('http://example.com/tarpit');
+      expect(observer.records[0].outcome).toBe('ok');
+
+      const assertion = expect(response.text()).rejects.toThrow(/Body read timed out/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+
+      expect(observer.records).toHaveLength(1);
+      expect(observer.records[0].outcome).toBe('stalled-body');
+      expect(observer.records[0].error).toMatch(/tarpitting/);
+      expect(observer.bodies).toHaveLength(0);
+    });
+
+    it('does not record a short-circuited fetch of a stalled URL', async () => {
+      globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        const signal = init?.signal;
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers({ 'content-type': 'text/html' }),
+          url: 'http://example.com/tarpit',
+          redirected: false,
+          text: () =>
+            new Promise<string>((_resolve, reject) => {
+              signal?.addEventListener('abort', () =>
+                reject(new DOMException('This operation was aborted', 'AbortError')),
+              );
+            }),
+        } as unknown as Response;
+      }) as unknown as typeof fetch;
+
+      const observer = makeObserver();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const response = await client.fetch('http://example.com/tarpit');
+      const assertion = expect(response.text()).rejects.toThrow(/Body read timed out/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+
+      await expect(client.fetch('http://example.com/tarpit')).rejects.toThrow(
+        /Body read timed out/,
+      );
+      expect(observer.records).toHaveLength(1);
+      expect(observer.records[0].outcome).toBe('stalled-body');
+    });
+
+    it('records one entry for a 429 that was retried and then succeeded', async () => {
+      let calls = 0;
+      globalThis.fetch = vi.fn(async () => {
+        calls++;
+        return makeResponse(calls === 1 ? 429 : 200, calls === 1 ? { 'Retry-After': '1' } : {});
+      });
+
+      const observer = makeObserver();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const promise = client.fetch('http://example.com/limited');
+      await vi.advanceTimersByTimeAsync(1500);
+      const response = await promise;
+
+      expect(response.status).toBe(200);
+      expect(calls).toBe(2);
+      expect(observer.records).toHaveLength(1);
+      expect(observer.records[0].status).toBe(200);
+    });
+  });
+
+  describe('streamed body reads', () => {
+    const enc = new TextEncoder();
+
+    function streamResponse(
+      stream: ReadableStream<Uint8Array>,
+      init?: { status?: number; headers?: Record<string, string> },
+    ): Response {
+      const status = init?.status ?? 200;
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'text/html', ...init?.headers }),
+        url: 'http://example.com/page',
+        redirected: false,
+        body: stream,
+        text: async () => {
+          throw new Error('text() should not be used when a body stream exists');
+        },
+      } as unknown as Response;
+    }
+
+    function observerFor() {
+      const records: FetchRecord[] = [];
+      return {
+        records,
+        onRecord: (r: FetchRecord) => {
+          records.push(r);
+        },
+        onBody: () => undefined,
+      };
+    }
+
+    it('decodes a body that arrives in chunks', async () => {
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(enc.encode('<html>'));
+              c.enqueue(enc.encode('héllo'));
+              c.enqueue(enc.encode('</html>'));
+              c.close();
+            },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const response = await client.fetch('http://example.com/page');
+      expect(await response.text()).toBe('<html>héllo</html>');
+    });
+
+    it('treats no bytes for requestTimeout as a stalled body', async () => {
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(enc.encode('<html><body>'));
+              // never closes
+            },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+      const observer = observerFor();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const response = await client.fetch('http://example.com/page');
+      const assertion = expect(response.text()).rejects.toThrow(/Body read timed out after 5000ms/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+      expect(observer.records[0].outcome).toBe('stalled-body');
+    });
+
+    it('does not treat a slow but progressing body as a stall', async () => {
+      // One chunk per second for 12 seconds: longer than requestTimeout in
+      // total, but never idle for more than a second.
+      let sent = 0;
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(
+          new ReadableStream({
+            pull(c) {
+              return new Promise<void>((resolve) => {
+                setTimeout(() => {
+                  c.enqueue(enc.encode('x'));
+                  if (++sent === 12) c.close();
+                  resolve();
+                }, 1000);
+              });
+            },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+      const observer = observerFor();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const response = await client.fetch('http://example.com/page');
+      const textPromise = response.text();
+      await vi.advanceTimersByTimeAsync(13_000);
+      expect(await textPromise).toBe('x'.repeat(12));
+      expect(observer.records[0].outcome).toBe('ok');
+    });
+
+    it('caps a body that keeps trickling forever', async () => {
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(
+          new ReadableStream({
+            pull(c) {
+              return new Promise<void>((resolve) => {
+                setTimeout(() => {
+                  try {
+                    c.enqueue(enc.encode('x'));
+                  } catch {
+                    // stream was cancelled by the client; the mock just stops
+                  }
+                  resolve();
+                }, 1000);
+              });
+            },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+      const observer = observerFor();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      const response = await client.fetch('http://example.com/page');
+      const assertion = expect(response.text()).rejects.toThrow(/Body read exceeded 20000ms/);
+      await vi.advanceTimersByTimeAsync(21_000);
+      await assertion;
+      expect(observer.records[0].outcome).toBe('stalled-body');
+      expect(observer.records[0].error).toMatch(/trickling/);
+    });
+
+    it('flags denied responses and inspects their HTML eagerly', async () => {
+      const challenge =
+        '<html><head><title>Just a moment...</title></head><body><div id="cf-browser-verification"></div></body></html>';
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(enc.encode(challenge));
+              c.close();
+            },
+          }),
+          { status: 403 },
+        ),
+      ) as unknown as typeof fetch;
+      const { createFetchLedger } = await import('../../../src/helpers/fetch-ledger.js');
+      const ledger = createFetchLedger();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer: ledger,
+      });
+      const response = await client.fetch('http://example.com/page');
+      // The caller never reads the body; the ledger already inspected it.
+      expect(ledger.records[0].blocked).toBe(true);
+      expect(ledger.records[0].challenge).toBe('Cloudflare challenge');
+      expect(response.status).toBe(403);
+      expect(await response.text()).toBe(challenge);
+    });
+
+    it('classifies 503 and unguided 429 as blocked, guided 429 as not', async () => {
+      const observer = observerFor();
+      let call = 0;
+      globalThis.fetch = vi.fn(async () => {
+        call++;
+        if (call === 1) return makeResponse(503);
+        if (call === 2) return makeResponse(429);
+        if (call === 3) return makeResponse(429, { 'Retry-After': '1' });
+        if (call === 4) return makeResponse(200);
+        // A Retry-After longer than the client will wait is still guidance.
+        return makeResponse(429, { 'Retry-After': '120' });
+      });
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      await client.fetch('http://example.com/a');
+      await client.fetch('http://example.com/b');
+      const p = client.fetch('http://example.com/c');
+      await vi.advanceTimersByTimeAsync(1500);
+      await p;
+      await client.fetch('http://example.com/d');
+      expect(
+        observer.records.map((r) => [r.status, r.blocked ?? false, r.retryAfter ?? null]),
+      ).toEqual([
+        [503, true, null],
+        [429, true, null],
+        [200, false, null],
+        [429, false, '120'],
+      ]);
+    });
+
+    it('leaves oversized denied bodies to the caller', async () => {
+      const big = '<html><body>' + 'x'.repeat(200_000) + '</body></html>';
+      const textSpy = vi.fn(async () => big);
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Headers({
+              'content-type': 'text/html',
+              'content-length': String(big.length),
+            }),
+            url: 'http://example.com/page',
+            redirected: false,
+            text: textSpy,
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+      const observer = observerFor();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer,
+      });
+      await client.fetch('http://example.com/page');
+      expect(textSpy).not.toHaveBeenCalled();
+      expect(observer.records[0].blocked).toBe(true);
+    });
+  });
+
+  describe('review follow-ups', () => {
+    const enc = new TextEncoder();
+
+    it('guards the fallback text() read even when the double ignores abort', async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({ 'content-type': 'text/html' }),
+            url: 'http://example.com/page',
+            redirected: false,
+            // Never settles and never looks at the signal.
+            text: () => new Promise<string>(() => undefined),
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+      const records: FetchRecord[] = [];
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer: { onRecord: (r) => records.push(r), onBody: () => undefined },
+      });
+      const response = await client.fetch('http://example.com/page');
+      const assertion = expect(response.text()).rejects.toThrow(/Body read timed out after 5000ms/);
+      await vi.advanceTimersByTimeAsync(5100);
+      await assertion;
+      expect(records[0].outcome).toBe('stalled-body');
+    });
+
+    it('records a non-timeout body failure as body-error', async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({ 'content-type': 'text/html' }),
+            url: 'http://example.com/page',
+            redirected: false,
+            body: new ReadableStream<Uint8Array>({
+              start(c) {
+                c.enqueue(enc.encode('<html>'));
+                c.error(new TypeError('terminated'));
+              },
+            }),
+            text: async () => '',
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+      const records: FetchRecord[] = [];
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer: { onRecord: (r) => records.push(r), onBody: () => undefined },
+      });
+      const response = await client.fetch('http://example.com/page');
+      await expect(response.text()).rejects.toThrow('terminated');
+      expect(records[0].outcome).toBe('body-error');
+      expect(records[0].error).toBe('terminated');
+    });
+
+    it('caps the eager read of a chunked denied body and leaves the caller a readable body', async () => {
+      // No Content-Length: the cap must be enforced while streaming.
+      const chunk = enc.encode('<p>' + 'x'.repeat(30_000) + '</p>');
+      let sent = 0;
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Headers({ 'content-type': 'text/html' }),
+            url: 'http://example.com/page',
+            redirected: false,
+            body: new ReadableStream<Uint8Array>({
+              pull(c) {
+                if (sent === 5) {
+                  c.close();
+                  return;
+                }
+                sent++;
+                c.enqueue(sent === 1 ? enc.encode('<html><body>') : chunk);
+              },
+            }),
+            text: async () => '',
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+      const { createFetchLedger } = await import('../../../src/helpers/fetch-ledger.js');
+      const ledger = createFetchLedger();
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        observer: ledger,
+      });
+      const response = await client.fetch('http://example.com/page');
+      expect(ledger.records[0].blocked).toBe(true);
+      expect(ledger.records[0].challenge).toBeUndefined();
+      // The caller still gets the whole body from its own tee branch.
+      const body = await response.text();
+      expect(body.length).toBeGreaterThan(100_000);
+      expect(body.startsWith('<html><body>')).toBe(true);
+      expect(ledger.records[0].outcome).toBe('ok');
     });
   });
 

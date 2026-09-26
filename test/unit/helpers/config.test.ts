@@ -427,6 +427,16 @@ describe('findConfig', () => {
     expect(config?.options?.samplingStrategy).toBe('deterministic');
   });
 
+  it('throws on invalid networkContext in config', async () => {
+    await mkdir(TMP_DIR, { recursive: true });
+    await writeFile(
+      resolve(TMP_DIR, 'agent-docs.config.yml'),
+      ['url: https://example.com', 'options:', '  networkContext: datacenter', ''].join('\n'),
+    );
+
+    await expect(findConfig(undefined, TMP_DIR)).rejects.toThrow('networkContext');
+  });
+
   it('throws on invalid urlPathPattern in config', async () => {
     await mkdir(TMP_DIR, { recursive: true });
     await writeFile(

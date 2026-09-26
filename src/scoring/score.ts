@@ -4,11 +4,12 @@ import type { CategoryScore, CheckScore, Grade, ScoreCap, ScoreResult } from './
 import { getCheckWeight } from './weights.js';
 import { getCheckProportion } from './proportions.js';
 import { getCoefficient } from './coefficients.js';
-import { evaluateDiagnostics } from './diagnostics.js';
+import { evaluateDiagnostics, isScanDegradedByBotProtection } from './diagnostics.js';
 import { getResolution } from './resolutions.js';
 import { computeTagScores } from './tag-scores.js';
 
-const PAGE_LEVEL_CHECKS = new Set([
+/** Multi-page checks: scored from a sample of pages rather than one site-wide resource. */
+export const PAGE_LEVEL_CHECKS: ReadonlySet<string> = new Set([
   'llms-txt-directive-html',
   'llms-txt-directive-md',
   'markdown-url-support',
@@ -47,6 +48,13 @@ export function computeScore(report: ReportResult): ScoreResult {
     report.testedPages !== undefined &&
     report.testedPages < MIN_PAGES_FOR_SCORING;
 
+  // Bot protection degraded the scan: every multi-page check is flagged as
+  // computed from a partial sample, as the spec's inverted dependency
+  // requires. Their scores still count (a flagged run is still useful
+  // evidence); the flag tells the reader what the number measures, and the
+  // diagnostic names the checks that actually ran during the window.
+  const partialSample = isScanDegradedByBotProtection(resultMap, report);
+
   // Compute per-check scores
   const checkScores: Record<string, CheckScore> = {};
 
@@ -73,6 +81,7 @@ export function computeScore(report: ReportResult): ScoreResult {
       earnedScore,
       maxScore: effectiveWeight,
       scoreDisplayMode: isNotApplicable ? 'notApplicable' : 'numeric',
+      ...(partialSample && PAGE_LEVEL_CHECKS.has(result.id) && { partialSample: true }),
     };
   }
 
