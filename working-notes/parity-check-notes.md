@@ -1205,6 +1205,196 @@ draft with 7-8 segments auto-passed and hid the bug.
 
 Full suite: 1364 tests passing, lint clean, type-check clean.
 
+## Session 12: Fern OpenAPI reference pages (issue #106)
+
+Issue #106 (docs.nvidia.com/nemo-platform, Fern-hosted, filed 2026-08-24
+against 0.20.0) reported 45–70% missing on OpenAPI endpoint pages and
+13–18 of 50 sampled pages flagged. The issue named two causes and
+proposed three fixes. Only one of the causes reproduces today, and it is
+not the one the issue emphasised.
+
+### What the issue attributed the failures to
+
+1. **Schema-row serialization.** Fern renders each schema field as a flex
+   row of adjacent inline spans (key, type badge, required badge). The DOM
+   text runs together as `workspacestringRequired`, which can never match
+   the markdown's `- \`workspace\` (string, required)`.
+2. **Typographic quotes.** Curly quotes in HTML vs straight quotes in
+   markdown.
+
+### What actually reproduces
+
+**Cause 2 was already handled.** `normalize()` has folded curly quotes,
+en/em dashes and the ellipsis since session 2 (shipped long before
+0.20.0). The example page has 15 curly quotes in the article and every
+segment containing one matches. Same pattern as issue #7 in session 6:
+the reporter's diagnosis named normalization that already existed.
+
+**Cause 1 no longer reproduces, because Fern changed its markup.** On the
+current page the type/required badges sit in
+`<span class="fern-api-property-meta" data-markdown-ignore="">`. The check
+has stripped `data-markdown-ignore` since 0.17.0 (session "audience
+segmentation", April), so the row's remaining text is the bare key,
+which is under `MIN_SEGMENT_LENGTH` and drops out. What is compared is
+the field descriptions, which the markdown carries.
+
+Confirmed by ablation rather than by history: stripping the attribute
+from the saved HTML and re-running the extractor gives 23/43 missing
+(53%) with exactly the segments the issue quoted
+(`workspacestringRequired`, `default_model_entitystringOptional`,
+`autoprovisionedbooleanOptionalDefaults to false`). With the attribute,
+1/24 missing (4%, pass). Every relevant extractor feature (`.prose`
+container, DOM walker, `data-markdown-ignore`) predates 0.20.0, so the
+HTML must have changed between August and now. Fern's docs frontend is
+not publicly searchable and the Wayback Machine has no snapshot of the
+page, so the exact date is unconfirmed; the mechanism is not. Fern is a
+hosted platform, so the change applies to every Fern site at once. This
+is the `data-markdown-ignore` convention working as designed: the
+platform declares human-only chrome instead of the checker guessing.
+
+The issue's third suggestion (treat `Ask a question | Copy page | View
+as Markdown` as chrome inside `<article>`) is moot: that toolbar lives in
+an `<header>` inside the article, which `STRIP_TAGS` removes, and the
+`.prose` container selection excludes it anyway. Zero occurrences in the
+extracted text.
+
+### What still failed on the live site, and the fix
+
+One 50-page deterministic run against `https://docs.nvidia.com/nemo-helix/`
+(the `nemo-platform` prefix now redirects there; see the discovery note
+below) on the pre-fix code: 47/1/2 P/W/F, avg 2%, overall **fail**
+because the check aggregates worst-status. The two failing pages (17 and
+10 segments) and the one warn page showed a pattern none of sessions 1–11
+had seen: **the HTML shows unrendered markdown.**
+
+- `list-workspaces`: the endpoint description is displayed in a
+  `whitespace-pre-wrap` block as raw text, so HTML segments are
+  `- page, page_size: Pagination` with a literal list marker. The
+  markdown has the same lines as real list items, and
+  `extractMarkdownText` strips the marker on that side only.
+- `gateway-proxy-put`: same raw display, so the HTML carries literal
+  backticks (``must resolve to a `VirtualModel`.``) and hard line wraps.
+  The markdown side has the backticks removed as code-span delimiters.
+- `list-deployment-config-versions`: markdown source `--`, HTML em dash.
+  `normalize()` folded `—` to `-` but left `--` alone.
+
+All three are the same shape as the angle-bracket rule that has been in
+`normalize()` since session 3: a character that is syntax on one side
+and literal text on the other. Fix 12 adds three rules to `normalize()`:
+
+1. `-{2,}` → `-` (after the en/em dash fold, so `--`, `---` and `—` all
+   become one hyphen).
+2. Drop every backtick.
+3. Strip one leading list marker (`-`, `*`, `+`, `N.`) after the final
+   trim.
+
+**Why these are safe to add without a per-site review.** Each rule is
+applied identically to the needle (HTML segment) and the haystack
+(markdown text) and either deletes or collapses a fixed character set or
+trims the needle's leading edge. Deleting the same characters from both
+strings preserves substring containment, and shortening the needle to a
+suffix does too. So a rule of this class can turn a missing segment into
+a match but never the reverse. The one indirect effect is deduplication:
+two HTML segments that now normalize identically merge, which lowers the
+segment count by one and can move a rounded percentage by a point. The
+dual run below found no case where that changed a bucket. The docstring
+on `normalize()` now states this invariant so future additions are held
+to it.
+
+### Rejected alternative: token-level containment fallback
+
+The issue proposed that a segment whose word tokens all appear in the
+markdown (in order, or as a set) should count as present. Rejected. Set
+containment would mark almost any prose "present" on a long page, since
+common words appear somewhere; ordered-subsequence containment is only a
+little stricter. Either one changes what "missing" means for every site
+and would mask the genuine gaps this check exists to find (Knock's stub
+markdown, Stripe's API pages). The whole history of this check is
+tightening extraction and normalization so that exact containment is
+fair, not loosening the comparison when it is not. The schema-row case
+that motivated the suggestion is already solved at the source by
+`data-markdown-ignore`; a platform that renders similar badges without
+the attribute has `--parity-exclusions` for the same effect.
+
+Also considered and rejected: inserting a space between adjacent inline
+element siblings in the DOM walker. It would fix `workspacestringRequired`
+generically but corrupts every syntax-highlighted code line
+(`<span>foo</span><span>(</span>` → `foo (`), and exempting `<pre>` still
+leaves inline `<code>` with nested spans exposed.
+
+### Validation: dual-normalize run against the 20 sites plus the issue's site
+
+Same method as session 11: the worktree build was instrumented to run
+both the old and new `normalize()` on the same fetched content and log
+every segment where the two disagreed. One network pass, baseline-script
+flags, 21 sites.
+
+| Site           | Old missing | New missing | Regress | Improve |
+| -------------- | ----------- | ----------- | ------- | ------- |
+| afdocsdev      | 0/1265      | 0/1265      | 0       | 0       |
+| agentdocsspec  | 14/2071     | 14/2071     | 0       | 0       |
+| agentskillimpl | 204/1748    | 186/1748    | 0       | 18      |
+| anthropic      | 0/0         | 0/0         | 0       | 0       |
+| cloudflare     | 33/1678     | 32/1678     | 0       | 1       |
+| dacharycarey   | 1/3453      | 1/3453      | 0       | 0       |
+| daytona        | 56/726      | 56/726      | 0       | 0       |
+| knock          | 3465/4181   | 3465/4181   | 0       | 0       |
+| loops          | 5/1246      | 5/1246      | 0       | 0       |
+| mongodb        | 94/2278     | 94/2278     | 0       | 0       |
+| neon           | 24/25       | 24/25       | 0       | 0       |
+| openai         | 269/7119    | 268/7119    | 0       | 1       |
+| pinecone       | 46/2024     | 46/2024     | 0       | 0       |
+| plaid          | 419/4410    | 419/4410    | 0       | 0       |
+| posthog        | 0/3460      | 0/3460      | 0       | 0       |
+| resend         | 21/1658     | 20/1658     | 0       | 1       |
+| stripe         | 459/1598    | 459/1598    | 0       | 0       |
+| supabase       | 181/1721    | 180/1721    | 0       | 1       |
+| valtown        | 95/1431     | 95/1431     | 0       | 0       |
+| vercel         | 359/2995    | 335/2995    | 0       | 24      |
+| nemohelix      | 16/2654     | 7/2654      | 0       | 9       |
+
+Totals: 47,741 segments compared, **0 regressions**, 55 improvements.
+Sampled improvements are all literal-backtick prose (Vercel CLI docs:
+``Revoke the token with ID `tok_abc123`.``; Resend: ``Select the event
+type `email.received`.``) and `--`/em-dash pairs (agentskillimpl).
+
+docs.nvidia.com/nemo-helix (the issue's target) after the fix: 49/1/0,
+avg 0%, **warn**. The remaining warn is `gateway-proxy-put` at 1/10: the
+HTML says "a map from strings to any" and the markdown says "a map from
+string to any". That is Fern's generator disagreeing with itself and is
+correctly reported. Sampled API reference pages: 18 of 50, 17 pass.
+
+### Discovery note (out of scope, not changed)
+
+Running against the issue's original URL `docs.nvidia.com/nemo-platform/`
+now discovers only the landing page (`discoverySources: ["fallback"]`,
+2m21s). The prefix 301s to `nemo-helix`, whose root `llms.txt` links only
+to per-version indexes (`/nemo-helix/latest/llms.txt`), and discovery
+does not follow that across the redirected prefix. Running against
+`nemo-helix/` directly walks the version index (370 pages) and works.
+Recorded here so the next discovery session can decide whether a
+redirected base URL should re-anchor discovery; per
+`page-discovery-notes.md` that is a design decision, not a quick flip.
+
+### Tests added in session 12
+
+2 new tests (52 → 54 total):
+
+- `strips inline data-markdown-ignore badges in API schema rows (issue #106)`:
+  Fern's exact row shape (adjacent key/badge spans in a flex row, badges
+  tagged). Passes at 0 missing with the attribute and asserts the
+  untagged variant reports `default_model_entitystringOptional` as
+  missing, so the fixture is proven to exercise the run-together path.
+- `matches HTML that shows markdown syntax verbatim (issue #106)`: a
+  `whitespace-pre-wrap` block with literal backticks, `- ` and `N. `
+  markers and hard wraps, plus a `--` vs em dash paragraph. Fails on the
+  pre-fix `normalize()` with 5 missing; passes at 0 after. Note the
+  fixture must not put `.prose` on the raw block, or the container
+  heuristic selects just that block and the page falls under the
+  10-segment gate.
+
+Full suite: 1377 tests passing, lint clean, type-check clean.
+
 ## Files modified
 
 - `src/checks/observability/markdown-content-parity.ts` - main implementation

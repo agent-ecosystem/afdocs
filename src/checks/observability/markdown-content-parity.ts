@@ -529,8 +529,16 @@ function extractMarkdownText(markdown: string): string {
 
 /**
  * Normalize text for fuzzy containment matching:
- * strip zero-width characters, normalize typographic quotes,
- * strip angle brackets around placeholders, collapse whitespace, and lowercase.
+ * strip zero-width characters, normalize typographic quotes and dashes,
+ * strip angle brackets around placeholders, drop characters that are
+ * markdown syntax on one side and literal text on the other, collapse
+ * whitespace, and lowercase.
+ *
+ * Every rule here is applied identically to the HTML segment (needle) and
+ * the markdown text (haystack), and each one only deletes or collapses a
+ * fixed set of characters or trims the needle's leading edge. Such rules
+ * preserve substring containment, so adding one can turn a missing segment
+ * into a match but can never turn a match into a missing segment.
  */
 function normalize(text: string): string {
   return (
@@ -542,6 +550,9 @@ function normalize(text: string): string {
       .replace(/[\u2018\u2019\u201A]/g, "'")
       .replace(/[\u201C\u201D\u201E]/g, '"')
       .replace(/[\u2013\u2014]/g, '-')
+      // Markdown source writes "--" / "---" where the renderer emits an en/em
+      // dash (smart-punctuation). Both sides collapse to a single hyphen.
+      .replace(/-{2,}/g, '-')
       .replace(/\u2026/g, '...')
       // Strip angle brackets but keep content — normalizes <YOUR_API_KEY> to
       // YOUR_API_KEY so HTML-side (entities decoded, tags stripped) and
@@ -550,9 +561,18 @@ function normalize(text: string): string {
       // '< 5,000 tokens') must not match a '>' hundreds of lines later,
       // which would distort the normalized text and break containment checks.
       .replace(/<([^>\n]+)>/g, '$1')
+      // Backticks are code-span delimiters on the markdown side (already
+      // removed by extractMarkdownText) but literal text on the HTML side when
+      // a page shows unrendered markdown, e.g. an OpenAPI description that the
+      // platform displays verbatim (issue #106). Drop them everywhere.
+      .replace(/`/g, '')
       .toLowerCase()
       .replace(/\s+/g, ' ')
       .trim()
+      // A leading list marker is stripped from markdown lines by
+      // extractMarkdownText; strip it from HTML segments too so a description
+      // shown as raw "- item" text (issue #106) matches the markdown's list item.
+      .replace(/^(?:[-*+]|\d+\.)\s+/, '')
   );
 }
 
