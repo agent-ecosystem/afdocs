@@ -545,3 +545,62 @@ describe('fetchLlmsTxtLinkedMarkdown', () => {
     ]);
   });
 });
+
+describe('fetchLlmsTxtLinkedMarkdown: request construction and memoization', () => {
+  function ctxWithLlmsTxt(content: string) {
+    const ctx = createContext('http://test.local', { requestDelay: 0 });
+    const discovered: DiscoveredFile[] = [
+      { url: 'http://test.local/llms.txt', content, status: 200, redirected: false },
+    ];
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: { discoveredFiles: discovered },
+    });
+    return ctx;
+  }
+  const md = (body: string) => () =>
+    new HttpResponse(body, { status: 200, headers: { 'Content-Type': 'text/markdown' } });
+
+  it('fetches .md links as published and negotiates only extensionless links', async () => {
+    const accepts: Record<string, string | null> = {};
+    server.use(
+      http.get('http://test.local/agents/a.md', ({ request }) => {
+        accepts.a = request.headers.get('accept');
+        return md('# A\n\n- one')();
+      }),
+      http.get('http://test.local/agents/b', ({ request }) => {
+        accepts.b = request.headers.get('accept');
+        return md('# B\n\n- two')();
+      }),
+    );
+    const ctx = ctxWithLlmsTxt(
+      '# Site\n\n- [A](http://test.local/agents/a.md)\n- [B](http://test.local/agents/b)\n',
+    );
+    const pages = await fetchLlmsTxtLinkedMarkdown(ctx);
+    expect(pages.map((p) => p.url).sort()).toEqual([
+      'http://test.local/agents/a.md',
+      'http://test.local/agents/b',
+    ]);
+    expect(accepts.a).not.toBe('text/markdown');
+    expect(accepts.b).toBe('text/markdown');
+  });
+
+  it('memoizes on the context so a second caller makes no requests', async () => {
+    let hits = 0;
+    server.use(
+      http.get('http://test.local/agents/a.md', () => {
+        hits++;
+        return md('# A\n\n- one')();
+      }),
+    );
+    const ctx = ctxWithLlmsTxt('# Site\n\n- [A](http://test.local/agents/a.md)\n');
+    const first = await fetchLlmsTxtLinkedMarkdown(ctx);
+    const second = await fetchLlmsTxtLinkedMarkdown(ctx);
+    expect(second).toBe(first);
+    expect(first).toHaveLength(1);
+    expect(hits).toBe(1);
+  });
+});

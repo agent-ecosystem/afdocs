@@ -236,7 +236,11 @@ describe('single-fetch-completeness', () => {
     expect(result.status).toBe('fail');
   });
 
-  it('sends Accept: text/markdown when verifying the continuation', async () => {
+  it('fetches a .md continuation as published, without Accept: text/markdown', async () => {
+    // Some servers treat the header as a filter: MongoDB's docs answer a .md
+    // URL with 404 under it and 200 without it. The path already names the
+    // representation, so the header would only turn a working continuation
+    // into a reported failure.
     let accept: string | null = null;
     server.use(
       http.get(`${ORIGIN}/docs/models.md`, ({ request }) => {
@@ -245,6 +249,20 @@ describe('single-fetch-completeness', () => {
       }),
     );
     const content = `# Models\n\n> Page 1 of 2: [next page](${ORIGIN}/docs/models.md?page=2)\n\n${catalog()}`;
+    const result = await check.run(cachedCtx([{ url: `${ORIGIN}/docs/models`, content }]));
+    expect(accept).not.toBe('text/markdown');
+    expect(result.status).toBe('pass');
+  });
+
+  it('negotiates markdown for an extensionless continuation', async () => {
+    let accept: string | null = null;
+    server.use(
+      http.get(`${ORIGIN}/docs/models`, ({ request }) => {
+        accept = request.headers.get('accept');
+        return markdown(catalog(2))();
+      }),
+    );
+    const content = `# Models\n\n> Page 1 of 2: [next page](${ORIGIN}/docs/models?page=2)\n\n${catalog()}`;
     await check.run(cachedCtx([{ url: `${ORIGIN}/docs/models`, content }]));
     expect(accept).toBe('text/markdown');
   });

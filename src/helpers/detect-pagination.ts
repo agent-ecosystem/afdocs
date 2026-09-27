@@ -11,6 +11,8 @@
  * only the latter is a defect.
  */
 
+import { scanRawLinks } from './classify-markdown-links.js';
+
 export type PaginationSignalType = 'n-of-m' | 'pagination-param' | 'next-link' | 'link-header';
 
 export interface PaginationSignal {
@@ -91,8 +93,6 @@ const EXPLICIT_NEXT_TEXT =
 const GENERIC_NEXT_TEXT =
   /^\s*(?:[»›→>]+\s*)?(?:next|more|continue|see\s+more|view\s+more|older|newer|next\s*[»›→>]+)\s*(?:[»›→>]+)?\s*$/i;
 
-/** `[text](url)`, but not the tail of an image `![alt](src)`. */
-const MARKDOWN_LINK = /(?<!!)\[([^\]]*)\]\(\s*<?([^\s)>]+)>?(?:\s+"[^"]*")?\s*\)/g;
 const BARE_URL = /\bhttps?:\/\/[^\s<>()\]"']+/gi;
 /** A root-relative path carrying a paging parameter, quoted in prose or an instruction. */
 const BARE_PAGED_PATH =
@@ -109,26 +109,6 @@ const MAX_SIGNAL_TEXT = 80;
  * is partial.
  */
 const NOTE_LEAD = /^[\s>*_\-+|#\d.)]*(?:\*\*|__)?(?:[A-Za-z][\w ]{0,24}:\s*)?(?:\*\*|__)?\s*$/;
-
-/**
- * Replace fenced code blocks and inline code spans with spaces of the same
- * length, so offsets into the original content survive and API examples
- * (`GET /v1/items?page=2`) never register as pagination.
- *
- * Known gap, deliberately kept: the fence regex requires the closer at
- * column 1 and exactly as long as the opener, while CommonMark allows a
- * longer closer and an indented fence inside a list item. The link
- * classifier (`classify-markdown-links.ts`, `blankCode`) fixed both with a
- * line scanner after field evidence; this one has produced no fence-related
- * false positive yet, and moving it without evidence would shift
- * `single-fetch-completeness` results. Port the scanner when it does.
- */
-function blankCode(text: string): string {
-  const blank = (m: string) => m.replace(/[^\n]/g, ' ');
-  return text
-    .replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[ \t]*$/gm, blank)
-    .replace(/`[^`\n]+`/g, blank);
-}
 
 /** `decodeURIComponent` throws on malformed escapes (`?page=%`) that `new URL` accepts. */
 function safeDecode(value: string): string {
@@ -229,24 +209,30 @@ interface LinkOccurrence {
   offset: number;
 }
 
-const MARKDOWN_IMAGE = /!\[[^\]]*\]\([^)]*\)/g;
-
-function collectLinks(text: string): { links: LinkOccurrence[]; remainder: string } {
+/**
+ * Collect the links in the content using the same scanner as
+ * `markdown-link-portability` (code blanked, inline and reference-style
+ * links, CommonMark destinations), then bare URLs in what is left. Returns
+ * the links and a copy of the content with code and every link blanked to
+ * same-length whitespace, so offsets survive and the phrase and quoted-path
+ * scans below never see a URL twice.
+ */
+function collectLinks(content: string): { links: LinkOccurrence[]; remainder: string } {
   const links: LinkOccurrence[] = [];
-  const blank = (m: string) => m.replace(/[^\n]/g, ' ');
-  // Images are not links an agent follows, and their sources can carry
-  // paging-looking query strings; drop them before any URL matching.
-  let remainder = text.replace(MARKDOWN_IMAGE, blank);
-  remainder = remainder.replace(
-    MARKDOWN_LINK,
-    (m, linkText: string, url: string, offset: number) => {
-      links.push({ text: linkText, url, offset });
-      return blank(m);
-    },
-  );
-  remainder = remainder.replace(BARE_URL, (m, offset: number) => {
+  const { links: raw, blanked } = scanRawLinks(content);
+  const chars = blanked.split('');
+  for (const link of raw) {
+    for (let k = link.offset; k < link.end; k++) {
+      if (chars[k] !== '\n') chars[k] = ' ';
+    }
+    // Images are not links an agent follows, and their sources can carry
+    // paging-looking query strings; they are blanked but never candidates.
+    if (link.isImage) continue;
+    links.push({ text: link.text, url: link.destination.trim(), offset: link.offset });
+  }
+  const remainder = chars.join('').replace(BARE_URL, (m, offset: number) => {
     links.push({ text: '', url: m.replace(/[.,;:!?]+$/, ''), offset });
-    return blank(m);
+    return m.replace(/[^\n]/g, ' ');
   });
   return { links, remainder };
 }
@@ -282,8 +268,7 @@ export function detectPagination(
   const signals: PaginationSignal[] = [];
   const candidates: ContinuationCandidate[] = [];
 
-  const scannable = blankCode(content);
-  const { links, remainder } = collectLinks(scannable);
+  const { links, remainder } = collectLinks(content);
 
   const addCandidate = (url: string, offset: number) => {
     candidates.push({

@@ -1,6 +1,6 @@
 # What Is the Agent Score?
 
-The Agent Score is a 0–100 rating of how well AI coding agents can discover, navigate, and consume your documentation site. You can get your score with [AFDocs](https://www.npmjs.com/package/afdocs), which runs 23 automated checks based on the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/) and maps the results to a letter grade.
+The Agent Score is a 0–100 rating of how well AI coding agents can discover, navigate, and consume your documentation site. You can get your score with [AFDocs](https://www.npmjs.com/package/afdocs), which runs 28 automated checks based on the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/) and maps the results to a letter grade.
 
 The AI coding agents that regularly consume your documentation while helping developers perform tasks include:
 

@@ -325,7 +325,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       const fetchUrl = link.fetchUrl!;
       if (seen.has(fetchUrl)) continue;
       if (!plannedUrls.has(fetchUrl)) {
-        if (toFetch.length >= budget) break;
+        // Budget spent: no new requests, but a URL already planned for an
+        // earlier page still verifies this one at no cost, so keep scanning.
+        if (toFetch.length >= budget) continue;
         plannedUrls.add(fetchUrl);
         toFetch.push(link);
       }

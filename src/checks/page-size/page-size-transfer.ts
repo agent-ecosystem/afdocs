@@ -30,7 +30,8 @@ export interface TransferPageResult {
 }
 
 function sizeStatus(bytes: number, pass: number, fail: number): CheckStatus {
-  if (bytes <= pass) return 'pass';
+  // Strictly under: the documented pass band is "under" the threshold.
+  if (bytes < pass) return 'pass';
   if (bytes <= fail) return 'warn';
   return 'fail';
 }

@@ -75,4 +75,13 @@ describe('htmlToMarkdown', () => {
     expect(md).toContain('After.');
     expect(md).not.toContain('<table');
   });
+
+  it('keeps the caption of a rowless table as a paragraph', () => {
+    const html =
+      '<table><caption>Supported <em>models</em></caption><thead></thead><tbody></tbody></table><p>After.</p>';
+    const md = htmlToMarkdown(html);
+    expect(md).toContain('Supported _models_');
+    expect(md).toContain('After.');
+    expect(md).not.toContain('<table');
+  });
 });

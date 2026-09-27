@@ -8,6 +8,7 @@ import { detectPagination, type PaginationSignal } from '../../helpers/detect-pa
 import { looksLikeHtml, looksLikeMarkdown } from '../../helpers/detect-markdown.js';
 import { isSoft404Body } from '../../helpers/detect-soft-404.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
+import { promisesMarkdownUrl } from '../../helpers/classify-markdown-links.js';
 
 /**
  * How far into the content a continuation declaration may sit and still
@@ -100,14 +101,15 @@ interface Verification {
 }
 
 /**
- * Fetch the continuation the way an agent would (with `Accept: text/markdown`)
- * and confirm it delivers substantive content of the expected representation.
+ * Fetch the continuation the way an agent would and confirm it delivers
+ * substantive content of the expected representation.
  *
- * The header is a known risk: `markdown-link-portability` dropped it after
- * MongoDB's docs answered a `.md` URL with 404 under `Accept: text/markdown`
- * and 200 without it, so a site that treats the header as a filter rather
- * than a preference would report a working continuation as broken here.
- * No paginated continuation has hit that yet; revisit if one does.
+ * `Accept: text/markdown` is sent only when the URL does not already name
+ * the representation. A `.md` or `.mdx` path is itself the request for
+ * markdown, and some servers treat the header as a filter rather than a
+ * preference: MongoDB's docs answer a `.md` URL with 404 under the header
+ * and 200 without it (found by `markdown-link-portability`'s field run), so
+ * sending it would report a working continuation as broken.
  */
 async function verifyContinuation(
   ctx: CheckContext,
@@ -115,9 +117,9 @@ async function verifyContinuation(
   firstSegment: string,
 ): Promise<Verification> {
   try {
-    const response = await ctx.http.fetch(resolvedUrl, {
-      headers: { Accept: 'text/markdown' },
-    });
+    const response = promisesMarkdownUrl(resolvedUrl)
+      ? await ctx.http.fetch(resolvedUrl)
+      : await ctx.http.fetch(resolvedUrl, { headers: { Accept: 'text/markdown' } });
     const body = await response.text();
     const status = response.status;
     if (!response.ok) return { outcome: 'http-error', status };

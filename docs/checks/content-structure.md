@@ -113,7 +113,7 @@ Checking that links work also has to go past status codes. The spec's grounding 
 
 ### What is measured
 
-The check reads the same markdown responses the other markdown checks already fetched, so nothing is fetched twice, and it classifies every inline link by how much of the base URL the link needs to survive:
+The check reads the same markdown responses the other markdown checks already fetched, so nothing is fetched twice, and it classifies every link, whether written inline (`[text](url)`) or as a reference (`[text][label]` with a `[label]: url` definition), by how much of the base URL the link needs to survive:
 
 - **Absolute** (`https://docs.example.com/guide.md`): nothing.
 - **Root-relative** (`/guide.md`): the scheme and host.

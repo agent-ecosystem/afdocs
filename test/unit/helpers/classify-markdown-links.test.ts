@@ -253,3 +253,34 @@ describe('countByClass', () => {
     });
   });
 });
+
+describe('scanMarkdownLinks: reference-style links', () => {
+  it('resolves full, collapsed, and shortcut references against their definitions', () => {
+    const md =
+      'See [the guide][g], [config][], and [api].\n\n' +
+      '[g]: ../guide.md\n[config]: /docs/config.md "Config"\n[API]: <https://docs.example.com/api.md>\n';
+    const { links } = scanMarkdownLinks(md, BASE);
+    expect(links.map((l) => [l.url, l.class])).toEqual([
+      ['../guide.md', 'path-relative'],
+      ['/docs/config.md', 'root-relative'],
+      ['https://docs.example.com/api.md', 'absolute'],
+    ]);
+  });
+
+  it('ignores bracketed text with no matching definition and never counts the definition line', () => {
+    const md = 'Use [brackets] for [emphasis][nope].\n\n[real]: /docs/real.md\n';
+    expect(scanMarkdownLinks(md, BASE).links).toEqual([]);
+  });
+
+  it('keeps a reference-style image out of the link tally', () => {
+    const md = '![logo][img]\n\n[img]: /img/logo.png\n';
+    const scan = scanMarkdownLinks(md, BASE);
+    expect(scan.links).toEqual([]);
+    expect(scan.images.map((i) => i.url)).toEqual(['/img/logo.png']);
+  });
+
+  it('matches labels case-insensitively and does not read definitions inside fenced code', () => {
+    const md = '[Guide][G]\n\n```\n[g]: /wrong.md\n```\n\n[g]: /right.md\n';
+    expect(scanMarkdownLinks(md, BASE).links.map((l) => l.url)).toEqual(['/right.md']);
+  });
+});

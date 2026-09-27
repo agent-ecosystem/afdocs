@@ -52,7 +52,8 @@ export interface BulkReasons {
 }
 
 function sizeStatus(chars: number, pass: number, fail: number): CheckStatus {
-  if (chars <= pass) return 'pass';
+  // Strictly under: the documented pass band is "under" the threshold.
+  if (chars < pass) return 'pass';
   if (chars <= fail) return 'warn';
   return 'fail';
 }

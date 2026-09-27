@@ -1,3 +1,4 @@
+import type { MarkdownPage } from './helpers/get-markdown-content.js';
 import type { DiscoverySource, SampledPages } from './helpers/get-page-urls.js';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skip' | 'error';
@@ -74,6 +75,11 @@ export interface CheckContext {
   _sampledPages?: SampledPages;
   /** Curated page list from config or --urls, used by the curated sampling strategy. */
   _curatedPages?: PageConfigEntry[];
+  /**
+   * Markdown fetched through llms.txt links when the page cache was empty,
+   * shared by the checks that fall back to it so the pages are fetched once.
+   */
+  _llmsTxtLinkedMarkdown?: MarkdownPage[];
   /**
    * Ledger of every HTTP request the run has made so far, in completion order.
    * `bot-protection-interference` reads it as run-level evidence; it has no

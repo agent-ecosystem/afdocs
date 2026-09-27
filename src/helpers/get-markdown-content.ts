@@ -151,15 +151,26 @@ async function fetchMarkdownPages(ctx: CheckContext): Promise<MarkdownPage[]> {
  * Markdown reached through `llms.txt` links alone, for sites that publish
  * agent-facing markdown without page-level `.md` variants or content
  * negotiation. Same-origin links under the base path are fetched as
- * published (with `Accept: text/markdown`) and kept when the response is
- * markdown by content type or by shape. Links that already carry a `.md` or
- * `.mdx` extension are tried first; the total is capped at
- * `maxLinksToTest`, taken in file order so repeated runs test the same set.
+ * published and kept when the response is markdown by content type or by
+ * shape. A link that already carries a `.md` or `.mdx` extension is fetched
+ * without `Accept: text/markdown`, because the path is already the request
+ * for that representation and some servers answer the header with a 404;
+ * extensionless links are negotiated. Extension-qualified links are tried
+ * first; the total is capped at `maxLinksToTest`, taken in file order so
+ * repeated runs test the same set.
  *
- * Callers use this only when `ctx.pageCache` yielded nothing, so a full run
- * never fetches the same markdown twice.
+ * The result is memoized on the context: `single-fetch-completeness` and
+ * `markdown-link-portability` both fall back to it when the page cache is
+ * empty, and the second caller must not fetch the same pages again.
  */
 export async function fetchLlmsTxtLinkedMarkdown(ctx: CheckContext): Promise<MarkdownPage[]> {
+  if (ctx._llmsTxtLinkedMarkdown) return ctx._llmsTxtLinkedMarkdown;
+  const pages = await fetchLlmsTxtLinkedMarkdownUncached(ctx);
+  ctx._llmsTxtLinkedMarkdown = pages;
+  return pages;
+}
+
+async function fetchLlmsTxtLinkedMarkdownUncached(ctx: CheckContext): Promise<MarkdownPage[]> {
   const existsResult = ctx.previousResults.get('llms-txt-exists');
   const files = getLlmsTxtFilesForAnalysis(existsResult);
   if (files.length === 0) return [];
@@ -192,7 +203,9 @@ export async function fetchLlmsTxtLinkedMarkdown(ctx: CheckContext): Promise<Mar
     const batchResults = await Promise.all(
       batch.map(async (url): Promise<MarkdownPage | null> => {
         try {
-          const response = await ctx.http.fetch(url, { headers: { Accept: 'text/markdown' } });
+          const response = hasMdExtension(url)
+            ? await ctx.http.fetch(url)
+            : await ctx.http.fetch(url, { headers: { Accept: 'text/markdown' } });
           if (!response.ok) return null;
           const body = await response.text();
           const contentType = response.headers.get('content-type') ?? '';

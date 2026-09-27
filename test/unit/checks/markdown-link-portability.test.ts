@@ -521,3 +521,31 @@ describe('markdown-link-portability', () => {
     expect(page.links.pathRelative).toBe(0);
   });
 });
+
+describe('markdown-link-portability: link budget', () => {
+  it('still verifies later pages from URLs already planned once the budget is spent', async () => {
+    let sharedHits = 0;
+    server.use(
+      http.get(`${ORIGIN}/docs/shared.md`, () => {
+        sharedHits++;
+        return markdown('# Shared')();
+      }),
+      http.get(`${ORIGIN}/docs/other.md`, markdown('# Other')),
+    );
+    const ctx = cachedCtx(
+      [
+        { url: `${ORIGIN}/docs/a`, content: `[shared](${ORIGIN}/docs/shared.md)` },
+        {
+          url: `${ORIGIN}/docs/b`,
+          content: `[other](${ORIGIN}/docs/other.md) and [shared](${ORIGIN}/docs/shared.md)`,
+        },
+      ],
+      { maxLinksToTest: 1 },
+    );
+    const result = await check.run(ctx);
+    const pages = result.details!.pageResults as PortabilityPageResult[];
+    expect(pages[1].samples.map((s) => s.url)).toEqual([`${ORIGIN}/docs/shared.md`]);
+    expect(pages[1].samples[0].outcome).toBe('ok');
+    expect(sharedHits).toBe(1);
+  });
+});

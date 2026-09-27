@@ -255,10 +255,46 @@ function shorten(text: string): string {
   return flat.length > MAX_TEXT ? `${flat.slice(0, MAX_TEXT - 1)}…` : flat;
 }
 
-interface RawLink {
+/** A link as written, before classification: where it sits and what it points at. */
+export interface RawMarkdownLink {
   text: string;
   destination: string;
   isImage: boolean;
+  /** Offset of the opening `[` (or the `!` of an image) in the scanned text. */
+  offset: number;
+  /** Offset just past the link's last character. */
+  end: number;
+}
+
+type RawLink = RawMarkdownLink;
+
+/**
+ * A CommonMark link reference definition on its own line:
+ * `[label]: destination "optional title"`.
+ */
+const REFERENCE_DEFINITION =
+  /^[ \t]{0,3}\[((?:\\.|[^\\[\]\n])+)\]:[ \t]*(?:<([^>\n]*)>|(\S+))(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$/gm;
+
+function normalizeLabel(label: string): string {
+  return label.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Collect link reference definitions and blank their lines, so a definition
+ * is never read as a shortcut reference to itself. The first definition of a
+ * label wins, per CommonMark.
+ */
+function collectReferenceDefinitions(text: string): { defs: Map<string, string>; text: string } {
+  const defs = new Map<string, string>();
+  const out = text.replace(
+    REFERENCE_DEFINITION,
+    (m, label: string, angled: string | undefined, bare: string | undefined) => {
+      const key = normalizeLabel(label);
+      if (!defs.has(key)) defs.set(key, angled ?? bare ?? '');
+      return blankRun(m);
+    },
+  );
+  return { defs, text: out };
 }
 
 function isSpace(ch: string): boolean {
@@ -349,11 +385,36 @@ function readDestination(text: string, start: number): { value: string; end: num
 }
 
 /**
- * Collect inline links and images (`[text](dest)`, `![alt](src)`) in document
- * order. Reference definitions and autolinks are deliberately not collected:
- * see `scanMarkdownLinks`.
+ * Read the reference part of a link whose bracketed text has just closed at
+ * `j`: `[text][label]`, `[text][]` (collapsed), or `[text]` alone (shortcut).
+ * Returns the destination when the label is defined, else null.
  */
-function scanInlineLinks(text: string): RawLink[] {
+function readReference(
+  text: string,
+  label: string,
+  j: number,
+  defs: Map<string, string>,
+): { value: string; end: number } | null {
+  if (defs.size === 0) return null;
+  if (text[j] === '[') {
+    const close = text.indexOf(']', j + 1);
+    if (close === -1) return null;
+    const ref = text.slice(j + 1, close);
+    if (ref.includes('[') || ref.includes('\n\n')) return null;
+    const value = defs.get(normalizeLabel(ref === '' ? label : ref));
+    return value === undefined ? null : { value, end: close + 1 };
+  }
+  const value = defs.get(normalizeLabel(label));
+  return value === undefined ? null : { value, end: j };
+}
+
+/**
+ * Collect links and images in document order: inline (`[text](dest)`,
+ * `![alt](src)`) and reference-style (`[text][label]`, `[text][]`, `[label]`)
+ * with `defs` holding the reference definitions. Autolinks and bare URLs are
+ * deliberately not collected: see `scanMarkdownLinks`.
+ */
+function scanInlineLinks(text: string, defs: Map<string, string>, base = 0): RawLink[] {
   const found: RawLink[] = [];
   let i = 0;
 
@@ -380,7 +441,7 @@ function scanInlineLinks(text: string): RawLink[] {
       else if (ch === ']') depth--;
       j++;
     }
-    if (depth !== 0 || text[j] !== '(') {
+    if (depth !== 0) {
       i = open + 1;
       continue;
     }
@@ -393,18 +454,25 @@ function scanInlineLinks(text: string): RawLink[] {
       continue;
     }
 
-    const destination = readDestination(text, j + 1);
+    const destination =
+      text[j] === '(' ? readDestination(text, j + 1) : readReference(text, label, j, defs);
     if (!destination) {
       i = open + 1;
       continue;
     }
 
     const isImage = open > 0 && text[open - 1] === '!';
-    found.push({ text: label, destination: destination.value, isImage });
+    found.push({
+      text: label,
+      destination: destination.value,
+      isImage,
+      offset: base + (isImage ? open - 1 : open),
+      end: base + destination.end,
+    });
     // An image inside link text (a badge linking somewhere) still counts as
     // an image; the label is not rescanned for anything else.
     if (!isImage && label.includes('![')) {
-      for (const nested of scanInlineLinks(label)) {
+      for (const nested of scanInlineLinks(label, defs, base + open + 1)) {
         if (nested.isImage) found.push(nested);
       }
     }
@@ -412,6 +480,18 @@ function scanInlineLinks(text: string): RawLink[] {
   }
 
   return found;
+}
+
+/**
+ * Scan a markdown document for the links an agent could follow, without
+ * classifying them. Code (fenced and inline) and reference definitions are
+ * blanked first; `blanked` is that copy, the same length as `content`, and
+ * every offset indexes into it. Shared with `detect-pagination`, so both
+ * checks agree on what is and is not a link.
+ */
+export function scanRawLinks(content: string): { links: RawMarkdownLink[]; blanked: string } {
+  const { defs, text } = collectReferenceDefinitions(blankCode(content));
+  return { links: scanInlineLinks(text, defs), blanked: text };
 }
 
 export function classifyLink(url: string): LinkClass {
@@ -457,10 +537,10 @@ function describe(rawUrl: string, text: string, baseUrl: string): MarkdownLink |
 /**
  * Extract and classify the links in a markdown response.
  *
- * Only inline links are collected, which is what generated markdown emits.
+ * Inline links (what generated markdown emits) and reference-style links
+ * (what hand-authored markdown served as-is may use) are both collected.
  * Autolinks and bare URLs are absolute by construction and would only pad
- * the absolute count; reference definitions (`[label]: url`) are rare
- * outside hand-authored prose.
+ * the absolute count, so they are not.
  */
 export function scanMarkdownLinks(content: string, baseUrl: string): MarkdownLinkScan {
   const links: MarkdownLink[] = [];
@@ -468,7 +548,7 @@ export function scanMarkdownLinks(content: string, baseUrl: string): MarkdownLin
   const seenLinks = new Set<string>();
   const seenImages = new Set<string>();
 
-  for (const raw of scanInlineLinks(blankCode(content))) {
+  for (const raw of scanRawLinks(content).links) {
     const link = describe(raw.destination, raw.text, baseUrl);
     if (!link) continue;
     const [bucket, seen] = raw.isImage

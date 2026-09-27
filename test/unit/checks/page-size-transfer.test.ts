@@ -109,6 +109,22 @@ describe('page-size-transfer', () => {
     expect(result.message).toMatch(/max 20KB served → \d+B content \(~\d+:1\)/);
   });
 
+  it('treats a page of exactly the pass threshold as a warn, not a pass', async () => {
+    const page = payloadPage(100);
+    const exact = Buffer.byteLength(page, 'utf8');
+    server.use(http.get('http://pst.local/docs/page1', html(page)));
+
+    const atBoundary = await check.run(
+      makeCtx({ transferThresholds: { pass: exact, fail: exact * 10 } }),
+    );
+    expect(atBoundary.status).toBe('warn');
+
+    const under = await check.run(
+      makeCtx({ transferThresholds: { pass: exact + 1, fail: exact * 10 } }),
+    );
+    expect(under.status).toBe('pass');
+  });
+
   it('fails above the fail threshold', async () => {
     server.use(http.get('http://pst.local/docs/page1', html(payloadPage(60_000))));
 

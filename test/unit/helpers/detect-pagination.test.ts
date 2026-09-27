@@ -255,3 +255,26 @@ describe('detectPagination', () => {
     });
   });
 });
+
+describe('detectPagination: shared link scanner', () => {
+  it('finds a continuation written as a reference-style link, reported once', () => {
+    const content =
+      '# Models\n\n> Page 1 of 2: [next page][p2]\n\n- model-1\n\n[p2]: /models.md?page=2\n';
+    const result = detectPagination(content, { baseUrl: BASE });
+    expect(result.signals.map((s) => s.type)).toContain('next-link');
+    expect(result.continuation?.url).toBe('/models.md?page=2');
+    // The definition line is blanked, so it is not reported again as a quoted path.
+    expect(result.signals.filter((s) => s.url === '/models.md?page=2')).toHaveLength(1);
+  });
+
+  it('ignores an example paging path inside an indented fence', () => {
+    const content =
+      '# API\n\n1. Fetch the list:\n\n   ```http\n   GET /v1/items?page=2\n   ```\n\n2. Done.\n';
+    expect(detectPagination(content, { baseUrl: BASE }).signals).toEqual([]);
+  });
+
+  it('accepts a closing fence longer than its opener', () => {
+    const content = '# API\n\n```\nGET /v1/items?page=2\n````\n\nThat is all.\n';
+    expect(detectPagination(content, { baseUrl: BASE }).signals).toEqual([]);
+  });
+});
