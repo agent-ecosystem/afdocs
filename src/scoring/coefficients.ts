@@ -31,6 +31,7 @@ const DISCOVERY_CHECKS = new Set([
   'markdown-code-fence-validity',
   'markdown-content-parity',
   'single-fetch-completeness',
+  'markdown-link-portability',
 ]);
 
 /**

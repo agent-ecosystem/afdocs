@@ -12,7 +12,7 @@ No install needed. Point AFDocs at your documentation site:
 npx afdocs check https://docs.example.com --format scorecard
 ```
 
-This discovers pages from your site (via llms.txt, sitemap, or both), samples up to 50, runs all 26 checks, and produces a scorecard with your overall score, per-category breakdowns, and fix suggestions:
+This discovers pages from your site (via llms.txt, sitemap, or both), samples up to 50, runs all 27 checks, and produces a scorecard with your overall score, per-category breakdowns, and fix suggestions:
 
 ```
 Agent-Friendly Docs Scorecard
@@ -71,7 +71,7 @@ npx afdocs check https://docs.example.com --format json --score
 
 ## Run specific checks
 
-If you're working on a particular issue, you don't need to run all 26 checks every time. Pass a comma-separated list of check IDs:
+If you're working on a particular issue, you don't need to run all 27 checks every time. Pass a comma-separated list of check IDs:
 
 ```bash
 npx afdocs check https://docs.example.com --checks llms-txt-exists,llms-txt-valid,llms-txt-size

@@ -102,6 +102,32 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
       });
   },
 
+  'markdown-link-portability': (details) => {
+    const pages = details.pageResults as
+      | Array<{
+          url: string;
+          mdUrl?: string;
+          status: string;
+          links?: { absolute: number; rootRelative: number; pathRelative: number; total: number };
+          samples?: Array<{ url: string; outcome: string; status?: number }>;
+        }>
+      | undefined;
+    if (!pages) return [];
+    return pages
+      .filter((p) => p.status !== 'pass')
+      .map((p) => {
+        const l = p.links;
+        const counts = l
+          ? `${l.total} links: ${l.absolute} absolute, ${l.rootRelative} root-relative, ${l.pathRelative} path-relative`
+          : 'links';
+        const broken = (p.samples ?? [])
+          .filter((s) => s.outcome !== 'ok')
+          .map((s) => `${s.url} (${s.outcome}${s.status ? ` ${s.status}` : ''})`);
+        const brokenNote = broken.length > 0 ? `; sampled: ${broken.join(', ')}` : '';
+        return formatDetailLine(p.status, p.mdUrl ?? p.url, `${counts}${brokenNote}`);
+      });
+  },
+
   'content-start-position': (details) => {
     const pages = details.pageResults as PageResult[] | undefined;
     if (!pages) return [];

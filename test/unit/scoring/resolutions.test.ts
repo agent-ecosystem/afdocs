@@ -105,6 +105,43 @@ describe('resolutions', () => {
     });
   });
 
+  describe('markdown-link-portability', () => {
+    it('names the root-relative reason for warn and says where absolute URLs come from', () => {
+      const text = getResolution(
+        r('markdown-link-portability', 'warn', {
+          warnBucket: 3,
+          testedPages: 8,
+          reasons: { rootRelative: 3, mismatched: 0 },
+        }),
+      );
+      expect(text).toContain('3 of 8 markdown pages');
+      expect(text).toContain('root-relative links on 3');
+      expect(text).not.toContain('redirects to HTML');
+      expect(text).toContain('known at build time');
+    });
+
+    it('tells fail to fix generation first and verify links in CI', () => {
+      const text = getResolution(
+        r('markdown-link-portability', 'fail', {
+          failBucket: 2,
+          testedPages: 8,
+          reasons: { pathRelative: 1, broken: 2 },
+        }),
+      );
+      expect(text).toContain('2 of 8 markdown pages');
+      expect(text).toContain('path-relative links on 1');
+      expect(text).toContain('a sampled link that does not resolve on 2');
+      expect(text).toContain('Fix the link generation first');
+      expect(text).toContain('200 with an HTML shell');
+    });
+
+    it('omits the reason clause when details carry no tallies', () => {
+      const text = getResolution(r('markdown-link-portability', 'warn', {}));
+      expect(text).toContain('0 of 0 markdown pages');
+      expect(text).not.toContain('(');
+    });
+  });
+
   describe('page-size-transfer', () => {
     it('interpolates counts and thresholds for warn', () => {
       const text = getResolution(
@@ -354,6 +391,7 @@ describe('resolutions', () => {
       'tabbed-content-serialization',
       'section-header-quality',
       'markdown-code-fence-validity',
+      'markdown-link-portability',
       'http-status-codes',
       'redirect-behavior',
       'llms-txt-coverage',

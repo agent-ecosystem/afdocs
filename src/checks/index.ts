@@ -25,6 +25,7 @@ import './page-size/single-fetch-completeness.js';
 import './content-structure/tabbed-content-serialization.js';
 import './content-structure/section-header-quality.js';
 import './content-structure/markdown-code-fence-validity.js';
+import './content-structure/markdown-link-portability.js';
 
 // Category 5: URL Stability
 import './url-stability/http-status-codes.js';
