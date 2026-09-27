@@ -83,7 +83,7 @@ Degrading Scan Reliability" interaction effect. Issue #104, PR #119.
 | Constant                        | Value | Rationale                                                     |
 | ------------------------------- | ----- | ------------------------------------------------------------- |
 | `MIN_REQUESTS_FOR_EVIDENCE`     | 5     | below this, run the standalone baseline pass                  |
-| `LIMITED_EVIDENCE_REQUESTS`     | 20    | a pass on fewer requests says "limited evidence"              |
+| `LIMITED_EVIDENCE_REQUESTS`     | 50    | a pass on fewer requests says "limited evidence" (was 20)     |
 | `SUSTAINED_FAILURE_RATE`        | 0.5   | spec fail = "most requests" after enforcement triggers        |
 | `MIN_POST_ONSET_REQUESTS`       | 10    | a tail cluster cannot show enforcement stayed engaged         |
 | `MIN_POST_ONSET_FAILURES`       | 5     | and needs an absolute count, not just a rate                  |

@@ -106,6 +106,24 @@ goals. Things worth discussing up front:
 - New CLI commands or flags
 - Changes to the programmatic API
 
+### Scoring changes
+
+`SCORING.md` carries a scoring version, separate from the package version and
+the spec version. Bump it whenever a change alters what a site would score
+without the site changing:
+
+- adding or removing a check (the denominator changes)
+- changing a weight tier, warn coefficient, threshold, cap, or the formula
+- adding a check to, or removing one from, a cluster coefficient
+- adding a score-affecting flag or diagnostic
+
+Bump the minor version for additive changes such as new checks, and the major
+version when an existing weight, coefficient, cap, or formula changes. Add a
+line to the version history at the top of `SCORING.md` saying what changed
+and, where you can, which direction scores move. Keep
+`docs/agent-score-calculation.md` and `docs/interaction-diagnostics.md` in
+step with it; the three describe the same rules.
+
 ## Submitting a pull request
 
 1. Create a branch from `main`.

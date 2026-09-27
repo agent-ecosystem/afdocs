@@ -1,10 +1,15 @@
 # How the Agent-Friendly Docs Score Works
 
-Scoring Version: 0.1.0 · [Agent-Friendly Docs Spec v0.6.0](https://agentdocsspec.com) · September 2026
+Scoring Version: 0.2.0 · [Agent-Friendly Docs Spec v0.6.0](https://agentdocsspec.com) · September 2026
+
+Scores from different scoring versions are not comparable. Version history:
+
+- **0.2.0** (September 2026, spec v0.6.0): five checks added (`bot-protection-interference`, `page-size-transfer`, `single-fetch-completeness`, `markdown-link-portability`, `embedded-data-serialization`), raising the maximum raw score from 130 to 153; `single-fetch-completeness` and `markdown-link-portability` join the discovery coefficient and `embedded-data-serialization` joins the HTML path coefficient; the partial-sample flag added. No existing weight, coefficient, cap, or formula changed. Most sites score a few points higher than under 0.1.0 because four of the new checks pass on ordinary prose sites.
+- **0.1.0** (April 2026, spec v0.3.0): initial version.
 
 ## What is this score?
 
-The Agent-Friendly Docs Scorecard measures how effectively AI coding agents can discover, navigate, and consume a documentation site. It runs 23 automated checks against your site and produces a 0–100 score with a letter grade.
+The Agent-Friendly Docs Scorecard measures how effectively AI coding agents can discover, navigate, and consume a documentation site. It runs 28 automated checks against your site and produces a 0–100 score with a letter grade.
 
 Each check corresponds to a section of the [Agent-Friendly Docs Spec](https://agentdocsspec.com), which documents what the check measures, why it matters for real agent workflows, and the observed behaviors that motivated it. This document covers how checks are **scored**, not what they **measure**. If you want to understand a specific check in depth, follow the spec links in the table below.
 
@@ -120,6 +125,8 @@ Each check earns a proportion of its weight based on its result:
 
 For checks that test multiple pages (like `page-size-html` or `rendering-strategy`), the score is proportional. If 3 out of 50 pages fail, the check scores ~94% of its weight, not zero. This design choice provides partial credit for partial success/failure: a site where a few pages exceed size limits is very different from one where nearly all do.
 
+One check deliberately overlaps another. `embedded-data-serialization` only warns or fails on a page that `page-size-html` already placed in its warn or fail band, so an oversized page whose size comes mostly from generated tables or data blobs loses points under both. That is intentional: the size check measures the symptom, and the data check names the cause and the owner who can fix it, which is a separate finding with its own spec section. An oversized page that is mostly prose is penalized once.
+
 ### Overall score
 
 ```
@@ -133,7 +140,7 @@ Rounded to the nearest integer. Checks marked as `notApplicable` (see below) are
 When automatic discovery (`random` or `deterministic` sampling) finds fewer than 5 pages, page-level check scores are unreliable because they represent a handful of pages out of potentially thousands. In this case:
 
 - **Page-level checks** get `scoreDisplayMode: "notApplicable"` and are excluded from the overall score calculation.
-- **Site-level checks** (llms.txt checks, coverage, auth-alternative-access) remain `scoreDisplayMode: "numeric"` and are scored normally.
+- **Site-level checks** (llms.txt checks, coverage, auth-alternative-access, bot-protection-interference) remain `scoreDisplayMode: "numeric"` and are scored normally.
 - **Category scores** where all checks are `notApplicable` become `null` and render as a dash in the scorecard.
 - **Categories with a mix** of page-level and site-level checks score based on the site-level checks only.
 
@@ -143,6 +150,10 @@ This behavior does **not** apply when:
 
 - `--sampling curated` or `--urls`: the user explicitly chose pages to test.
 - `--sampling none`: the user opted out of sampling entirely.
+
+### Partial-sample flag
+
+When the [bot protection degrading scan reliability](#bot-protection-degrading-scan-reliability) diagnostic fires, every page-level check keeps its earned score but carries `partialSample: true` in the scoring API, `(partial sample)` in the scorecard, and a note in text output. The flag does not change any number. It records that the check was computed from whatever sample of pages survived the interference, so the reader knows what the number measures.
 
 ### Warn coefficients
 
@@ -245,6 +256,26 @@ Some problems only become visible when you look at multiple checks together. The
 
 **What to do**: Either reduce HTML page sizes (break large pages, reduce inline CSS/JS) or provide markdown versions and make them discoverable.
 
+### Dynamic content rendered statically
+
+**Triggers when** at least two of `embedded-data-serialization` (too much: widget data dumped wholesale), `single-fetch-completeness` (too little: UI pagination inherited by a format that did not need it), `markdown-content-parity` (inconsistent: the two representations list different items), and `markdown-link-portability` (unnavigable: relative or broken generated links) flag the same page.
+
+**What it means**: A catalog, matrix, or widget-rendered listing was flattened for agents, and the flattening failed in several ways at once. Each check flags one symptom, but the cause is shared: the agent-facing representation comes from a second rendering pipeline that has not had the QA the HTML pipeline gets.
+
+**What to do**: Treat the findings as one pipeline problem. Review the generator for how it dumps widget data, whether it inherits UI pagination or a default filter, and how it writes links, then re-run the four checks together on the affected pages.
+
+**Score impact**: None beyond the four checks' own scores. The diagnostic exists so the report presents them as one finding.
+
+### Bot protection degrading scan reliability
+
+**Triggers when** `bot-protection-interference` warns or fails, or when at least 20% of the HTTP requests made during the run failed, stalled, or were denied. The rate trigger needs at least 20 requests.
+
+**What it means**: Behavioral bot enforcement engaged partway through the scan. Every check still running scored whatever sample of pages survived, so the site's scores can look reasonable while being computed from a fraction of the intended pages. The same enforcement interrupts agents doing multi-page reading sessions, which is the site-side problem the check itself scores.
+
+**What to do**: Treat the scores as measuring a smaller sample. Enforcement is stateful and decays, so re-run after a cooldown or from a different network vantage point (the report says whether the scan ran from a developer machine, CI, or cloud infrastructure), and raise `--request-delay` if the cadence is yours to control. The site-side fix is to exempt public documentation routes from behavioral enforcement.
+
+**Score impact**: No coefficient or cap. Page-level checks keep their scores and carry the [partial-sample flag](#partial-sample-flag). The diagnostic message names the checks that made requests during the interference window.
+
 ### Single-page sample
 
 **Triggers when** automatic discovery (`random` or `deterministic` sampling) found fewer than 5 pages to test.
@@ -306,6 +337,8 @@ If multiple conditions are met, the highest coefficient applies.
 
 If pages are SPA shells, measuring HTML quality is meaningless; if pages are sparse, HTML quality counts for less because agents have less content to work with. This coefficient equals the same weighted proportion that drives the score caps above: `(serverRendered + sparseContent × 0.5) / total`. Fully server-rendered pages count for full weight, sparse pages count for half, and SPA shells count for nothing.
 
+`page-size-transfer` measures the HTML path too but is intentionally excluded. The other HTML checks measure content quality, which is meaningless on a shell. Served bytes are what the agent transfers whether or not the shell renders, so the measurement stays valid and the check keeps full weight. A consequence worth knowing: an SPA site passes this check easily, because an empty shell is small, while `rendering-strategy` carries the penalty for the shell itself.
+
 ### Index truncation coefficient
 
 **Affects**: `llms-txt-links-resolve`, `llms-txt-valid`, `llms-txt-coverage`, `llms-txt-links-markdown`
@@ -326,4 +359,4 @@ In the current scoring version, the three coefficient groups apply to disjoint s
 
 ---
 
-_Weights, coefficients, and thresholds in this document reflect observed agent behavior as of early 2026 and will evolve as agent tooling changes. The [Agent-Friendly Docs Spec](https://agentdocsspec.com) is the authoritative reference for what each check measures and why._
+_Weights, coefficients, and thresholds in this document reflect observed agent behavior as of September 2026 and will evolve as agent tooling changes. The [Agent-Friendly Docs Spec](https://agentdocsspec.com) is the authoritative reference for what each check measures and why._
