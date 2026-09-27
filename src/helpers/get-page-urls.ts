@@ -641,7 +641,7 @@ export function deduplicateVersionedUrls(
       const u = new URL(url);
       const segments = u.pathname.split('/').filter(Boolean);
       let versionIdx = -1;
-      for (let i = 0; i < segments.length; i++) {
+      for (let i = 0; i < segments.length - 1; i++) {
         if (VERSION_SEGMENT.test(segments[i])) {
           versionIdx = i;
           break;
