@@ -106,12 +106,17 @@ If `llms-txt-links-markdown` warns or fails, your llms.txt links point to HTML p
 
 If `llms-txt-size` warns or fails, agents are seeing a truncated version of your index. Split into a root llms.txt that links to section-level files, each under 50,000 characters.
 
+**Keep bot protection off your docs routes**
+
+If `bot-protection-interference` warns or fails, your CDN or firewall challenged, stalled, or blocked some of the scan's requests, and it will do the same to agents reading several pages in a session. This is owned by whoever runs your CDN, firewall, or hosting platform; hand them the check's output and ask for public documentation routes to be exempted from behavioral enforcement. Where limits are needed, an explicit `429` with `Retry-After` is better than a tarpit or a challenge page.
+
 ### Medium impact (4 points each)
 
 These are worth addressing but won't move the score as dramatically:
 
 - **llms.txt directive in markdown** (`llms-txt-directive-md`): Add a blockquote near the top of each markdown page pointing to your llms.txt.
 - **Content negotiation** (`content-negotiation`): Return markdown when agents send `Accept: text/markdown`. Requires server-side support.
+- **Transfer size** (`page-size-transfer`): If pages ship many times their content's weight in framework payload, the fix is a platform setting, not a content change; hand the served-to-content ratio from the report to whoever runs the docs platform.
 - **Content start position** (`content-start-position`): Reduce navigation, breadcrumb, and sidebar markup that precedes the main content area.
 - **Single-fetch completeness** (`single-fetch-completeness`): Serve complete markdown in one response instead of paginating it. If pagination is unavoidable, declare the continuation at the top with an absolute URL that works.
 - **Tabbed content** (`tabbed-content-serialization`): If tabbed UI components create oversized output, consider restructuring into separate pages or using query params to retrieve only specific tab versions.

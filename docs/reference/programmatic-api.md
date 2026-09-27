@@ -51,6 +51,12 @@ const report = await runChecks('https://docs.example.com', {
     pass: 1_000_000,
     fail: 10_000_000,
   },
+  // embedded-data-serialization: what counts as bulk, and when it is blamed
+  bulkTableRows: 20,
+  bulkBlobChars: 2000,
+  bulkDominantShare: 50,
+  // bot-protection-interference: where the scan runs from, if detection is wrong
+  networkContext: 'ci',
 });
 
 // Or run all checks except a few (exclude-list)

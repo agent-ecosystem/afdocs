@@ -20,6 +20,7 @@ echo "- [What Is the Agent Score?](${BASE_URL}/what-is-agent-score.md)" >> "$OUT
 echo "- [Why Agent-Friendliness Matters](${BASE_URL}/why-agent-friendliness-matters.md)" >> "$OUTPUT"
 echo "- [Score Calculation](${BASE_URL}/agent-score-calculation.md)" >> "$OUTPUT"
 echo "- [Interaction Diagnostics](${BASE_URL}/interaction-diagnostics.md)" >> "$OUTPUT"
+echo "- [Glossary](${BASE_URL}/glossary.md): terms used across the checks, for documentarians" >> "$OUTPUT"
 
 cat >> "$OUTPUT" << 'SECTION'
 
@@ -41,11 +42,11 @@ SECTION
 echo "- [Checks Overview](${BASE_URL}/checks/index.md)" >> "$OUTPUT"
 echo "- [Content Discoverability](${BASE_URL}/checks/content-discoverability.md): llms.txt existence, validity, size, link resolution, markdown links, directive" >> "$OUTPUT"
 echo "- [Markdown Availability](${BASE_URL}/checks/markdown-availability.md): .md URL support, content negotiation" >> "$OUTPUT"
-echo "- [Page Size](${BASE_URL}/checks/page-size.md): rendering strategy, HTML/markdown size, content start position" >> "$OUTPUT"
-echo "- [Content Structure](${BASE_URL}/checks/content-structure.md): tabbed content serialization, header quality, code fence validity" >> "$OUTPUT"
+echo "- [Page Size](${BASE_URL}/checks/page-size.md): rendering strategy, HTML/markdown size, transfer size, content start position, single-fetch completeness" >> "$OUTPUT"
+echo "- [Content Structure](${BASE_URL}/checks/content-structure.md): tabbed content serialization, header quality, code fence validity, link portability, embedded data" >> "$OUTPUT"
 echo "- [URL Stability](${BASE_URL}/checks/url-stability.md): HTTP status codes, redirect behavior" >> "$OUTPUT"
 echo "- [Observability](${BASE_URL}/checks/observability.md): llms.txt coverage, markdown content parity, cache headers" >> "$OUTPUT"
-echo "- [Authentication](${BASE_URL}/checks/authentication.md): auth gate detection, alternative access paths" >> "$OUTPUT"
+echo "- [Authentication](${BASE_URL}/checks/authentication.md): auth gate detection, alternative access paths, bot protection interference" >> "$OUTPUT"
 
 cat >> "$OUTPUT" << 'SECTION'
 

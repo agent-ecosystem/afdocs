@@ -71,6 +71,7 @@ export default defineConfig({
             text: 'Interaction Diagnostics',
             link: '/interaction-diagnostics',
           },
+          { text: 'Glossary', link: '/glossary' },
         ],
       },
       {

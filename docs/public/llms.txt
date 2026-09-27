@@ -1,6 +1,6 @@
 # AFDocs
 
-> Test your documentation site against the Agent-Friendly Documentation Spec. AFDocs runs 23 checks across 7 categories to measure how well AI coding agents can discover, navigate, and consume your docs.
+> Test your documentation site against the Agent-Friendly Documentation Spec. AFDocs runs 28 checks across 7 categories to measure how well AI coding agents can discover, navigate, and consume your docs.
 
 ## The Score
 
@@ -8,6 +8,7 @@
 - [Why Agent-Friendliness Matters](https://afdocs.dev/why-agent-friendliness-matters.md)
 - [Score Calculation](https://afdocs.dev/agent-score-calculation.md)
 - [Interaction Diagnostics](https://afdocs.dev/interaction-diagnostics.md)
+- [Glossary](https://afdocs.dev/glossary.md): terms used across the checks, for documentarians
 
 ## Get Started
 
@@ -21,11 +22,11 @@
 - [Checks Overview](https://afdocs.dev/checks/index.md)
 - [Content Discoverability](https://afdocs.dev/checks/content-discoverability.md): llms.txt existence, validity, size, link resolution, markdown links, directive
 - [Markdown Availability](https://afdocs.dev/checks/markdown-availability.md): .md URL support, content negotiation
-- [Page Size](https://afdocs.dev/checks/page-size.md): rendering strategy, HTML/markdown size, content start position
-- [Content Structure](https://afdocs.dev/checks/content-structure.md): tabbed content serialization, header quality, code fence validity
+- [Page Size](https://afdocs.dev/checks/page-size.md): rendering strategy, HTML/markdown size, transfer size, content start position, single-fetch completeness
+- [Content Structure](https://afdocs.dev/checks/content-structure.md): tabbed content serialization, header quality, code fence validity, link portability, embedded data
 - [URL Stability](https://afdocs.dev/checks/url-stability.md): HTTP status codes, redirect behavior
 - [Observability](https://afdocs.dev/checks/observability.md): llms.txt coverage, markdown content parity, cache headers
-- [Authentication](https://afdocs.dev/checks/authentication.md): auth gate detection, alternative access paths
+- [Authentication](https://afdocs.dev/checks/authentication.md): auth gate detection, alternative access paths, bot protection interference
 
 ## API Reference
 

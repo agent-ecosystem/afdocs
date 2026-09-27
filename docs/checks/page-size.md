@@ -117,7 +117,7 @@ Markdown availability helps agents that request it, but most agents still fetch 
 
 ## page-size-transfer
 
-Served byte size of the HTML document response after transfer decoding: what an agent's HTTP client hands to its pipeline before any processing.
+How much an agent has to download to read one page: the size of the HTML page file as served, before anything in it is read. This is often many times larger than the content a reader sees.
 
 |            |                                                                                        |
 | ---------- | -------------------------------------------------------------------------------------- |
@@ -126,43 +126,44 @@ Served byte size of the HTML document response after transfer decoding: what an 
 
 ### Why it matters
 
-`page-size-html` measures what survives HTML-to-markdown conversion, which models pipelines that strip scripts and convert before truncating. Served size measures what every agent pays before any processing happens, and it fails differently:
+An agent fetches a page the way a browser does, but it does not run the page's JavaScript or lay it out. Everything in the page file, visible or not, counts against the agent's budget. Two things make that file larger than the content:
 
-- **Truncate-first and raw-ingestion pipelines** apply their size limit to the bytes as served, so inline scripts and serialized data consume the budget before any content does.
-- **Fetch caps** apply to response bytes, not converted output. A page can convert to a few kilobytes of clean markdown and still exceed the byte budget of the tool fetching it. Claude Code's fetch buffer caps at about 10MB.
-- **Bandwidth and latency** apply to every fetch regardless of pipeline, and multi-page reading sessions multiply them.
+- **Framework payloads.** Many documentation platforms embed a copy of the page's data inside the page itself, in script tags, so the interactive version can be rebuilt in the browser. This [hydration payload](/glossary#hydration-payload) can include the page's entire content a second time, plus menus, metadata, and settings. The reader never sees it. The agent downloads all of it.
+- **Download caps.** Some agent tools stop reading a page after a fixed number of bytes. Claude Code stops at about 10MB. Content past that point is unreachable no matter how well the rest converts.
 
-Modern server-rendering frameworks can make the gap between served bytes and content arbitrarily large. In measurements of production documentation sites on one hosted platform, pages shipped 75-84% of their bytes as serialized framework payloads inside inline script tags: component trees, resolved metadata, and a complete duplicate of the page's markdown source. Served-bytes-to-content ratios ran from 40:1 to 200:1. Those pages score well on `page-size-html` because conversion strips the payload, while every agent fetching them transfers half a megabyte to several megabytes per page.
+`page-size-html` measures what is left after an agent strips the scripts and converts the page to text, which is how many agents work. This check measures what the agent had to download to get there. A page can pass one and fail the other. On one hosted documentation platform, pages measured for the spec carried 75-84% of their bytes as framework payload, at 40 to 200 times the size of their content. They score well on `page-size-html` because conversion removes the payload, and every agent still downloads half a megabyte to several megabytes per page.
 
 ### What is measured
 
-AFDocs fetches each sampled page with `Accept-Encoding: gzip, deflate, br`, decodes the response, and counts the decoded bytes of the document body. Subresources (linked CSS, JavaScript, images) are not counted, because agents generally don't fetch them. Inline scripts, styles, and serialized data payloads embedded in the document are counted, because agents can't avoid receiving them.
+AFDocs downloads each sampled page the way an agent's HTTP client would, with compression enabled, and counts the size of the page file after decompression, because that is what the agent has to process. Linked files (stylesheets, scripts, images) are not counted, because agents generally don't fetch them. Anything embedded in the page file itself is counted, because agents can't avoid receiving it.
 
-The fetch is shared with `page-size-html` through the run's page cache, so the served size and the post-conversion content size come from the same response. When the response was compressed, the output also reports the on-the-wire size from `Content-Length`; serialized payloads compress well, so wire size understates the processing burden.
+The same download feeds `page-size-html`, so the served size and the converted content size come from the same response. When the server compressed the response, the compressed size is reported too; framework payloads compress well, so the compressed size understates the processing burden.
 
 ### Results
 
-Based on decoded byte count:
+Based on the decompressed size of the page file:
 
-| Result | Condition                                                                                   |
-| ------ | ------------------------------------------------------------------------------------------- |
-| Pass   | Under 1MB                                                                                   |
-| Warn   | 1MB-10MB (no documented cap is exceeded, but truncate-first agents read mostly non-content) |
-| Fail   | Over 10MB (exceeds Claude Code's fetch buffer; content beyond the cap is unreachable)       |
+| Result | Condition                                                                                     |
+| ------ | --------------------------------------------------------------------------------------------- |
+| Pass   | Under 1MB                                                                                     |
+| Warn   | 1MB-10MB (no documented cap is exceeded, but most of what the agent downloads is not content) |
+| Fail   | Over 10MB (exceeds Claude Code's download cap; content beyond it is unreachable)              |
 
-These are byte thresholds, not character thresholds. Byte-level caps are less documented than character-level truncation limits, so the defaults are conservative and configurable with `--transfer-pass-threshold` and `--transfer-fail-threshold` (or `transferThresholds` in the [config file](/reference/config-file)).
+These are byte thresholds, not character thresholds. Download caps are less documented than the character limits the other size checks use, so the defaults are conservative and configurable with `--transfer-pass-threshold` and `--transfer-fail-threshold` (or `transferThresholds` in the [config file](/reference/config-file)).
 
-Each page is reported as served bytes alongside its post-conversion content size and the ratio between them, for example `3.4MB served → 29KB content (~120:1)`. A ratio of 20:1 or more on an oversized page is treated as an architecture signature: the bytes are hydration payloads or embedded duplicate content rather than documentation, and the fix suggestion says so.
+Each page is reported as served bytes alongside its converted content size and the ratio between them, for example `3.4MB served → 29KB content (~120:1)`. A ratio of 20:1 or more on an oversized page is treated as a platform signature: the bytes are framework payload or embedded duplicate content rather than documentation, and the fix suggestion says so.
 
 ### How to fix
 
-**If this check warns**, identify what the non-content bytes are. In practice they are usually inline serialization visible in the page source: framework hydration payloads, an embedded duplicate of the page's markdown source, resolved data objects. Avoid shipping the same content twice in different formats, load large data payloads on demand, and confirm markdown variants are available and discoverable so agents have a cheaper path.
+**Who owns this.** Almost always the documentation platform or the engineers who configure it, not the writers. The extra bytes are added at build time by the framework, so the fix is a platform setting or a framework change. Hand the ratio from the report (`3.4MB served → 29KB content`) to whoever runs the platform; it tells them where to look.
 
-**If this check fails**, take the same actions urgently. At this size, at least one major platform cuts the page off at the transfer layer.
+**If this check warns**, find out what the non-content bytes are. In practice they are framework payloads visible in the page source: a copy of the page's data for the interactive version, an embedded duplicate of the page's markdown, resolved data objects. Avoid shipping the same content twice in different formats, load large data on demand, and make sure markdown versions of pages are available and discoverable so agents have a cheaper path.
 
-When the served-to-content ratio is high, the fix lives in framework configuration (what the framework serializes into the page), not in the documentation content itself. Markdown availability gives agents that discover it an escape hatch but does not reduce what HTML-path agents transfer.
+**If this check fails**, take the same actions urgently. At this size, at least one major agent tool cuts the page off before the end.
 
-This check complements [rendering-strategy](#rendering-strategy), which catches pages that ship too little server-rendered content; this check catches the opposite failure, pages that render content fine but ship many times its weight in serialization overhead. Unlike the other HTML-path checks it is not scaled by the [HTML path coefficient](/agent-score-calculation#html-path-coefficient): an SPA shell's served bytes are still what the agent transfers.
+Markdown availability gives agents that find it an escape hatch, but it does not shrink what agents on the [HTML path](/glossary#html-path-and-markdown-path) download; the served page still needs fixing.
+
+This check complements [rendering-strategy](#rendering-strategy), which catches pages that ship too little content; this check catches the opposite failure, pages that render content fine but ship many times its weight in overhead. Unlike the other HTML-path checks it is not scaled by the [HTML path coefficient](/agent-score-calculation#html-path-coefficient): an empty shell's served bytes are still what the agent downloads.
 
 ---
 
@@ -215,7 +216,7 @@ Pagination is application-level truncation, and it is quieter than the platform 
 
 - **Summarization pipelines** run fetched content through a smaller model before the orchestrating agent sees it. A pagination note may not survive, and the summarizer cannot fetch the next page itself.
 - **Trailing pagination notes** sit at the end of the content, the first region platform truncation removes. A truncated response loses the only indication that it was also paginated.
-- **RAG pipelines** chunk content for retrieval. A pagination marker lands in one chunk, unrelated to the content it describes, and effectively disappears.
+- **Retrieval pipelines** ([RAG](/glossary#rag)) cut content into chunks and store them for later lookup. A pagination marker lands in one chunk, unrelated to the content it describes, and effectively disappears.
 
 The spec grounds this check in a production model catalog whose markdown variant showed 100 of 102 entries, with a pagination note at the bottom, a root-relative continuation URL, and a continuation response that returned an empty body. An agent fetching that page got 98% of the catalog and no working way to learn what was missing. The complete catalog would have serialized to about 32,000 characters, under this category's 50,000-character pass threshold. The pagination was inherited from the HTML UI, which has interaction, by a markdown variant that doesn't.
 
@@ -223,7 +224,7 @@ The spec grounds this check in a production model catalog whose markdown variant
 
 The check scans each sampled markdown page (the same responses `page-size-markdown` measures, so nothing is fetched twice) for pagination signals: "N of M" phrasing such as "Showing 100 of 102", links whose URL carries a paging parameter (`?page=2`, `?offset=100`, a cursor) or a `/page/2` segment, "next page" link text, and a `Link: rel="next"` response header. Fenced code and inline code are ignored, so API references that document pagination parameters don't register, and paging links to other hosts are ignored for the same reason. Ordinary prev/next navigation between separate pages is not a signal: a plain "Next" link counts only when its URL looks like pagination or points back at the same document with a different query.
 
-When signals are found, the check fetches the earliest declared continuation with `Accept: text/markdown` and verifies that it returns a success status, a non-empty body, markdown rather than HTML, not a soft 404, and content different from the first page. A declaration counts as "at the top" when it falls within the first 10% of the content, bounded to between 1,000 and 5,000 characters, which keeps it ahead of the strictest documented platform truncation point.
+When signals are found, the check fetches the earliest declared continuation with `Accept: text/markdown` and verifies that it returns a success status, a non-empty body, markdown rather than HTML, not a [soft 404](/glossary#soft-404), and content different from the first page. A declaration counts as "at the top" when it falls within the first 10% of the content, bounded to between 1,000 and 5,000 characters, which keeps it ahead of the strictest documented platform truncation point.
 
 Absence of signals is treated as complete. A markdown page that silently omits content is not detectable here; see [markdown-content-parity](/checks/observability#markdown-content-parity) for the cross-representation comparison that can catch it.
 

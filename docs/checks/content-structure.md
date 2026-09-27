@@ -105,11 +105,11 @@ Whether links in served markdown are absolute URLs, and whether a sample of them
 
 ### Why it matters
 
-Relative URL resolution is well defined by RFC 3986, but it requires knowing the base URL, and agent pipelines routinely lose it. A browser always carries the base. Markdown fetched by an agent passes through a summarization model, gets chunked for RAG, or gets pasted into a context where the source URL is gone. Once the base is lost, a root-relative link (`/docs/guide.md`) is unreconstructable, and a path-relative link (`../guide.md`) is meaningless. This is why the spec already recommends absolute URLs between llms.txt levels; served markdown deserves the same rule.
+A relative link only works if you know what page it is on. A browser always knows; an agent often does not. Markdown fetched by an agent may be summarized by another model, cut into chunks for retrieval ([RAG](/glossary#rag)), or pasted into a context where the source URL is gone. Once the page's own address is lost, a root-relative link (`/docs/guide.md`) cannot be reconstructed and a path-relative link (`../guide.md`) means nothing. The spec already recommends absolute URLs between llms.txt levels for this reason; served markdown deserves the same rule.
 
-Link verification also has to go past status codes. The spec's grounding case is a production catalog whose markdown variant emitted over 100 well-formatted links into a wrong internal path prefix, apparently a build-time substitution error. Every one of them returned 200 with a body. The body was an HTML SPA shell whose only acknowledgment of failure was a framework error digest inside a script payload: a soft 404 served as HTML at a `.md` URL. A checker that tested status codes alone would have called those links working. The `Content-Type` alone would have caught it.
+Checking that links work also has to go past status codes. The spec's grounding case is a production catalog whose markdown listed over 100 well-formed links, all pointing into a wrong path that a build step had substituted. Every one of them returned 200 with a page. The page was an empty HTML shell, with the only sign of failure buried in its code: a [soft 404](/glossary#soft-404) served as HTML at a `.md` address. A checker that looked at status codes alone would have called those links working. Looking at what came back would have caught it.
 
-**Why this check exempts the HTML path.** Relative links in HTML are correct web practice, and they are what makes staging domains, mirrors, and CDN setups work. The HTML path also doesn't need the site's help: a pipeline converting HTML to markdown still holds the fetch URL at conversion time, so resolving relative links is the pipeline's job, with full information. The base URL is only lost downstream of conversion. Served markdown is different on both ends. The generator knows the canonical host, so absolute links are free to produce, and on the best-case consumption path (direct delivery of `text/markdown` under the summarization threshold) the site's bytes reach the model verbatim, with no conversion step where anything could be resolved.
+**Why the HTML path is exempt.** Relative links in HTML are correct practice, and an agent converting HTML to markdown still knows the page's address at conversion time, so it can resolve them. Served markdown gets no such step: on the fastest path the site's own bytes reach the model unchanged, so the links have to arrive already absolute. The generator knows the site's host, so producing them costs nothing.
 
 ### What is measured
 
@@ -119,13 +119,13 @@ The check reads the same markdown responses the other markdown checks already fe
 - **Root-relative** (`/guide.md`): the scheme and host.
 - **Path-relative** (`guide.md`, `../guide.md`): the scheme, the host, and the directory of the document that carried the link.
 
-A destination that never parses as a URL at all (a generator emitting `https://[`) fails the page rather than being counted as a well-formed absolute link.
+A link whose address is not a valid URL at all fails the page rather than being counted as a well-formed absolute link.
 
 Same-document fragment links (`#anchor` with no path) are exempt: they resolve within the content the agent already holds, and rewriting them to absolute URLs adds nothing. Links with a non-HTTP scheme (`mailto:`, `tel:`) are exempt for the same reason. Links inside fenced code blocks and inline code are ignored, so documentation that shows example markdown is not graded on its examples. Image references are classified and reported but never affect the result: they point at assets rather than at documentation an agent navigates to.
 
 Relative links are resolved against the URL that served the markdown, not the page URL. For a site serving `/docs/api` as `/md/docs/api.md`, `guide.md` means `/md/docs/guide.md`.
 
-A sample of the links is then fetched and verified: a success status, a non-empty body, no soft-404 signature, and, for links whose path promises markdown (`.md`, `.mdx`), a response that is actually markdown rather than an HTML shell. Cross-origin links are counted as absolute (which they always are) but never fetched, following the same same-origin/cross-origin split `llms-txt-links-resolve` uses: a third party's availability is not this site's result. The sample is spread evenly across the pages, links that promise markdown are tried first, and a URL that appears on several pages is fetched once, so the whole check stays within the `--max-links` budget.
+A sample of the links is then fetched and verified: a success status, a non-empty body, not a [soft 404](/glossary#soft-404), and, for links whose path promises markdown (`.md`, `.mdx`), a response that is actually markdown rather than an HTML shell. [Cross-origin](/glossary#cross-origin) links, meaning links to other websites, are counted as absolute (which they always are) but never fetched, following the same rule `llms-txt-links-resolve` uses: another site's availability is not this site's result. The sample is spread evenly across the pages, links that promise markdown are tried first, and a URL that appears on several pages is fetched once, so the whole check stays within the `--max-links` budget.
 
 ### Results
 
@@ -170,13 +170,13 @@ The spec's grounding case is a production reference page that served 302KB of HT
 
 The check reads exactly the content `page-size-html` measured: the HTML-to-markdown conversion for HTML responses, or the body itself for markdown responses, from the same cached fetch. In that content it looks for three kinds of bulk element:
 
-- **Tables** with at least 20 data rows (configurable with `--bulk-table-rows`) whose rows share a common cell structure. Pipe tables and raw `<table>` markup that the converter left in place (tables without a header row) both count, because both occupy the converted content.
-- **JSON blobs** of at least 2,000 characters (configurable with `--bulk-blob-chars`), whether in a fenced or indented code block or dropped inline as a paragraph. JSON is recognized by a `json` language tag, by parsing, or by key density when the blob carries comments or elisions. Long code samples in other languages are not bulk data.
-- **Base64 runs** of at least the same size, including `data:` URIs.
+- **Tables** with at least 20 data rows (configurable with `--bulk-table-rows`) whose rows share the same shape. Tables that convert to markdown and tables the converter leaves as HTML both count, because both take up space in what the agent reads.
+- **JSON blobs** of at least 2,000 characters (configurable with `--bulk-blob-chars`), whether in a code block or dropped into the page as a paragraph. Long code samples in other languages are not bulk data.
+- **Base64 runs** (encoded binary data, such as an inline image) of at least the same size.
 
 For each element the check records its kind, size, share of the converted content, position, and for tables the row and column counts. It also records how much of the page's prose comes before the first bulk element, so the spec's "prose before data" recommendation is checkable per page.
 
-This check only sees bulk that survives conversion into content. Serialized payloads inside `<script>` tags are stripped by conversion and belong to [page-size-transfer](/checks/page-size#page-size-transfer): script payloads burden every fetch, content-embedded bulk burdens what the model reads.
+This check only sees bulk that survives conversion into content. Framework payloads in script tags are stripped by conversion and belong to [page-size-transfer](/checks/page-size#page-size-transfer): script payloads cost every download, content-embedded bulk costs what the model reads.
 
 ### Results
 
