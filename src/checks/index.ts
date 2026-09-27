@@ -19,6 +19,7 @@ import './page-size/page-size-markdown.js';
 import './page-size/page-size-html.js';
 import './page-size/page-size-transfer.js';
 import './page-size/content-start-position.js';
+import './page-size/single-fetch-completeness.js';
 
 // Category 4: Content Structure
 import './content-structure/tabbed-content-serialization.js';

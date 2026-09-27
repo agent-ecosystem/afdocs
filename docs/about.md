@@ -3,7 +3,7 @@
 <div class="about-intro">
 <div class="about-text">
 
-AFDocs is an open-source tool that tests documentation sites against the [Agent-Friendly Documentation Spec](https://agentdocsspec.com). The spec defines what makes documentation accessible to AI coding agents, based on observed behavior across real agent platforms. AFDocs automates those observations into 25 checks that produce a score and actionable fix suggestions.
+AFDocs is an open-source tool that tests documentation sites against the [Agent-Friendly Documentation Spec](https://agentdocsspec.com). The spec defines what makes documentation accessible to AI coding agents, based on observed behavior across real agent platforms. AFDocs automates those observations into 26 checks that produce a score and actionable fix suggestions.
 
 </div>
 <div class="about-logo">

@@ -71,6 +71,6 @@ describe('CLI', () => {
     // Should have results from multiple categories
     const categories = new Set(report.results.map((r) => r.category));
     expect(categories.size).toBeGreaterThan(1);
-    expect(report.summary.total).toBe(25);
+    expect(report.summary.total).toBe(26);
   });
 });

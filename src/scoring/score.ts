@@ -18,6 +18,7 @@ export const PAGE_LEVEL_CHECKS: ReadonlySet<string> = new Set([
   'page-size-markdown',
   'page-size-html',
   'page-size-transfer',
+  'single-fetch-completeness',
   'markdown-content-parity',
   'content-start-position',
   'tabbed-content-serialization',

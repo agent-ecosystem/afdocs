@@ -45,6 +45,7 @@ export const CHECK_WEIGHTS: Record<string, CheckWeight> = {
   'llms-txt-valid': w('medium', 0.75),
   'content-negotiation': w('medium', 0.75),
   'page-size-transfer': w('medium', 0.5),
+  'single-fetch-completeness': w('medium', 0.6),
   'content-start-position': w('medium', 0.5),
   'tabbed-content-serialization': w('medium', 0.5),
   'markdown-code-fence-validity': w('medium'),

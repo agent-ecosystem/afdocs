@@ -35,7 +35,7 @@ Configure your docs platform to serve `.md` variants for all documentation pages
 
 ### Dependencies
 
-`page-size-markdown`, `markdown-code-fence-validity`, and `markdown-content-parity` all require either this check or `content-negotiation` to pass. If neither passes, those downstream checks are skipped.
+`page-size-markdown`, `markdown-code-fence-validity`, and `markdown-content-parity` all require either this check or `content-negotiation` to pass. If neither passes, those downstream checks are skipped. `single-fetch-completeness` has the same prerequisite, with one more way in: it also runs when `llms-txt-links-markdown` finds markdown links, because a site can serve agent-facing markdown through llms.txt alone.
 
 ---
 

@@ -1,6 +1,6 @@
 # Checks Reference
 
-AFDocs runs 25 checks across 7 categories. Each check implements a section of the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/), which documents the observed agent behaviors and failure modes that motivated the check.
+AFDocs runs 26 checks across 7 categories. Each check implements a section of the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/), which documents the observed agent behaviors and failure modes that motivated the check.
 
 ## Categories
 
@@ -8,7 +8,7 @@ AFDocs runs 25 checks across 7 categories. Each check implements a section of th
 | ---------------------------------------------------------- | ------ | -------------------------------------------------------------------- |
 | [Content Discoverability](/checks/content-discoverability) | 7      | Whether agents can find and navigate your documentation via llms.txt |
 | [Markdown Availability](/checks/markdown-availability)     | 2      | Whether agents can get documentation as markdown instead of HTML     |
-| [Page Size and Truncation Risk](/checks/page-size)         | 5      | Whether agents can process your pages without losing content         |
+| [Page Size and Truncation Risk](/checks/page-size)         | 6      | Whether agents can process your pages without losing content         |
 | [Content Structure](/checks/content-structure)             | 3      | Whether page content is structured in ways agents can consume        |
 | [URL Stability and Redirects](/checks/url-stability)       | 2      | Whether documentation URLs behave predictably for agents             |
 | [Observability and Content Health](/checks/observability)  | 3      | Whether agent-facing resources stay accurate over time               |
@@ -35,6 +35,7 @@ Some checks depend on others. If a dependency doesn't pass, the dependent check 
 - `markdown-code-fence-validity` requires `markdown-url-support` or `content-negotiation`
 - `llms-txt-coverage` requires `llms-txt-exists`
 - `markdown-content-parity` requires `markdown-url-support` or `content-negotiation`
+- `single-fetch-completeness` requires `markdown-url-support`, `content-negotiation`, or `llms-txt-links-markdown` (a site can serve agent-facing markdown through llms.txt alone, and that markdown gets the same evaluation)
 - `auth-alternative-access` requires `auth-gate-detection` (warn or fail)
 
 `bot-protection-interference` has no dependencies but inverts the usual direction: it runs last, evaluated from every request the other checks made, and when it warns or fails the multi-page checks are flagged as computed from a partial sample. See [Bot protection degrading scan reliability](/interaction-diagnostics#bot-protection-degrading-scan-reliability).
