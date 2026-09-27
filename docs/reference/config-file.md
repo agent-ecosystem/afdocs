@@ -120,7 +120,7 @@ Override default runner options. All fields are optional:
 
 ### `pages` (optional)
 
-A list of specific page URLs to test. When `pages` is present and no `samplingStrategy` is explicitly set, the strategy defaults to `curated`, which skips discovery and tests exactly the listed pages.
+A list of specific page URLs to test. When `pages` is present and no `samplingStrategy` is explicitly set, the strategy defaults to `curated`, which skips page-sample discovery and uses the listed pages for page-level checks. Checks that read indexes, follow their links, or calculate sitemap coverage can still fetch other resources.
 
 Each entry can be a plain URL string or an object with `url` and an optional `tag` for grouped scoring:
 
@@ -144,6 +144,8 @@ When pages have tags, the scorecard and JSON output include per-tag aggregate sc
 Tags are optional and can be mixed with plain URL strings. Pages without tags are included in the overall score but don't appear in any tag group.
 
 Note that `maxLinksToTest` does not apply to curated pages; all listed pages are tested.
+
+Curated entries are not filtered by the base URL's path or by discovery's locale and version preferences. Keep the list within your intended scope. See [Documentation at Scale](/documentation-at-scale) for product-owned configs, repeatable page checks, and the limits of automatic discovery.
 
 ## Config resolution
 

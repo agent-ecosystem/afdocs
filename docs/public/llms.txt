@@ -16,6 +16,7 @@
 - [Run Locally](https://afdocs.dev/run-locally.md)
 - [Improve Your Score](https://afdocs.dev/improve-your-score.md)
 - [CI Integration](https://afdocs.dev/ci-integration.md)
+- [Documentation at Scale](https://afdocs.dev/documentation-at-scale.md): product-owned page samples, discovery limits, and CI on shared hosts
 
 ## Checks Reference
 

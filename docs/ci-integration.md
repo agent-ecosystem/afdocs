@@ -50,6 +50,8 @@ Checks that fail cause the test to fail. Checks that warn still pass (they're in
 
 ## Running a subset of checks
 
+For products on a shared documentation host, [Documentation at Scale](/documentation-at-scale) shows how to run repeatable checks on pages your team chooses, both before deployment and on a schedule. It includes a curated config and explains what those checks do and do not establish about agents' ability to find your documentation.
+
 To exclude specific checks, use `skipChecks`. For example, a local preview server may not implement the content negotiation or cache headers supplied by your production server:
 
 ```yaml

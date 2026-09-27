@@ -83,7 +83,7 @@ See the [Checks Reference](/checks/) for the full list of check IDs and dependen
 
 ## Check a specific page
 
-Skip page discovery entirely and check just one URL with `--sampling none`:
+Skip page-sample discovery and use just one URL for page-level checks with `--sampling none`:
 
 ```bash
 npx afdocs check https://docs.example.com/api/auth --sampling none
@@ -103,7 +103,7 @@ If you want to check a handful of pages without running full discovery, pass the
 npx afdocs check https://docs.example.com --urls https://docs.example.com/quickstart,https://docs.example.com/api/auth
 ```
 
-This skips page discovery and runs all checks against exactly those URLs. You can tag pages for grouped scoring by defining them in a config file:
+This skips page-sample discovery. Page-level checks use the listed URLs; index, link, and coverage checks can still fetch other resources. You can tag pages for grouped scoring by defining them in a config file:
 
 ```yaml
 # agent-docs.config.yml
@@ -124,6 +124,8 @@ npx afdocs check --format scorecard
 ```
 
 The scorecard will include a Tag Scores section showing how each group of pages scores, with a per-check breakdown of what's passing and failing within each tag. The JSON output (`--format json --score`) includes full per-page detail for each tag. See [Config File Reference](/reference/config-file) for the full `pages` schema.
+
+As a rule of thumb, if your site has roughly 500 or more documentation pages, or two or more products sharing a host that need separate results, see [Documentation at Scale](/documentation-at-scale) for representative page sets, repeatable page checks, and the limits of automatic discovery. These are workflow guidelines, not crawl limits; smaller sites can benefit too when their content types, locales, or versions need separate attention.
 
 ## Get consistent results between runs
 

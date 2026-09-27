@@ -304,6 +304,77 @@ across roots and indexes, empty/error responses, raw coverage mode, fallback
 warning propagation, normal termination, and the strict 1% boundary.
 The initial locale and unbounded-walk tests both failed before the fix.
 
+## Documentation at scale: design considerations
+
+Drafting `docs/documentation-at-scale.md` after the #120 live reproduction
+exposed several distinctions that the current CLI makes easy to miss. These
+are design questions, not new configuration options or requirements to
+expand the bounded-walk fix.
+
+### Prioritize completeness and source selection
+
+1. **Make discovery completeness machine-readable.** Budget exhaustion is
+   currently communicated through warning strings. A completed scan, an
+   incomplete discovery set, and a base-page fallback are different states.
+   Consider structured metadata for sources, stop reasons, examined and
+   retained counts, and the scope of each walk. Preserve it in reports and
+   show it prominently enough that a high page-quality score cannot be
+   mistaken for a complete product assessment. Avoid claiming an exhaustive
+   set even when a budget was not reached: collection caps, omitted nested
+   indexes, and locale/version refinement still affect the corpus.
+2. **Define a product-specific sitemap selection contract.** The CLI/config
+   can select a published llms.txt with `llmsTxtUrl` but has no equivalent
+   sitemap selector. A correct product prefix can still find nothing before
+   the global index budget runs out. The helper's explicit sitemap roots
+   added for coverage fallback do not settle a user-facing API. Any selector
+   needs consistent behavior across discovery and coverage, origin rewriting,
+   scope and locale rules, and explainable fallback when the selected source
+   fails. An explicit narrow source is preferable to guessing products from
+   filenames or silently increasing traversal depth.
+
+### Keep selection, requests, and scoring distinct
+
+- **Separate page selection from index work in the interface.** Curated
+  sampling is repeatable page selection, not a request allowlist. Coverage
+  and index link checks have their own work. Documentation now corrects the
+  old "skips discovery entirely" wording. A future resolved-config summary
+  or check-scope summary could show this before network work begins, without
+  promising an exact request count. Prefer visibility over adding named
+  profiles until teams demonstrate stable profile needs.
+- **Choose an explicit policy for incomplete CI evidence.** Warning-level
+  conditions do not normally fail the CLI. A team may want incomplete
+  discovery to block a discovery audit while allowing its curated page
+  regression job to run. This should be an explicit policy built on
+  structured completeness, not matching warning text or treating missing
+  evidence as a page-quality failure. Consider exit behavior, skipped checks,
+  JSON consumers, and scoring together before choosing a flag or default.
+- **Distinguish a scope from a network boundary.** Today the base path and
+  locale/version preferences filter discovered candidates, while curated
+  entries are used directly. Redirects, Markdown candidates, and index link
+  checks can reach other URLs. An enforced allowlist would be a separate
+  feature with explicit behavior for those cases; do not imply that a base
+  URL already provides it. Keep this separate from page/non-page URL
+  classification and Markdown URL mapping.
+- **Consider shared budgets and reuse before higher limits.** Discovery and
+  coverage can repeat sitemap work in separate walks, and parallel product
+  jobs do not share a rate limiter. A scan-wide budget or cache needs to
+  respect origin rewriting, path scope, raw coverage versus refined samples,
+  and cancellation. A hard response-byte cap also needs HTTP-layer support;
+  the current between-response budget is not that guarantee. Larger default
+  limits would not establish representative sampling across products.
+- **Report enough context for comparison.** Config-selected checks, curated
+  pages, tags, environment, and AFDocs/scoring versions affect what a score
+  means. Define how those inputs travel with a report before adding
+  cross-product score aggregation. Tags currently group selected results;
+  they do not implement stratified discovery or statistically representative
+  sampling.
+
+The published guide uses existing controls only: product-owned configs,
+explicit page-check selection, separate discovery audits, and review of
+warnings and tested pages. Future implementations should keep the existing
+no-per-discovered-page-probe and bounded-depth invariants, and test request
+accounting and partial-result semantics alongside any new option.
+
 ## Invariants
 
 - Discovery emits page URLs; `.md` candidates are derived per check.

@@ -96,8 +96,10 @@ Some checks depend on others. If you include a check without its dependency, the
 
 - **`random`**: Shuffle discovered URLs and take the first N. Fast and broad, but results vary between runs. Useful for spot-checking pages across a large corpus.
 - **`deterministic`**: Sort discovered URLs alphabetically and pick an even spread. Produces the same sample on repeated runs as long as the URL set is stable. Useful for CI or when verifying a fix.
-- **`curated`**: Test a specific set of pages listed in the config file's `pages` field or passed via `--urls`. Skips discovery entirely. Useful for ongoing monitoring of representative pages or focused evaluation of specific sections.
-- **`none`**: Skip discovery entirely. Only check the URL you pass on the command line.
+- **`curated`**: Use the pages listed in the config file's `pages` field or passed via `--urls` for page-level checks, without page-sample discovery. Useful for ongoing monitoring of representative pages or focused evaluation of specific sections.
+- **`none`**: Skip page-sample discovery and use only the URL you pass on the command line for page-level checks.
+
+Neither `curated` nor `none` disables a selected check's own index or link fetching. In particular, sitemap coverage runs independently of the page sample. `--max-links` does not truncate a curated list or cap total requests. See [Documentation at Scale](/documentation-at-scale) for choosing a predictable page-check workflow.
 
 ```bash
 # Reproducible results
