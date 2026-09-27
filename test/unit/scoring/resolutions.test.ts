@@ -120,7 +120,7 @@ describe('resolutions', () => {
           },
         }),
       );
-      expect(text).toContain('2 of 8 pages convert to 50,000–100,000 characters');
+      expect(text).toContain('2 of 8 pages convert to 50,000-100,000 characters');
       expect(text).toContain('large tables on 2');
       expect(text).toContain('most of the prose comes after the data on 1');
       expect(text).not.toContain('JSON blobs');
@@ -146,7 +146,7 @@ describe('resolutions', () => {
 
     it('falls back to the default thresholds and no reasons', () => {
       const text = getResolution(r('embedded-data-serialization', 'warn', {}));
-      expect(text).toContain('0 of 0 pages convert to 50,000–100,000 characters');
+      expect(text).toContain('0 of 0 pages convert to 50,000-100,000 characters');
       expect(text).toContain('embedded data. Bulk data is usually');
     });
   });
@@ -186,6 +186,34 @@ describe('resolutions', () => {
       const text = getResolution(r('markdown-link-portability', 'warn', {}));
       expect(text).toContain('0 of 0 markdown pages');
       expect(text).not.toContain('(');
+    });
+
+    it('adds the representation advice only when a .md link redirected to HTML', () => {
+      const text = getResolution(
+        r('markdown-link-portability', 'warn', {
+          warnBucket: 1,
+          testedPages: 8,
+          reasons: { rootRelative: 0, mismatched: 1 },
+        }),
+      );
+      expect(text).toContain('a .md link that redirects to HTML on 1');
+      expect(text).toContain('serve markdown at the linked URL');
+    });
+  });
+
+  describe('bot-protection-interference', () => {
+    it('warn asks for route exemption and Retry-After on explicit 429s', () => {
+      const text = getResolution(r('bot-protection-interference', 'warn', {}));
+      expect(text).toContain('exempt public documentation routes');
+      expect(text).toContain('Retry-After');
+      expect(text).toContain('sustained blocking');
+    });
+
+    it('fail prefers explicit 429s over tarpits and forbids 200 interstitials', () => {
+      const text = getResolution(r('bot-protection-interference', 'fail', {}));
+      expect(text).toContain('automation-friendly');
+      expect(text).toContain('429 with Retry-After');
+      expect(text).toContain('never serve challenge interstitials with a 200 status');
     });
   });
 

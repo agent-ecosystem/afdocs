@@ -277,7 +277,8 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
         'absolute links cost nothing to produce. Root-relative links resolve ' +
         'only while the fetch URL is still around, and agent pipelines lose ' +
         'it routinely, to summarization, to RAG chunking, or to content being ' +
-        'pasted somewhere else.'
+        'pasted somewhere else.' +
+        redirectNote(d)
       );
     },
     fail: (d) => {
@@ -323,7 +324,7 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
       const tested = (d.testedPages as number) ?? 0;
       const t = sizeThresholds(d);
       return (
-        `${warnCount} of ${tested} pages convert to ${t.pass}–${t.fail} characters ` +
+        `${warnCount} of ${tested} pages convert to ${t.pass}-${t.fail} characters ` +
         `mainly because of embedded data${bulkReasons(d)}. ` +
         BULK_STRUCTURE_ADVICE +
         ' Report the attribution to the page owners: a page an author ' +
@@ -594,6 +595,21 @@ function portabilityReasons(d: Record<string, unknown>, kind: 'warn' | 'fail'): 
     if (r.broken) parts.push(`a sampled link that does not resolve on ${r.broken}`);
   }
   return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
+
+/**
+ * A `.md` link that redirects to an HTML page is the spec's minor mismatch,
+ * and making the link absolute does not fix it: the linked URL has to serve
+ * markdown. Only added when that reason was tallied.
+ */
+function redirectNote(d: Record<string, unknown>): string {
+  const r = d.reasons as Partial<Record<string, number>> | undefined;
+  if (!r?.mismatched) return '';
+  return (
+    ' Where a `.md` link redirects to an HTML page, serve markdown at the ' +
+    'linked URL, or link to the URL that serves it: the content arrived, but ' +
+    'not in the representation the link promised.'
+  );
 }
 
 /**

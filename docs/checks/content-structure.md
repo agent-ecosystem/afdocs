@@ -143,7 +143,7 @@ The verbose output names the link counts per page and each broken sample with it
 
 ### How to fix
 
-**If this check warns**, emit absolute URLs when generating markdown. The site's canonical host is known at build time, so absolute links cost nothing to produce, and they are the only form that survives a pipeline that has lost the fetch URL.
+**If this check warns**, emit absolute URLs when generating markdown. The site's canonical host is known at build time, so absolute links cost nothing to produce, and they are the only form that survives a pipeline that has lost the fetch URL. Where the warn is a `.md` link that redirects to an HTML page, absolute URLs are not the fix: serve markdown at the linked URL, or link to the URL that serves it.
 
 **If this check fails**, fix the link generation first, then make the links absolute. Verify generated links in CI by fetching a sample and checking both status and content type: a link set that is generated is a link set that can break wholesale, and a status code alone will not catch it.
 
