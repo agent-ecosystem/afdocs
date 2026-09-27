@@ -96,8 +96,10 @@ Some checks depend on others. If you include a check without its dependency, the
 
 - **`random`**: Shuffle discovered URLs and take the first N. Fast and broad, but results vary between runs. Useful for spot-checking pages across a large corpus.
 - **`deterministic`**: Sort discovered URLs alphabetically and pick an even spread. Produces the same sample on repeated runs as long as the URL set is stable. Useful for CI or when verifying a fix.
-- **`curated`**: Test a specific set of pages listed in the config file's `pages` field or passed via `--urls`. Skips discovery entirely. Useful for ongoing monitoring of representative pages or focused evaluation of specific sections.
-- **`none`**: Skip discovery entirely. Only check the URL you pass on the command line.
+- **`curated`**: Use the pages listed in the config file's `pages` field or passed via `--urls` for page-level checks, without page-sample discovery. Useful for ongoing monitoring of representative pages or focused evaluation of specific sections.
+- **`none`**: Skip page-sample discovery and use only the URL you pass on the command line for page-level checks.
+
+Neither `curated` nor `none` disables a selected check's own index or link fetching. In particular, sitemap coverage runs independently of the page sample. `--max-links` does not truncate a curated list or cap total requests. See [Documentation at Scale](/documentation-at-scale) for choosing a predictable page-check workflow.
 
 ```bash
 # Reproducible results
@@ -126,6 +128,19 @@ afdocs check https://docs.example.com --max-links 100
 | `--network-context <class>`    | detected    | Where the scan runs from, reported with bot-protection findings: `developer-machine`, `ci`, or `cloud` |
 
 When `afdocs` discovers pages from a sitemap or `llms.txt`, it automatically filters out duplicate locale and version variants so you get a representative sample of unique content.
+
+Sitemap walks stop after 20 sitemap fetch attempts or after completed sitemap
+bodies total 50 MiB of decoded data, even when no URLs match the base path.
+The byte limit is checked between responses, so the final body can exceed it.
+These limits apply per walk, including coverage's docs-sitemap fallback, not
+to the whole scan. When a limit prevents further fetching, discovery reports
+partial results under `--verbose`; coverage includes `sitemapWarnings` in its
+result details.
+
+A discovery warning also identifies a path prefix that matches fewer than 1%
+of examined same-site URLs. Check for a typo or use a broader base URL, for
+example `afdocs check https://learn.microsoft.com/en-us --verbose` instead of
+scoping discovery to `/en-us/docs`. The warning does not change your scope.
 
 The resolution order for both flags is:
 

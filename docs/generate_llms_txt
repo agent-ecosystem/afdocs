@@ -32,6 +32,7 @@ echo "- [Quick Start](${BASE_URL}/quick-start.md)" >> "$OUTPUT"
 echo "- [Run Locally](${BASE_URL}/run-locally.md)" >> "$OUTPUT"
 echo "- [Improve Your Score](${BASE_URL}/improve-your-score.md)" >> "$OUTPUT"
 echo "- [CI Integration](${BASE_URL}/ci-integration.md)" >> "$OUTPUT"
+echo "- [Documentation at Scale](${BASE_URL}/documentation-at-scale.md): product-owned page samples, discovery limits, and CI on shared hosts" >> "$OUTPUT"
 
 cat >> "$OUTPUT" << 'SECTION'
 

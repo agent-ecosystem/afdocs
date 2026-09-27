@@ -14,6 +14,10 @@ A page a bot-protection system shows instead of the content, asking the visitor 
 
 On a different website (a different scheme, host, or port) from the one being tested. AFDocs never fetches cross-origin links to grade a site, because another site's availability is not this site's result.
 
+## Curated page list
+
+A list of pages you choose for AFDocs to check, such as an installation guide, a tutorial, and an API reference. Supply their URLs through `pages` in a config file or the `--urls` CLI option. AFDocs uses your list instead of automatically choosing the page sample. Checks that read indexes or follow links can still request other pages. See [choosing representative pages](/documentation-at-scale#maintain-a-representative-page-set) for an example.
+
 ## Hydration payload
 
 Data that a JavaScript framework embeds inside a page, usually in script tags, so the interactive version of the page can be rebuilt in the browser. It often contains a full copy of the page's content plus menus and metadata. Readers never see it; agents download all of it. See [page-size-transfer](/checks/page-size#page-size-transfer).
@@ -21,6 +25,10 @@ Data that a JavaScript framework embeds inside a page, usually in script tags, s
 ## HTML path and markdown path
 
 The two ways an agent can get a page. On the HTML path it fetches the same page a browser would and converts it to text. On the markdown path it fetches a markdown version, either by appending `.md` to the URL, by asking for markdown ([content negotiation](/checks/markdown-availability#content-negotiation)), or by following links from `llms.txt`. The markdown path is cheaper and cleaner, but only helps agents that find it.
+
+## Product prefix
+
+The shared beginning of page addresses for one product. For example, `https://learn.microsoft.com/en-us/dotnet/` identifies the English-language .NET section, rather than the whole Microsoft Learn site. AFDocs uses this part of the starting URL to narrow the pages it finds during discovery. It does not remove pages from a curated list or restrict every request to that section. See [defining your team's scope](/documentation-at-scale#define-the-scope-your-team-owns).
 
 ## RAG
 

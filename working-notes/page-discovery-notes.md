@@ -247,6 +247,134 @@ Nested-index regressions assert that discovery fetches only the index,
 not its page candidates. Markdown and negotiation regressions also pin
 the requests made for the formerly skipped pages.
 
+### September 2026: bounded sitemap walks and infix locales (issue #120)
+
+A narrow Microsoft Learn base URL (`/en-us/docs`) matched no sitemap
+pages, so the accepted-URL cap never fired. The index contained thousands
+of large shards. The locale filter also missed product filenames such as
+`dotnet_en-us_1.xml` and `previous-versions_fr-fr_3.xml`.
+
+Decisions:
+
+- Recognize a filename locale token delimited by `_` or `-`, optionally
+  followed by a numeric shard. Match the parsed pathname, ignoring query
+  strings. Validate with the existing locale-code helper, require two
+  distinct locales before filtering, preserve non-locale sitemaps, and
+  retain the existing preferred-locale and fallback rules.
+- Each sitemap walk has a shared ceiling of 20 sitemap fetch attempts,
+  including roots, indexes, children, failed responses, and empty responses.
+  This is independent of accepted URLs. Gzipped sitemaps remain unsupported
+  and do not consume fetch slots. Robots discovery is separate; HTTP
+  redirects and retries retain their existing behavior, so 20 fetch calls
+  is not a promise of 20 wire requests.
+- Stop starting additional sitemap fetches after successfully read bodies
+  total 50 MiB of decoded bytes. This leaves room for one of the reported
+  roughly 46 MB shards plus its index, while preventing hundreds of such
+  downloads. Use `HttpResponse.body()` for served-byte accounting, or UTF-8
+  text length for custom clients without that method.
+- The byte budget is checked between responses, not during streaming.
+  The final body can overshoot it, and a failed partial read has no byte
+  count. It is not a per-response memory ceiling or a wall-clock guarantee;
+  the existing HTTP timeouts still apply. A hard streaming cap would require
+  a separate HTTP API change, including canonical-origin rewriting.
+- When a budget prevents another fetch, retain already-collected URLs and
+  warn that discovery is partial. Do not issue a budget warning merely
+  because the last input or the existing accepted-URL cap ended the walk.
+  Normal locale/version refinement and sampling limits remain unchanged.
+- Share the bounded walker with coverage's docs-specific sitemap fallback
+  through an optional explicit sitemap-root list. Coverage and page discovery
+  can run separate walks, each with its own budget; this is not a scan-wide
+  quota. Partial coverage results retain `sitemapWarnings` and should not be
+  treated as exhaustive coverage of the site.
+- Warn when a non-root path prefix matches fewer than 1% of examined
+  same-site URLs, before locale/version refinement. Include the prefix,
+  counts, and a suggestion to use a broader base URL. Apply this to both
+  sitemap and llms.txt discovery. Empty sources and root prefixes do not
+  warn; zero matches from a nonempty source does. Do not broaden the scope
+  automatically.
+
+Rejected alternatives: relying on locale filtering alone (one locale can
+still have hundreds of shards), stopping after a few nonmatching shards
+(later shards may contain the requested product), and counting only
+successful or accepted pages (the original unbounded-walk failure).
+No per-page probes, deeper traversal, or configurable budget API were added.
+
+Regression tests pin locale forms, fetch and byte limits, shared budgets
+across roots and indexes, empty/error responses, raw coverage mode, fallback
+warning propagation, normal termination, and the strict 1% boundary.
+The initial locale and unbounded-walk tests both failed before the fix.
+
+## Documentation at scale: design considerations
+
+Drafting `docs/documentation-at-scale.md` after the #120 live reproduction
+exposed several distinctions that the current CLI makes easy to miss. These
+are design questions, not new configuration options or requirements to
+expand the bounded-walk fix.
+
+### Prioritize completeness and source selection
+
+1. **Make discovery completeness machine-readable.** Budget exhaustion is
+   currently communicated through warning strings. A completed scan, an
+   incomplete discovery set, and a base-page fallback are different states.
+   Consider structured metadata for sources, stop reasons, examined and
+   retained counts, and the scope of each walk. Preserve it in reports and
+   show it prominently enough that a high page-quality score cannot be
+   mistaken for a complete product assessment. Avoid claiming an exhaustive
+   set even when a budget was not reached: collection caps, omitted nested
+   indexes, and locale/version refinement still affect the corpus.
+2. **Define a product-specific sitemap selection contract.** The CLI/config
+   can select a published llms.txt with `llmsTxtUrl` but has no equivalent
+   sitemap selector. A correct product prefix can still find nothing before
+   the global index budget runs out. The helper's explicit sitemap roots
+   added for coverage fallback do not settle a user-facing API. Any selector
+   needs consistent behavior across discovery and coverage, origin rewriting,
+   scope and locale rules, and explainable fallback when the selected source
+   fails. An explicit narrow source is preferable to guessing products from
+   filenames or silently increasing traversal depth.
+
+### Keep selection, requests, and scoring distinct
+
+- **Separate page selection from index work in the interface.** Curated
+  sampling is repeatable page selection, not a request allowlist. Coverage
+  and index link checks have their own work. Documentation now corrects the
+  old "skips discovery entirely" wording. A future resolved-config summary
+  or check-scope summary could show this before network work begins, without
+  promising an exact request count. Prefer visibility over adding named
+  profiles until teams demonstrate stable profile needs.
+- **Choose an explicit policy for incomplete CI evidence.** Warning-level
+  conditions do not normally fail the CLI. A team may want incomplete
+  discovery to block a discovery audit while allowing its curated page
+  regression job to run. This should be an explicit policy built on
+  structured completeness, not matching warning text or treating missing
+  evidence as a page-quality failure. Consider exit behavior, skipped checks,
+  JSON consumers, and scoring together before choosing a flag or default.
+- **Distinguish a scope from a network boundary.** Today the base path and
+  locale/version preferences filter discovered candidates, while curated
+  entries are used directly. Redirects, Markdown candidates, and index link
+  checks can reach other URLs. An enforced allowlist would be a separate
+  feature with explicit behavior for those cases; do not imply that a base
+  URL already provides it. Keep this separate from page/non-page URL
+  classification and Markdown URL mapping.
+- **Consider shared budgets and reuse before higher limits.** Discovery and
+  coverage can repeat sitemap work in separate walks, and parallel product
+  jobs do not share a rate limiter. A scan-wide budget or cache needs to
+  respect origin rewriting, path scope, raw coverage versus refined samples,
+  and cancellation. A hard response-byte cap also needs HTTP-layer support;
+  the current between-response budget is not that guarantee. Larger default
+  limits would not establish representative sampling across products.
+- **Report enough context for comparison.** Config-selected checks, curated
+  pages, tags, environment, and AFDocs/scoring versions affect what a score
+  means. Define how those inputs travel with a report before adding
+  cross-product score aggregation. Tags currently group selected results;
+  they do not implement stratified discovery or statistically representative
+  sampling.
+
+The published guide uses existing controls only: product-owned configs,
+explicit page-check selection, separate discovery audits, and review of
+warnings and tested pages. Future implementations should keep the existing
+no-per-discovered-page-probe and bounded-depth invariants, and test request
+accounting and partial-result semantics alongside any new option.
+
 ## Invariants
 
 - Discovery emits page URLs; `.md` candidates are derived per check.

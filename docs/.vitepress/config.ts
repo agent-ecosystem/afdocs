@@ -81,6 +81,7 @@ export default defineConfig({
           { text: 'Run Locally', link: '/run-locally' },
           { text: 'Improve Your Score', link: '/improve-your-score' },
           { text: 'CI Integration', link: '/ci-integration' },
+          { text: 'Documentation at Scale', link: '/documentation-at-scale' },
         ],
       },
       {
