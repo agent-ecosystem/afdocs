@@ -1,5 +1,8 @@
+import { extractMarkdownLinks } from '../checks/content-discoverability/llms-txt-valid.js';
 import { looksLikeMarkdown } from './detect-markdown.js';
-import { discoverAndSamplePages } from './get-page-urls.js';
+import { isSoft404Body } from './detect-soft-404.js';
+import { discoverAndSamplePages, filterByPathPrefix, getPathFilterBase } from './get-page-urls.js';
+import { getLlmsTxtFilesForAnalysis } from './llms-txt.js';
 import { toMdUrls } from './to-md-urls.js';
 import type { CheckContext, DiscoveredFile } from '../types.js';
 
@@ -7,6 +10,14 @@ export interface MarkdownPage {
   url: string;
   content: string;
   source: string;
+  /**
+   * The URL that served the markdown, when known. Relative links inside the
+   * content resolve against this. Equals `url` for pages fetched at their
+   * own URL; differs for `.md` variants cached under the page URL.
+   */
+  mdUrl?: string;
+  /** Raw `Link` response header, when the server sent one. */
+  linkHeader?: string;
 }
 
 export type MarkdownContentResult =
@@ -45,7 +56,14 @@ function collectCachedPages(ctx: CheckContext): MarkdownPage[] {
   const pages: MarkdownPage[] = [];
   for (const [url, cached] of ctx.pageCache) {
     if (cached.markdown?.content) {
-      pages.push({ url, content: cached.markdown.content, source: cached.markdown.source });
+      const { content, source, mdUrl, linkHeader } = cached.markdown;
+      pages.push({
+        url,
+        content,
+        source,
+        ...(mdUrl && { mdUrl }),
+        ...(linkHeader && { linkHeader }),
+      });
     }
   }
   return pages;
@@ -80,7 +98,14 @@ async function fetchMarkdownPages(ctx: CheckContext): Promise<MarkdownPage[]> {
             if (!response.ok) continue;
             const body = await response.text();
             if (looksLikeMarkdown(body)) {
-              return { url: candidateUrl, content: body, source: 'standalone-md-url' };
+              const linkHeader = response.headers.get('link');
+              return {
+                url: candidateUrl,
+                content: body,
+                source: 'standalone-md-url',
+                mdUrl: candidateUrl,
+                ...(linkHeader && { linkHeader }),
+              };
             }
           } catch {
             // Try next candidate
@@ -95,7 +120,14 @@ async function fetchMarkdownPages(ctx: CheckContext): Promise<MarkdownPage[]> {
           if (response.ok) {
             const body = await response.text();
             if (looksLikeMarkdown(body)) {
-              return { url, content: body, source: 'standalone-content-negotiation' };
+              const linkHeader = response.headers.get('link');
+              return {
+                url,
+                content: body,
+                source: 'standalone-content-negotiation',
+                mdUrl: url,
+                ...(linkHeader && { linkHeader }),
+              };
             }
           }
         } catch {
@@ -111,5 +143,76 @@ async function fetchMarkdownPages(ctx: CheckContext): Promise<MarkdownPage[]> {
     }
   }
 
+  return pages;
+}
+
+/**
+ * Markdown reached through `llms.txt` links alone, for sites that publish
+ * agent-facing markdown without page-level `.md` variants or content
+ * negotiation. Same-origin links under the base path are fetched as
+ * published (with `Accept: text/markdown`) and kept when the response is
+ * markdown by content type or by shape. Links that already carry a `.md` or
+ * `.mdx` extension are tried first; the total is capped at
+ * `maxLinksToTest`, taken in file order so repeated runs test the same set.
+ *
+ * Callers use this only when `ctx.pageCache` yielded nothing, so a full run
+ * never fetches the same markdown twice.
+ */
+export async function fetchLlmsTxtLinkedMarkdown(ctx: CheckContext): Promise<MarkdownPage[]> {
+  const existsResult = ctx.previousResults.get('llms-txt-exists');
+  const files = getLlmsTxtFilesForAnalysis(existsResult);
+  if (files.length === 0) return [];
+
+  const linked = new Set<string>();
+  for (const file of files) {
+    for (const link of extractMarkdownLinks(file.content)) {
+      if (/^https?:\/\//i.test(link.url)) linked.add(link.url);
+    }
+  }
+
+  const siteOrigin = ctx.effectiveOrigin ?? ctx.origin;
+  const scoped = filterByPathPrefix(Array.from(linked), getPathFilterBase(ctx)).filter((url) => {
+    try {
+      return new URL(url).origin === siteOrigin;
+    } catch {
+      return false;
+    }
+  });
+  const hasMdExtension = (url: string) => /\.mdx?$/i.test(new URL(url).pathname);
+  const candidates = [
+    ...scoped.filter((url) => hasMdExtension(url)),
+    ...scoped.filter((url) => !hasMdExtension(url)),
+  ].slice(0, ctx.options.maxLinksToTest);
+
+  const pages: MarkdownPage[] = [];
+  const concurrency = ctx.options.maxConcurrency;
+  for (let i = 0; i < candidates.length; i += concurrency) {
+    const batch = candidates.slice(i, i + concurrency);
+    const batchResults = await Promise.all(
+      batch.map(async (url): Promise<MarkdownPage | null> => {
+        try {
+          const response = await ctx.http.fetch(url, { headers: { Accept: 'text/markdown' } });
+          if (!response.ok) return null;
+          const body = await response.text();
+          const contentType = response.headers.get('content-type') ?? '';
+          const isMarkdown = contentType.includes('text/markdown') || looksLikeMarkdown(body);
+          if (!isMarkdown || isSoft404Body(body)) return null;
+          const linkHeader = response.headers.get('link');
+          return {
+            url,
+            content: body,
+            source: 'llms-txt-link',
+            mdUrl: url,
+            ...(linkHeader && { linkHeader }),
+          };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    for (const page of batchResults) {
+      if (page) pages.push(page);
+    }
+  }
   return pages;
 }

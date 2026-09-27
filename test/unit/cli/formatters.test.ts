@@ -140,6 +140,57 @@ describe('formatText', () => {
       expect(output).not.toContain('https://example.com/page2');
     });
 
+    it('shows the pagination evidence, continuation, and issues for single-fetch-completeness', () => {
+      const report = makeReport({
+        results: [
+          {
+            id: 'single-fetch-completeness',
+            category: 'page-size',
+            status: 'fail',
+            message: '1 of 3 markdown pages are partial',
+            details: {
+              pageResults: [
+                {
+                  url: 'https://example.com/models',
+                  mdUrl: 'https://example.com/models.md',
+                  status: 'fail',
+                  paginated: true,
+                  signals: [{ type: 'n-of-m', text: 'Showing 100 of 102', offset: 2400 }],
+                  continuation: { url: '/models?page=2', outcome: 'empty' },
+                  issues: ['continuation returned an empty body'],
+                },
+                {
+                  url: 'https://example.com/list',
+                  mdUrl: 'https://example.com/list.md',
+                  status: 'warn',
+                  paginated: true,
+                  signals: [{ type: 'next-link', text: 'Next page', offset: 9000 }],
+                  continuation: { url: '/list?page=2', outcome: 'ok' },
+                  issues: ['relative URL', 'declared at 97% of content'],
+                },
+                {
+                  url: 'https://example.com/fine',
+                  mdUrl: 'https://example.com/fine.md',
+                  status: 'pass',
+                  paginated: false,
+                  signals: [],
+                  issues: [],
+                },
+              ],
+            },
+          },
+        ],
+      });
+      const output = formatText(report, { verbose: true });
+      expect(output).toContain(
+        'https://example.com/models.md paginated ("Showing 100 of 102"); continuation /models?page=2: continuation returned an empty body',
+      );
+      expect(output).toContain(
+        'https://example.com/list.md paginated ("Next page"); continuation /list?page=2: relative URL, declared at 97% of content',
+      );
+      expect(output).not.toContain('https://example.com/fine.md');
+    });
+
     it('shows served bytes, content size, ratio, and wire size for page-size-transfer', () => {
       const report = makeReport({
         results: [

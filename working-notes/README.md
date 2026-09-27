@@ -27,6 +27,11 @@ history alone does not carry the reasoning.
   `Accept-Encoding` choice, how the fetch is shared with `page-size-html`,
   the architecture-signature ratio, and the field run that checked the
   thresholds against real sites.
+- `single-fetch-completeness-notes.md`: design notes for the
+  `single-fetch-completeness` check (spec v0.6.0): which pagination signals
+  count and which navigation patterns deliberately don't, how the
+  continuation is chosen and verified, what "at the top" means, the
+  llms.txt-only prerequisite path, and the field run against real sites.
 - `parity-sites.txt`: the 20 sites used to validate parity changes, with
   base URLs. Referenced throughout the parity notes.
 - `run-parity-baseline.sh`: runs the parity check against one of those

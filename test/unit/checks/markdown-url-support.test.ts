@@ -421,6 +421,36 @@ describe('markdown-url-support', () => {
     expect(cached).toBeDefined();
     expect(cached?.markdown?.content).toBe(mdContent);
     expect(cached?.markdown?.source).toBe('md-url');
+    expect(cached?.markdown?.mdUrl).toBe('http://test.local/docs/cache-page.md');
+    expect(cached?.markdown?.linkHeader).toBeUndefined();
+  });
+
+  it('records the Link response header on the cached markdown', async () => {
+    server.use(
+      http.get(
+        'http://test.local/docs/paged.md',
+        () =>
+          new HttpResponse('# Paged\n\n- a', {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/markdown',
+              Link: '<http://test.local/docs/paged.md?page=2>; rel="next"',
+            },
+          }),
+      ),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [Paged](http://test.local/docs/paged): A paged page
+`;
+    const ctx = makeCtx({ content });
+    await check.run(ctx);
+    const cached = ctx.pageCache.get('http://test.local/docs/paged');
+    expect(cached?.markdown?.linkHeader).toBe(
+      '<http://test.local/docs/paged.md?page=2>; rel="next"',
+    );
   });
 
   // Regression: issue #77 — sites whose llms.txt links use a `.html.md`

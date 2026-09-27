@@ -79,6 +79,29 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
       });
   },
 
+  'single-fetch-completeness': (details) => {
+    const pages = details.pageResults as
+      | Array<{
+          url: string;
+          mdUrl?: string;
+          status: string;
+          signals?: Array<{ type: string; text: string }>;
+          continuation?: { url: string };
+          issues?: string[];
+        }>
+      | undefined;
+    if (!pages) return [];
+    return pages
+      .filter((p) => p.status !== 'pass')
+      .map((p) => {
+        const signal = p.signals?.[0];
+        const evidence = signal ? `paginated ("${signal.text}")` : 'paginated';
+        const continuation = p.continuation ? `; continuation ${p.continuation.url}` : '';
+        const issues = p.issues && p.issues.length > 0 ? `: ${p.issues.join(', ')}` : '';
+        return formatDetailLine(p.status, p.mdUrl ?? p.url, `${evidence}${continuation}${issues}`);
+      });
+  },
+
   'content-start-position': (details) => {
     const pages = details.pageResults as PageResult[] | undefined;
     if (!pages) return [];

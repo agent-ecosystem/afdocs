@@ -16,6 +16,14 @@ export interface CachedPage {
   markdown?: {
     content: string;
     source: 'md-url' | 'content-negotiation';
+    /**
+     * The URL that actually served the markdown (the `.md` variant, or the
+     * page URL under content negotiation). Relative links inside the
+     * markdown resolve against this, not against the page URL.
+     */
+    mdUrl?: string;
+    /** Raw `Link` response header, when the server sent one (pagination `rel="next"`). */
+    linkHeader?: string;
   };
 }
 

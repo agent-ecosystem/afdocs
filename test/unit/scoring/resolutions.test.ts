@@ -63,6 +63,48 @@ describe('resolutions', () => {
     expect(text).toContain('8 of 50');
   });
 
+  describe('single-fetch-completeness', () => {
+    it('names the fragile-declaration reasons for warn', () => {
+      const text = getResolution(
+        r('single-fetch-completeness', 'warn', {
+          warnBucket: 2,
+          testedPages: 8,
+          reasons: { declaredLate: 2, relativeUrl: 1, headerOnly: 0 },
+        }),
+      );
+      expect(text).toContain('2 of 8 markdown pages paginate');
+      expect(text).toContain(
+        'declared only late in the content on 2; linked with a relative URL on 1',
+      );
+      expect(text).not.toContain('Link header');
+      expect(text).toContain('top of the content');
+      expect(text).toContain('absolute');
+    });
+
+    it('asks whether pagination is needed at all for fail, quoting the size threshold', () => {
+      const text = getResolution(
+        r('single-fetch-completeness', 'fail', {
+          failBucket: 1,
+          testedPages: 8,
+          reasons: { missing: 0, broken: 1, unresolvable: 0 },
+          thresholds: { pass: 50_000 },
+        }),
+      );
+      expect(text).toContain('1 of 8 markdown pages are partial');
+      expect(text).toContain('a continuation that returns nothing usable on 1');
+      expect(text).toContain('needs pagination at all');
+      expect(text).toContain('50,000 characters');
+      expect(text).toContain('even when the HTML UI paginates');
+    });
+
+    it('falls back to the default threshold and omits reasons when details are sparse', () => {
+      const text = getResolution(r('single-fetch-completeness', 'fail', {}));
+      expect(text).toContain('0 of 0 markdown pages');
+      expect(text).toContain('50,000 characters');
+      expect(text).not.toContain('(');
+    });
+  });
+
   describe('page-size-transfer', () => {
     it('interpolates counts and thresholds for warn', () => {
       const text = getResolution(
@@ -307,6 +349,7 @@ describe('resolutions', () => {
       'page-size-markdown',
       'page-size-html',
       'page-size-transfer',
+      'single-fetch-completeness',
       'content-start-position',
       'tabbed-content-serialization',
       'section-header-quality',

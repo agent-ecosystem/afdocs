@@ -71,25 +71,28 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
 
           const isMarkdownType = contentType.includes('text/markdown');
           const isMarkdownBody = looksLikeMarkdown(body);
+          const linkHeader = response.headers.get('link');
+          // Cache the markdown content (only if not already cached by md-url check)
+          const cacheMarkdown = () => {
+            if (ctx.pageCache.has(url)) return;
+            ctx.pageCache.set(url, {
+              url,
+              markdown: {
+                content: body,
+                source: 'content-negotiation',
+                mdUrl: fetchUrl,
+                ...(linkHeader && { linkHeader }),
+              },
+            });
+          };
 
           let classification: Classification;
           if (isMarkdownType && (isMarkdownBody || !looksLikeHtml(body))) {
             classification = 'markdown-with-correct-type';
-            // Cache the markdown content (only if not already cached by md-url check)
-            if (!ctx.pageCache.has(url)) {
-              ctx.pageCache.set(url, {
-                url,
-                markdown: { content: body, source: 'content-negotiation' },
-              });
-            }
+            cacheMarkdown();
           } else if (isMarkdownBody) {
             classification = 'markdown-with-wrong-type';
-            if (!ctx.pageCache.has(url)) {
-              ctx.pageCache.set(url, {
-                url,
-                markdown: { content: body, source: 'content-negotiation' },
-              });
-            }
+            cacheMarkdown();
           } else {
             classification = 'html';
           }

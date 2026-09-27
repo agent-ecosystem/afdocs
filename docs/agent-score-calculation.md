@@ -50,13 +50,14 @@ Every check is assigned a weight tier based on its observed impact on agent work
 
 ### Page Size and Truncation Risk
 
-| Check                    | Weight        |
-| ------------------------ | ------------- |
-| `rendering-strategy`     | Critical (10) |
-| `page-size-markdown`     | High (7)      |
-| `page-size-html`         | High (7)      |
-| `page-size-transfer`     | Medium (4)    |
-| `content-start-position` | Medium (4)    |
+| Check                       | Weight        |
+| --------------------------- | ------------- |
+| `rendering-strategy`        | Critical (10) |
+| `page-size-markdown`        | High (7)      |
+| `page-size-html`            | High (7)      |
+| `page-size-transfer`        | Medium (4)    |
+| `content-start-position`    | Medium (4)    |
+| `single-fetch-completeness` | Medium (4)    |
 
 ### Content Structure
 
@@ -97,26 +98,27 @@ Checks that test multiple pages use proportional scoring. If `page-size-html` te
 
 These checks sample pages from your site and score based on the pass rate across those pages:
 
-| Check                          | What's measured per page                                                                     |
-| ------------------------------ | -------------------------------------------------------------------------------------------- |
-| `rendering-strategy`           | Whether the page is fully server-rendered, server-rendered but sparse, or an empty SPA shell |
-| `page-size-html`               | Whether the HTML-to-text conversion fits within size limits                                  |
-| `page-size-transfer`           | Whether the served (decoded) HTML document fits within transfer byte limits                  |
-| `page-size-markdown`           | Whether the markdown version fits within size limits                                         |
-| `content-start-position`       | How far into the response actual content begins                                              |
-| `content-negotiation`          | Whether the server returns markdown for this page                                            |
-| `markdown-url-support`         | Whether the `.md` URL variant returns markdown                                               |
-| `http-status-codes`            | Whether a fabricated bad URL returns a proper 404                                            |
-| `redirect-behavior`            | Whether redirects use standard HTTP methods                                                  |
-| `auth-gate-detection`          | Whether the page is publicly accessible                                                      |
-| `llms-txt-directive-html`      | Whether the HTML page includes a directive pointing to llms.txt                              |
-| `llms-txt-directive-md`        | Whether the markdown page includes a directive pointing to llms.txt                          |
-| `tabbed-content-serialization` | Whether tabbed content creates oversized output                                              |
-| `section-header-quality`       | Whether tab section headers include variant context                                          |
-| `markdown-code-fence-validity` | Whether code fences are properly closed                                                      |
-| `markdown-content-parity`      | Whether markdown and HTML versions match                                                     |
-| `cache-header-hygiene`         | Whether cache headers allow timely updates                                                   |
-| `auth-alternative-access`      | Whether auth-gated pages have alternative access paths                                       |
+| Check                          | What's measured per page                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `rendering-strategy`           | Whether the page is fully server-rendered, server-rendered but sparse, or an empty SPA shell                              |
+| `page-size-html`               | Whether the HTML-to-text conversion fits within size limits                                                               |
+| `page-size-transfer`           | Whether the served (decoded) HTML document fits within transfer byte limits                                               |
+| `page-size-markdown`           | Whether the markdown version fits within size limits                                                                      |
+| `content-start-position`       | How far into the response actual content begins                                                                           |
+| `single-fetch-completeness`    | Whether the markdown response is complete in one fetch, or its continuation is declared at the top, absolute, and working |
+| `content-negotiation`          | Whether the server returns markdown for this page                                                                         |
+| `markdown-url-support`         | Whether the `.md` URL variant returns markdown                                                                            |
+| `http-status-codes`            | Whether a fabricated bad URL returns a proper 404                                                                         |
+| `redirect-behavior`            | Whether redirects use standard HTTP methods                                                                               |
+| `auth-gate-detection`          | Whether the page is publicly accessible                                                                                   |
+| `llms-txt-directive-html`      | Whether the HTML page includes a directive pointing to llms.txt                                                           |
+| `llms-txt-directive-md`        | Whether the markdown page includes a directive pointing to llms.txt                                                       |
+| `tabbed-content-serialization` | Whether tabbed content creates oversized output                                                                           |
+| `section-header-quality`       | Whether tab section headers include variant context                                                                       |
+| `markdown-code-fence-validity` | Whether code fences are properly closed                                                                                   |
+| `markdown-content-parity`      | Whether markdown and HTML versions match                                                                                  |
+| `cache-header-hygiene`         | Whether cache headers allow timely updates                                                                                |
+| `auth-alternative-access`      | Whether auth-gated pages have alternative access paths                                                                    |
 
 ### Single-resource checks (all-or-nothing)
 
@@ -141,7 +143,7 @@ A warning is not a binary "half credit." Different warnings represent different 
 | Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                                                      |
 | ----------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                                                           |
-| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`                                                                                                                                                                                                                                                                     |
+| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`, `single-fetch-completeness`                                                                                                                                                                                                                                        |
 | **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `page-size-transfer`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `bot-protection-interference` |
 | **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML)                                                                                                                                                                                                                                                                      |
 
@@ -186,7 +188,7 @@ Some checks only matter if agents can actually reach the content they measure. I
 
 ### Discovery coefficient
 
-**Affects**: `page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`
+**Affects**: `page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`, `single-fetch-completeness`
 
 These checks measure markdown path quality. But if agents can't discover that path, the quality is irrelevant.
 

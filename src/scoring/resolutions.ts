@@ -1,5 +1,5 @@
 import type { CheckResult, CheckStatus } from '../types.js';
-import { DEFAULT_TRANSFER_THRESHOLDS } from '../constants.js';
+import { DEFAULT_THRESHOLDS, DEFAULT_TRANSFER_THRESHOLDS } from '../constants.js';
 import { formatBytes } from '../helpers/format-bytes.js';
 
 interface ResolutionTemplate {
@@ -230,6 +230,38 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
         'agents that find it an escape hatch but does not reduce what ' +
         'HTML-path agents transfer.' +
         architectureNote(d)
+      );
+    },
+  },
+
+  'single-fetch-completeness': {
+    warn: (d) => {
+      const warnCount = (d.warnBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      return (
+        `${warnCount} of ${tested} markdown pages paginate with a continuation ` +
+        `that works but is fragile${completenessReasons(d, 'warn')}. Move the ` +
+        'pagination declaration to the top of the content, before anything ' +
+        'truncation could remove, and link the continuation with an absolute ' +
+        'URL. A trailing note is the first thing platform truncation removes, ' +
+        'summarization pipelines may drop it, and a relative URL loses its ' +
+        'base once the content leaves the fetch.'
+      );
+    },
+    fail: (d) => {
+      const failCount = (d.failBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      const threshold = completenessThreshold(d);
+      return (
+        `${failCount} of ${tested} markdown pages are partial and the ` +
+        `continuation is missing or broken${completenessReasons(d, 'fail')}. ` +
+        'Agents get most of the content and no working way to learn what is ' +
+        'missing. First ask whether the markdown variant needs pagination at ' +
+        `all: complete content that fits under ${threshold} characters should ` +
+        'be served in one response, even when the HTML UI paginates. If ' +
+        'pagination is genuinely necessary, declare it at the top of the ' +
+        'content with absolute links, and verify the continuation URLs ' +
+        'actually serve content.'
       );
     },
   },
@@ -465,6 +497,31 @@ function architectureNote(d: Record<string, unknown>): string {
     '(hydration payloads, embedded duplicate content), so the fix lives in ' +
     'framework configuration, not in the docs themselves.'
   );
+}
+
+/**
+ * Name the dominant reasons behind a single-fetch-completeness warn or fail,
+ * from the tallies the check records in `details.reasons`.
+ */
+function completenessReasons(d: Record<string, unknown>, kind: 'warn' | 'fail'): string {
+  const r = d.reasons as Partial<Record<string, number>> | undefined;
+  if (!r) return '';
+  const parts: string[] = [];
+  if (kind === 'warn') {
+    if (r.declaredLate) parts.push(`declared only late in the content on ${r.declaredLate}`);
+    if (r.relativeUrl) parts.push(`linked with a relative URL on ${r.relativeUrl}`);
+    if (r.headerOnly) parts.push(`discoverable only from the Link header on ${r.headerOnly}`);
+  } else {
+    if (r.missing) parts.push(`no continuation link on ${r.missing}`);
+    if (r.broken) parts.push(`a continuation that returns nothing usable on ${r.broken}`);
+    if (r.unresolvable) parts.push(`an unresolvable continuation URL on ${r.unresolvable}`);
+  }
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
+
+function completenessThreshold(d: Record<string, unknown>): string {
+  const t = d.thresholds as { pass?: number } | undefined;
+  return (t?.pass ?? DEFAULT_THRESHOLDS.pass).toLocaleString();
 }
 
 function transferThresholds(d: Record<string, unknown>): { pass: string; fail: string } {

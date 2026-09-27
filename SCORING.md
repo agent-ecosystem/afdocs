@@ -23,7 +23,7 @@ The score reflects how well agents can _actually use_ your documentation, not ju
 
 ## What we check
 
-The 25 checks are grouped into seven categories. Each check is assigned a **weight tier** based on its observed impact on agent workflows (3 critical, 9 high, 11 medium, 2 low; max raw score 141):
+The 26 checks are grouped into seven categories. Each check is assigned a **weight tier** based on its observed impact on agent workflows (3 critical, 9 high, 12 medium, 2 low; max raw score 145):
 
 - **Critical (10 pts)**: Agents cannot function without this. Failure means zero content, zero navigation, or zero access.
 - **High (7 pts)**: Directly limits agent effectiveness. Failure means truncation, dead ends, or agents stuck on a worse path.
@@ -57,13 +57,14 @@ Whether agents can get documentation in their preferred format.
 
 Whether agents can process your pages without losing content.
 
-| Check                                                                                          | Weight        | What it measures                                                                                      |
-| ---------------------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------- |
-| [rendering-strategy](https://agentdocsspec.com/spec/web/page-size/#rendering-strategy)         | Critical (10) | Whether pages are fully server-rendered, server-rendered but sparse, or empty SPA shells.             |
-| [page-size-markdown](https://agentdocsspec.com/spec/web/page-size/#page-size-markdown)         | High (7)      | Whether markdown pages fit within agent processing limits (~100K characters).                         |
-| [page-size-html](https://agentdocsspec.com/spec/web/page-size/#page-size-html)                 | High (7)      | Whether HTML pages, once converted to text, fit within agent processing limits.                       |
-| [page-size-transfer](https://agentdocsspec.com/spec/web/page-size/#page-size-transfer)         | Medium (4)    | Whether the served HTML document, after transfer decoding, stays under agent fetch byte caps (~10MB). |
-| [content-start-position](https://agentdocsspec.com/spec/web/page-size/#content-start-position) | Medium (4)    | Whether documentation content starts near the top of the page, or is buried under boilerplate CSS/JS. |
+| Check                                                                                                | Weight        | What it measures                                                                                                  |
+| ---------------------------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------- |
+| [rendering-strategy](https://agentdocsspec.com/spec/web/page-size/#rendering-strategy)               | Critical (10) | Whether pages are fully server-rendered, server-rendered but sparse, or empty SPA shells.                         |
+| [page-size-markdown](https://agentdocsspec.com/spec/web/page-size/#page-size-markdown)               | High (7)      | Whether markdown pages fit within agent processing limits (~100K characters).                                     |
+| [page-size-html](https://agentdocsspec.com/spec/web/page-size/#page-size-html)                       | High (7)      | Whether HTML pages, once converted to text, fit within agent processing limits.                                   |
+| [page-size-transfer](https://agentdocsspec.com/spec/web/page-size/#page-size-transfer)               | Medium (4)    | Whether the served HTML document, after transfer decoding, stays under agent fetch byte caps (~10MB).             |
+| [content-start-position](https://agentdocsspec.com/spec/web/page-size/#content-start-position)       | Medium (4)    | Whether documentation content starts near the top of the page, or is buried under boilerplate CSS/JS.             |
+| [single-fetch-completeness](https://agentdocsspec.com/spec/web/page-size/#single-fetch-completeness) | Medium (4)    | Whether markdown responses are complete in one fetch, or declare a working continuation where agents will see it. |
 
 ### Content Structure
 
@@ -148,7 +149,7 @@ Not all warnings represent the same degree of degradation. A warning on `llms-tx
 | Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                                                                            |
 | ----------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                                                                                 |
-| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`                                                                                                                                                                                                                                                                                           |
+| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`, `single-fetch-completeness`                                                                                                                                                                                                                                                              |
 | **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `page-size-transfer`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `bot-protection-interference`, `http-status-codes`† |
 | **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML; agents don't discover .md variants on their own)                                                                                                                                                                                                                                           |
 
@@ -282,7 +283,7 @@ Some checks have **conditional value**: their contribution depends on whether th
 
 ### Discovery coefficient
 
-**Affects**: `page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`
+**Affects**: `page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`, `single-fetch-completeness`
 
 These checks measure the quality of the markdown path. But if agents can't _discover_ that path, the quality is irrelevant. The coefficient reflects how discoverable your markdown is:
 

@@ -20,6 +20,7 @@ describe('coefficients', () => {
       'page-size-markdown',
       'markdown-code-fence-validity',
       'markdown-content-parity',
+      'single-fetch-completeness',
     ];
 
     it('returns 1.0 when content-negotiation passes', () => {

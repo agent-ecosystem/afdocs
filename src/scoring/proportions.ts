@@ -65,6 +65,7 @@ const PROPORTION_EXTRACTORS: Record<string, ProportionExtractor> = {
   'page-size-markdown': bucketExtractor,
   'page-size-html': bucketExtractor,
   'page-size-transfer': bucketExtractor,
+  'single-fetch-completeness': bucketExtractor,
   'content-start-position': bucketExtractor,
   'cache-header-hygiene': bucketExtractor,
   'markdown-content-parity': bucketExtractor,

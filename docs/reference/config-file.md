@@ -69,7 +69,7 @@ The documentation site URL to check. This is the only required field.
 
 ### `checks` (optional)
 
-A list of check IDs to run. If omitted, all 25 checks run. Use this to focus on checks that are actionable for your platform. See the [Checks Reference](/checks/) for the full list of check IDs.
+A list of check IDs to run. If omitted, all 26 checks run. Use this to focus on checks that are actionable for your platform. See the [Checks Reference](/checks/) for the full list of check IDs.
 
 This is particularly useful when your docs platform doesn't support certain capabilities. For example, if you can't serve markdown, exclude the markdown-related checks so your score reflects what you can control. See [Improve Your Score](/improve-your-score#step-3-work-through-fixes-iteratively) for more on this approach.
 
