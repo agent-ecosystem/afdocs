@@ -66,6 +66,7 @@ cat >> "$OUTPUT" << 'SECTION'
 
 SECTION
 
+echo "- [Upgrading to v0.22.0](${BASE_URL}/migration/v0.22.0.md)" >> "$OUTPUT"
 echo "- [Migrating to v0.17.0](${BASE_URL}/migration/v0.17.0.md)" >> "$OUTPUT"
 
 cat >> "$OUTPUT" << 'SECTION'

@@ -113,7 +113,10 @@ export default defineConfig({
       },
       {
         text: 'Migration',
-        items: [{ text: 'v0.17.0', link: '/migration/v0.17.0' }],
+        items: [
+          { text: 'v0.22.0', link: '/migration/v0.22.0' },
+          { text: 'v0.17.0', link: '/migration/v0.17.0' },
+        ],
       },
       {
         text: 'About',
