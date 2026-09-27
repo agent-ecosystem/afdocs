@@ -46,6 +46,11 @@ const report = await runChecks('https://docs.example.com', {
     pass: 50000,
     fail: 100000,
   },
+  // page-size-transfer: served (decoded) HTML bytes
+  transferThresholds: {
+    pass: 1_000_000,
+    fail: 10_000_000,
+  },
 });
 
 // Or run all checks except a few (exclude-list)

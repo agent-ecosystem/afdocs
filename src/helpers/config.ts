@@ -120,17 +120,12 @@ function validateOptions(options: Record<string, unknown>, source: string): void
       }
     }
   }
-  if (options.thresholds != null) {
-    const thresholds = options.thresholds as Record<string, unknown>;
-    if (thresholds.pass != null) {
-      const issue = validateNumber(thresholds.pass, 'options.thresholds.pass', {
-        integer: true,
-        min: 1,
-      });
-      if (issue) throw new Error(`${source}: ${issue.message}`);
-    }
-    if (thresholds.fail != null) {
-      const issue = validateNumber(thresholds.fail, 'options.thresholds.fail', {
+  for (const field of ['thresholds', 'transferThresholds'] as const) {
+    if (options[field] == null) continue;
+    const thresholds = options[field] as Record<string, unknown>;
+    for (const bound of ['pass', 'fail'] as const) {
+      if (thresholds[bound] == null) continue;
+      const issue = validateNumber(thresholds[bound], `options.${field}.${bound}`, {
         integer: true,
         min: 1,
       });

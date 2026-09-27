@@ -98,6 +98,21 @@ export function validateRunnerOptions(options: Partial<RunnerOptions>): Validati
     );
   }
 
+  if (options.transferThresholds) {
+    pushError(
+      validateNumber(options.transferThresholds.pass, 'transferThresholds.pass', {
+        integer: true,
+        min: 1,
+      }),
+    );
+    pushError(
+      validateNumber(options.transferThresholds.fail, 'transferThresholds.fail', {
+        integer: true,
+        min: 1,
+      }),
+    );
+  }
+
   pushError(
     validateNumber(options.coveragePassThreshold, 'coveragePassThreshold', {
       integer: true,
@@ -139,6 +154,20 @@ export function validateRunnerOptions(options: Partial<RunnerOptions>): Validati
     errors.push({
       field: 'thresholds',
       message: `thresholds.pass (${options.thresholds.pass}) must be less than or equal to thresholds.fail (${options.thresholds.fail})`,
+    });
+  }
+
+  if (
+    options.transferThresholds &&
+    typeof options.transferThresholds.pass === 'number' &&
+    typeof options.transferThresholds.fail === 'number' &&
+    !Number.isNaN(options.transferThresholds.pass) &&
+    !Number.isNaN(options.transferThresholds.fail) &&
+    options.transferThresholds.pass > options.transferThresholds.fail
+  ) {
+    errors.push({
+      field: 'transferThresholds',
+      message: `transferThresholds.pass (${options.transferThresholds.pass}) must be less than or equal to transferThresholds.fail (${options.transferThresholds.fail})`,
     });
   }
 

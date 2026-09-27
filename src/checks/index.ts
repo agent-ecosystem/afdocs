@@ -17,6 +17,7 @@ import './markdown-availability/content-negotiation.js';
 import './page-size/rendering-strategy.js';
 import './page-size/page-size-markdown.js';
 import './page-size/page-size-html.js';
+import './page-size/page-size-transfer.js';
 import './page-size/content-start-position.js';
 
 // Category 4: Content Structure

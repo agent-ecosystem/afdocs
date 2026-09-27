@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { CHECK_WEIGHTS, getCheckWeight } from '../../../src/scoring/weights.js';
 
 describe('weights', () => {
-  it('has weights for all 24 checks', () => {
-    expect(Object.keys(CHECK_WEIGHTS)).toHaveLength(24);
+  it('has weights for all 25 checks', () => {
+    expect(Object.keys(CHECK_WEIGHTS)).toHaveLength(25);
   });
 
   it('returns undefined for unknown check IDs', () => {
@@ -22,19 +22,24 @@ describe('weights', () => {
 
     expect(getCheckWeight('cache-header-hygiene')!.tier).toBe('low');
     expect(getCheckWeight('cache-header-hygiene')!.weight).toBe(2);
+
+    // Spec v0.6.0 checks table: Page Size, Medium, warn at the 0.50 degradation tier
+    expect(getCheckWeight('page-size-transfer')!.tier).toBe('medium');
+    expect(getCheckWeight('page-size-transfer')!.weight).toBe(4);
+    expect(getCheckWeight('page-size-transfer')!.warnCoefficient).toBe(0.5);
   });
 
-  it('has 3 critical, 9 high, 10 medium, 2 low checks', () => {
+  it('has 3 critical, 9 high, 11 medium, 2 low checks', () => {
     const tiers = Object.values(CHECK_WEIGHTS).map((w) => w.tier);
     expect(tiers.filter((t) => t === 'critical')).toHaveLength(3);
     expect(tiers.filter((t) => t === 'high')).toHaveLength(9);
-    expect(tiers.filter((t) => t === 'medium')).toHaveLength(10);
+    expect(tiers.filter((t) => t === 'medium')).toHaveLength(11);
     expect(tiers.filter((t) => t === 'low')).toHaveLength(2);
   });
 
-  it('sums to 137 max raw score', () => {
+  it('sums to 141 max raw score', () => {
     const total = Object.values(CHECK_WEIGHTS).reduce((sum, w) => sum + w.weight, 0);
-    expect(total).toBe(137);
+    expect(total).toBe(141);
   });
 
   it('assigns warn coefficients correctly', () => {

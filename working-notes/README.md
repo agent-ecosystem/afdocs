@@ -22,6 +22,11 @@ history alone does not carry the reasoning.
   normalization, `urlPathPattern`, and sample verification, with the
   request-budget reasoning behind each and the alternatives rejected.
   Read "Invariants" before changing how URLs are discovered or sampled.
+- `page-size-transfer-notes.md`: design notes for the `page-size-transfer`
+  check (spec v0.6.0): why served bytes come from the decoded stream, the
+  `Accept-Encoding` choice, how the fetch is shared with `page-size-html`,
+  the architecture-signature ratio, and the field run that checked the
+  thresholds against real sites.
 - `parity-sites.txt`: the 20 sites used to validate parity changes, with
   base URLs. Referenced throughout the parity notes.
 - `run-parity-baseline.sh`: runs the parity check against one of those

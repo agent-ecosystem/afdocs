@@ -13,6 +13,7 @@ import type {
   NetworkContextClass,
 } from '../../types.js';
 import { findConfig, validatePages } from '../../helpers/config.js';
+import { DEFAULT_TRANSFER_THRESHOLDS } from '../../constants.js';
 import { validateRunnerOptions } from '../../validation.js';
 
 // Ensure all checks are registered
@@ -51,6 +52,14 @@ export function registerCheckCommand(program: Command): void {
     .option('--doc-version <version>', 'Preferred version for URL discovery (e.g. v3, 2.x, latest)')
     .option('--pass-threshold <n>', 'Pass threshold in characters')
     .option('--fail-threshold <n>', 'Fail threshold in characters')
+    .option(
+      '--transfer-pass-threshold <bytes>',
+      'Served-size pass threshold in bytes for page-size-transfer (default 1000000)',
+    )
+    .option(
+      '--transfer-fail-threshold <bytes>',
+      'Served-size fail threshold in bytes for page-size-transfer (default 10000000)',
+    )
     .option('-v, --verbose', 'Show per-page details for checks with issues')
     .option('-q, --quiet', 'Suppress progress output on stderr')
     .option('--fixes', 'Show fix suggestions for warn/fail checks')
@@ -194,6 +203,22 @@ export function registerCheckCommand(program: Command): void {
         ),
         10,
       );
+      const transferPassThreshold = parseInt(
+        String(
+          (opts.transferPassThreshold as string | undefined) ??
+            config?.options?.transferThresholds?.pass ??
+            DEFAULT_TRANSFER_THRESHOLDS.pass,
+        ),
+        10,
+      );
+      const transferFailThreshold = parseInt(
+        String(
+          (opts.transferFailThreshold as string | undefined) ??
+            config?.options?.transferThresholds?.fail ??
+            DEFAULT_TRANSFER_THRESHOLDS.fail,
+        ),
+        10,
+      );
 
       const quiet = !!opts.quiet;
 
@@ -314,6 +339,10 @@ export function registerCheckCommand(program: Command): void {
         thresholds: {
           pass: passThreshold,
           fail: failThreshold,
+        },
+        transferThresholds: {
+          pass: transferPassThreshold,
+          fail: transferFailThreshold,
         },
         ...(urlPathPattern && { urlPathPattern: urlPathPattern as UrlPathPattern }),
         ...(preferredLocale && { preferredLocale }),

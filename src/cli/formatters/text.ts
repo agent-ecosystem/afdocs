@@ -5,6 +5,7 @@ import { getResolution } from '../../scoring/resolutions.js';
 import { isScanDegradedByBotProtection } from '../../scoring/diagnostics.js';
 import { PAGE_LEVEL_CHECKS } from '../../scoring/score.js';
 import { describeNetworkContext } from '../../helpers/network-context.js';
+import { describeTransfer, formatBytes } from '../../helpers/format-bytes.js';
 
 const STATUS_ICONS: Record<string, string> = {
   pass: chalk.green('✓'),
@@ -44,6 +45,25 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
       .map((p) => {
         const size = formatSize(p.convertedCharacters as number);
         return formatDetailLine(p.status, p.url, size);
+      });
+  },
+
+  'page-size-transfer': (details) => {
+    const pages = details.pageResults as PageResult[] | undefined;
+    if (!pages) return [];
+    return pages
+      .filter((p) => p.status !== 'pass' && !p.error)
+      .map((p) => {
+        const info = describeTransfer(
+          p.servedBytes as number,
+          p.contentCharacters as number,
+          p.ratio as number | undefined,
+        );
+        const wire =
+          typeof p.wireBytes === 'number'
+            ? `, ${formatBytes(p.wireBytes)} on the wire (${p.contentEncoding})`
+            : '';
+        return formatDetailLine(p.status, p.url, `${info}${wire}`);
       });
   },
 

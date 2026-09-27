@@ -55,6 +55,7 @@ Every check is assigned a weight tier based on its observed impact on agent work
 | `rendering-strategy`     | Critical (10) |
 | `page-size-markdown`     | High (7)      |
 | `page-size-html`         | High (7)      |
+| `page-size-transfer`     | Medium (4)    |
 | `content-start-position` | Medium (4)    |
 
 ### Content Structure
@@ -100,6 +101,7 @@ These checks sample pages from your site and score based on the pass rate across
 | ------------------------------ | -------------------------------------------------------------------------------------------- |
 | `rendering-strategy`           | Whether the page is fully server-rendered, server-rendered but sparse, or an empty SPA shell |
 | `page-size-html`               | Whether the HTML-to-text conversion fits within size limits                                  |
+| `page-size-transfer`           | Whether the served (decoded) HTML document fits within transfer byte limits                  |
 | `page-size-markdown`           | Whether the markdown version fits within size limits                                         |
 | `content-start-position`       | How far into the response actual content begins                                              |
 | `content-negotiation`          | Whether the server returns markdown for this page                                            |
@@ -136,12 +138,12 @@ Note that the llms.txt link checks (`llms-txt-links-resolve`, `llms-txt-links-ma
 
 A warning is not a binary "half credit." Different warnings represent different degrees of degradation, and the score reflects this.
 
-| Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                                |
-| ----------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                                     |
-| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`                                                                                                                                                                                                                                               |
-| **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `bot-protection-interference` |
-| **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML)                                                                                                                                                                                                                                                |
+| Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                                                      |
+| ----------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                                                           |
+| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`                                                                                                                                                                                                                                                                     |
+| **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `page-size-transfer`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `bot-protection-interference` |
+| **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML)                                                                                                                                                                                                                                                                      |
 
 `markdown-code-fence-validity` is strictly pass/fail. `http-status-codes` is normally pass/fail but emits a warn when every sampled response is indeterminate (HTTP 202 during CDN cache-miss/build, or 5xx) so we couldn't measure bad-URL handling.
 
