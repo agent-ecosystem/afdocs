@@ -397,6 +397,61 @@ describe('proportions', () => {
     });
   });
 
+  describe('bot-protection-interference', () => {
+    const warn = (requests: number, failedRequests: number, sustainedFailureRate = 0.5) =>
+      getCheckProportion(
+        makeResult('bot-protection-interference', 'warn', {
+          requests,
+          failedRequests,
+          thresholds: { sustainedFailureRate },
+        }),
+        makeWeight(7, 0.5),
+      );
+
+    it('pass and fail use the status mapping', () => {
+      expect(
+        getCheckProportion(
+          makeResult('bot-protection-interference', 'pass', { requests: 200, failedRequests: 0 }),
+          makeWeight(7, 0.5),
+        ),
+      ).toEqual({ proportion: 1.0, tested: 1 });
+      expect(
+        getCheckProportion(
+          makeResult('bot-protection-interference', 'fail', { requests: 200, failedRequests: 150 }),
+          makeWeight(7, 0.5),
+        ),
+      ).toEqual({ proportion: 0.0, tested: 1 });
+    });
+
+    it('warn slides from full credit toward the warn coefficient with the failure rate', () => {
+      expect(warn(215, 2)!.proportion).toBeCloseTo(0.9907, 4);
+      expect(warn(288, 44)!.proportion).toBeCloseTo(0.8472, 4);
+      expect(warn(238, 57)!.proportion).toBeCloseTo(0.7605, 4);
+      expect(warn(100, 25)!.proportion).toBe(0.75);
+    });
+
+    it('warn never drops below the warn coefficient', () => {
+      expect(warn(100, 50)!.proportion).toBe(0.5);
+      expect(warn(100, 80)!.proportion).toBe(0.5);
+    });
+
+    it('reads the sustained threshold the check reported', () => {
+      expect(warn(100, 10, 0.2)!.proportion).toBe(0.75);
+    });
+
+    it('falls back to the flat warn coefficient without request counts', () => {
+      expect(
+        getCheckProportion(makeResult('bot-protection-interference', 'warn'), makeWeight(7, 0.5)),
+      ).toEqual({ proportion: 0.5, tested: 1 });
+      expect(
+        getCheckProportion(
+          makeResult('bot-protection-interference', 'warn', { requests: 0, failedRequests: 0 }),
+          makeWeight(7, 0.5),
+        ),
+      ).toEqual({ proportion: 0.5, tested: 1 });
+    });
+  });
+
   describe('edge cases with empty or malformed details', () => {
     it('bucket check: returns undefined when all buckets are zero', () => {
       const result = getCheckProportion(

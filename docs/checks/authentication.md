@@ -112,6 +112,8 @@ Whether bot-protection systems (CDN bot management, WAF rules, behavioral rate e
 | **Weight** | High (7)                                                                                                      |
 | **Spec**   | [bot-protection-interference](https://agentdocsspec.com/spec/web/authentication/#bot-protection-interference) |
 
+A warn earns credit in proportion to the run's failure rate rather than a flat half: two challenged requests in two hundred cost a fraction of a point, and the credit reaches the 0.5 coefficient only at the failure rate where the verdict would have been fail. See [Score Calculation](/agent-score-calculation#warn-coefficients).
+
 ### Why it matters
 
 Coding agents are automated clients. Bot management tuned for scraper and attack traffic frequently cannot distinguish an agent fetching docs on a developer's behalf from abuse, and its enforcement modes are worse for agents than a clean block because the failures are invisible:

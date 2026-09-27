@@ -106,6 +106,19 @@ fail when the post-onset window has ≥ 10 requests, ≥ 5 failures and a
 failure rate ≥ 0.5, or the whole run has ≥ 5 failures at a rate ≥ 0.5; else
 warn.
 
+## Scoring the warn (scoring 0.2.0)
+
+A warn scores in proportion to `failedRequests / requests`
+(`botProtectionExtractor` in `src/scoring/proportions.ts`): full weight at
+0%, the 0.5 warn coefficient at `SUSTAINED_FAILURE_RATE` (read from
+`details.thresholds`, so the extractor never imports the check), linear
+between; fail stays zero. Adopted after the first pass shipped with a flat
+coefficient and the field run showed the warn band bundling val.town (2 of 215) with GitHub (57 of 238) at the same 3.5 points. Rejected alternative:
+scoring the fail proportionally too, which would soften the spec's
+"sustained" level; the step at the fail boundary is the one every bucketed
+check has. The rate depends on the scanner's cadence and vantage point as
+much as on the site, which argues for sliding credit over a flat penalty.
+
 ## Known limits (accepted, documented)
 
 - Challenge pages on 2xx are only seen when a check reads the body; denied
