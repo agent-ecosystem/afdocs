@@ -40,7 +40,7 @@ AFDocs detects several forms of auth gating:
 - Shipping documentation with your SDK
 - Providing an MCP server for authenticated access
 
-The [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/) covers options for making private docs agent-accessible, ordered by implementation effort.
+The spec's [Making Private Docs Agent-Accessible](https://agentdocsspec.com/spec/web/authentication/#making-private-docs-agent-accessible) section covers the options, ordered by implementation effort.
 
 ### Score impact
 

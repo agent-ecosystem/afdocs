@@ -1,6 +1,6 @@
 # How the Agent-Friendly Docs Score Works
 
-Scoring Version: 0.2.0 · [Agent-Friendly Docs Spec v0.6.0](https://agentdocsspec.com) · September 2026
+Scoring Version: 0.2.0 · [Agent-Friendly Docs Spec v0.6.0](https://agentdocsspec.com/spec/web/) · September 2026
 
 Scores from different scoring versions are not comparable. Version history:
 
@@ -11,7 +11,7 @@ Scores from different scoring versions are not comparable. Version history:
 
 The Agent-Friendly Docs Scorecard measures how effectively AI coding agents can discover, navigate, and consume a documentation site. It runs 28 automated checks against your site and produces a 0–100 score with a letter grade.
 
-Each check corresponds to a section of the [Agent-Friendly Docs Spec](https://agentdocsspec.com), which documents what the check measures, why it matters for real agent workflows, and the observed behaviors that motivated it. This document covers how checks are **scored**, not what they **measure**. If you want to understand a specific check in depth, follow the spec links in the table below.
+Each check corresponds to a section of the [Agent-Friendly Docs Spec](https://agentdocsspec.com/spec/web/), which documents what the check measures, why it matters for real agent workflows, and the observed behaviors that motivated it. This document covers how checks are **scored**, not what they **measure**. If you want to understand a specific check in depth, follow the spec links in the table below.
 
 The score reflects how well agents can _actually use_ your documentation, not just how many boxes are ticked. A site with perfect markdown support that no agent can discover scores lower than a site with imperfect markdown that agents are directed to.
 
@@ -248,7 +248,7 @@ Some problems only become visible when you look at multiple checks together. The
 
 **What it means**: Agents that encounter your docs will fall back on training data or secondary sources that may be inaccurate.
 
-**What to do**: Consider providing a public llms.txt, ungating API references and integration guides, or shipping docs with your SDK. The [spec's "Making Private Docs Agent-Accessible" section](https://agentdocsspec.com) covers options ordered by implementation effort.
+**What to do**: Consider providing a public llms.txt, ungating API references and integration guides, or shipping docs with your SDK. The [spec's "Making Private Docs Agent-Accessible" section](https://agentdocsspec.com/spec/web/authentication/#making-private-docs-agent-accessible) covers options ordered by implementation effort.
 
 ### Pages exceed size limits with no markdown escape
 
@@ -361,4 +361,4 @@ In the current scoring version, the three coefficient groups apply to disjoint s
 
 ---
 
-_Weights, coefficients, and thresholds in this document reflect observed agent behavior as of September 2026 and will evolve as agent tooling changes. The [Agent-Friendly Docs Spec](https://agentdocsspec.com) is the authoritative reference for what each check measures and why._
+_Weights, coefficients, and thresholds in this document reflect observed agent behavior as of September 2026 and will evolve as agent tooling changes. The [Agent-Friendly Docs Spec](https://agentdocsspec.com/spec/web/) is the authoritative reference for what each check measures and why._

@@ -1,3 +1,9 @@
+> **Frozen design record.** This is the original scoring design document,
+> written for scoring version 0.1.0 against spec v0.5.0, kept for the
+> reasoning it records (design principles, the rejected auth coefficient,
+> the v1/v2 notes). It is not maintained. The current rules are in
+> `SCORING.md` at the repository root and `docs/agent-score-calculation.md`.
+
 # Scoring Implementation Reference: Agent-Friendly Docs Scorecard
 
 Scoring Version: 0.1.0

@@ -2,7 +2,7 @@
 
 The Agent Score is a weighted average of 28 check results, adjusted for interaction effects between checks. This page covers the mechanics: how checks are weighted, how multi-page results are scored proportionally, and how the system handles cases where checks influence each other.
 
-Each check corresponds to a section of the [Agent-Friendly Documentation Spec](https://agentdocsspec.com), which documents what the check measures and the observed agent behaviors that motivated it. For what each check measures, see the [Checks Reference](/checks/).
+Each check corresponds to a section of the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/), which documents what the check measures and the observed agent behaviors that motivated it. For what each check measures, see the [Checks Reference](/checks/).
 
 ## The formula
 

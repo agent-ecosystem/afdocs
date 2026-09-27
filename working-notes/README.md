@@ -31,6 +31,10 @@ history alone does not carry the reasoning.
   and harness for that field run. The harness saves each site's full fetch
   ledger to `bot-results/` (gitignored) so thresholds can be re-scored
   offline with `rescore` instead of re-running the sites.
+- `scoring-design-v0.1.0.md`: the original scoring design document (scoring
+  0.1.0, spec v0.5.0), frozen. Keeps the design principles and the
+  rejected alternatives (the blanket auth coefficient) that `SCORING.md`
+  no longer restates. Not maintained; read `SCORING.md` for current rules.
 - `parity-sites.txt`: the 20 sites used to validate parity changes, with
   base URLs. Referenced throughout the parity notes.
 - `run-parity-baseline.sh`: runs the parity check against one of those
