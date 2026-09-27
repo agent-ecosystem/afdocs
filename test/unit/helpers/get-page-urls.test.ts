@@ -483,6 +483,47 @@ describe('filterLocalizedUrls', () => {
 });
 
 describe('deduplicateVersionedUrls', () => {
+  it.each(['', '/'])('keeps a version leaf beside its section index (slash: %j)', (slash) => {
+    const urls = [
+      'https://example.com/',
+      `https://example.com/docs${slash}`,
+      `https://example.com/docs/v1.0${slash}`,
+    ];
+
+    expect(deduplicateVersionedUrls(urls)).toEqual(urls);
+  });
+
+  it.each([true, false])('keeps sibling version leaves (section index: %j)', (includeIndex) => {
+    const urls = [
+      ...(includeIndex ? ['https://example.com/changelog/'] : []),
+      'https://example.com/changelog/2.4.1/',
+      'https://example.com/changelog/2.4.0/',
+    ];
+
+    expect(deduplicateVersionedUrls(urls)).toEqual(urls);
+  });
+
+  it.each([undefined, 'v1'])(
+    'keeps version roots while deduplicating child pages (preferredVersion: %j)',
+    (preferredVersion) => {
+      const urls = [
+        'https://example.com/docs/',
+        'https://example.com/docs/v1/',
+        'https://example.com/docs/v2/',
+        'https://example.com/docs/v1/intro',
+        'https://example.com/docs/v2/intro',
+        'https://example.com/docs/intro',
+      ];
+
+      expect(deduplicateVersionedUrls(urls, preferredVersion)).toEqual([
+        'https://example.com/docs/',
+        'https://example.com/docs/v1/',
+        'https://example.com/docs/v2/',
+        preferredVersion ? 'https://example.com/docs/v1/intro' : 'https://example.com/docs/intro',
+      ]);
+    },
+  );
+
   it('deduplicates Docusaurus-style versioned URLs, keeping unversioned', () => {
     const urls = [
       'https://example.com/docs/2.x/intro',
@@ -735,6 +776,46 @@ describe('getPageUrls', () => {
     expect(result.warnings).toEqual([]);
     expect(result.sources).toContain('llms-txt');
   });
+
+  it.each(['llms-txt', 'sitemap'])(
+    'preserves version leaves discovered through %s (#135)',
+    async (source) => {
+      const origin = 'http://version-leaf-test.local';
+      const urls = [
+        `${origin}/`,
+        `${origin}/docs/`,
+        `${origin}/docs/v1.0/`,
+        `${origin}/changelog/`,
+        `${origin}/changelog/2.4.1/`,
+        `${origin}/changelog/2.4.0/`,
+      ];
+      const content = `# Docs\n> Summary\n## Links\n${urls.map((url) => `- [Page](${url}): A page`).join('\n')}\n`;
+      const ctx = makeCtx(origin, source === 'llms-txt' ? content : undefined);
+
+      if (source === 'sitemap') {
+        mockSitemapNotFound(server, origin);
+        server.use(
+          http.get(`${origin}/robots.txt`, () => new HttpResponse('', { status: 404 })),
+          http.get(
+            `${origin}/sitemap.xml`,
+            () =>
+              new HttpResponse(
+                `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
+</urlset>`,
+                { status: 200, headers: { 'Content-Type': 'application/xml' } },
+              ),
+          ),
+        );
+      }
+
+      const result = await getPageUrls(ctx);
+      expect(result.urls).toEqual(urls);
+      expect(result.sources).toEqual([source]);
+      expect(result.warnings).toEqual([]);
+    },
+  );
 
   it('fetches and parses sitemap.xml when no llms.txt links', async () => {
     mockSitemapNotFound(server, 'http://sitemap-test.local');
