@@ -107,4 +107,4 @@ export function specCheckUrl(category: string, checkId: string): string {
 }
 
 /** Version of the Agent-Friendly Documentation Spec implemented by this release. */
-export const SPEC_VERSION = 'v0.5.0';
+export const SPEC_VERSION = 'v0.6.0';

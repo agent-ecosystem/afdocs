@@ -1,6 +1,6 @@
 # How the Agent-Friendly Docs Score Works
 
-Scoring Version: 0.1.0 · [Agent-Friendly Docs Spec v0.5.0](https://agentdocsspec.com) · April 2026
+Scoring Version: 0.1.0 · [Agent-Friendly Docs Spec v0.6.0](https://agentdocsspec.com) · September 2026
 
 ## What is this score?
 
