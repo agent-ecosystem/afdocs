@@ -9,6 +9,7 @@
 //   - Other frontmatter (title, outline, etc.) is stripped
 //   - <style> and <script> blocks are stripped
 //   - HTML tags are stripped, text content preserved
+//   - Root-relative links are rewritten to absolute URLs
 //   - Consecutive blank lines are collapsed
 //
 // Output goes to .vitepress/dist/ at the same relative paths.
@@ -24,6 +25,33 @@ if (!existsSync(distDir)) {
   console.error(`Error: dist directory not found at ${distDir}`);
   console.error('Run vitepress build before generate_agent_md');
   process.exit(1);
+}
+
+// Source pages link with root-relative paths, which is what VitePress wants
+// for its own routing. Markdown, though, gets read away from the site it came
+// from: an agent copies it into its context, a cache, another repo. A
+// root-relative target stops resolving the moment that happens, which is what
+// markdown-link-portability checks. Rewriting them here keeps authoring
+// unchanged and fixes only the agent-facing output.
+//
+// The origin comes from the sitemap hostname in the VitePress config so there
+// is one copy of it. A missing or renamed hostname is a hard error: silently
+// emitting root-relative links is the bug this exists to prevent.
+const configPath = join(docsDir, '.vitepress/config.ts');
+const hostname = readFileSync(configPath, 'utf8').match(/hostname:\s*['"]([^'"]+)['"]/)?.[1];
+if (!hostname) {
+  console.error(`Error: no sitemap hostname found in ${configPath}`);
+  console.error('generate_agent_md needs it to absolutize root-relative links');
+  process.exit(1);
+}
+const origin = hostname.replace(/\/+$/, '');
+
+// Rewrite `](/path)` to `](https://host/path)`, leaving protocol-relative
+// targets (`](//host/path)`) alone. Fragment-only and already-absolute links
+// do not match. Callers are responsible for not passing fenced code or inline
+// code spans, where a root-relative link is example text, not a real link.
+function absolutizeLinks(text) {
+  return text.replace(/\]\(\/(?!\/)([^)]*)\)/g, `](${origin}/$1)`);
 }
 
 function findMdFiles(dir) {
@@ -63,7 +91,9 @@ function homeYamlToMarkdown(yaml) {
 
   const actions = [...yaml.matchAll(/    - theme: \w+\n      text: (.+)\n      link: (.+)/g)];
   if (actions.length > 0) {
-    for (const m of actions) out.push(`- [${m[1].trim()}](${m[2].trim()})`);
+    for (const m of actions) {
+      out.push(absolutizeLinks(`- [${m[1].trim()}](${m[2].trim()})`));
+    }
     out.push('');
   }
 
@@ -150,7 +180,7 @@ function processBody(content) {
           ci++;
         }
       }
-      const htmlStripped = placeholder.replace(/<[^>]+>/g, '');
+      const htmlStripped = absolutizeLinks(placeholder.replace(/<[^>]+>/g, ''));
       stripped = htmlStripped.replace(/\x00(\d+)\x00/g, (_, i) => spans[+i]);
     }
     if (/^\s*$/.test(stripped)) {
