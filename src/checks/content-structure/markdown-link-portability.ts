@@ -147,22 +147,33 @@ async function verifyLink(
     if (isSoft404Body(body)) return { outcome: 'soft-404', status, ...redirect };
 
     if (link.promisesMarkdown) {
-      const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
-      const isHtml = contentType.includes('text/html') || looksLikeHtml(body);
-      if (isHtml) {
+      const declared = (response.headers.get('content-type') ?? '')
+        .toLowerCase()
+        .split(';')[0]
+        .trim();
+      // A declared type decides what the response is. Body sniffing only
+      // fills in for a response that declares nothing, or declares the
+      // "unknown bytes" type some static hosts serve `.md` with; it must not
+      // overrule an explicit contradictory type, or a `.md` URL answering
+      // `application/json` passes on the strength of one bracket in a string.
+      // Sniffing still condemns: a body shaped like HTML is HTML whatever the
+      // header claims, which is what catches a shell served as text/markdown.
+      const unspecified = declared === '' || declared === 'application/octet-stream';
+      const declaresHtml = declared === 'text/html' || declared === 'application/xhtml+xml';
+
+      if (declaresHtml || looksLikeHtml(body)) {
         // A redirect that lands on an HTML *page* is the spec's minor
         // mismatch: the content is there, the representation is not what was
         // promised. A `.md` URL answering with HTML in place is the SPA-shell
         // failure, and so is a redirect from one `.md` URL to another that
         // serves HTML: the final URL still promises markdown and does not
         // deliver it.
-        const landedOnMarkdownUrl = promisesMarkdownUrl(finalUrl);
-        const minorMismatch = redirected && !landedOnMarkdownUrl;
+        const minorMismatch = redirected && !promisesMarkdownUrl(finalUrl);
         return { outcome: minorMismatch ? 'html-redirect' : 'not-markdown', status, ...redirect };
       }
-      const textual =
-        contentType === '' || contentType.startsWith('text/') || contentType.includes('markdown');
-      if (!textual && !looksLikeMarkdown(body)) {
+
+      const declaresText = declared.startsWith('text/') || declared.includes('markdown');
+      if (!declaresText && !(unspecified && looksLikeMarkdown(body))) {
         return { outcome: 'not-markdown', status, ...redirect };
       }
     }

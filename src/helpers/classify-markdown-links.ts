@@ -88,6 +88,43 @@ const MARKDOWN_EXTENSION = /\.mdx?$/i;
  */
 const UNSAFE_DESTINATION = /[\\{}|^`"]/;
 
+/**
+ * Named character references that turn up in generated link destinations.
+ * CommonMark accepts the full HTML5 entity list; this covers what
+ * HTML-to-markdown converters actually emit into URLs, and anything else is
+ * left as written rather than guessed at.
+ */
+const NAMED_REFERENCES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: '\u00a0',
+};
+
+const CHARACTER_REFERENCE = /&(#\d{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,31});/g;
+
+/**
+ * Decode the character references CommonMark resolves inside a link
+ * destination. `[search](/search?a=1&amp;b=2)` navigates to `?a=1&b=2`, so
+ * fetching the raw text would verify a different resource than the one the
+ * link points at.
+ */
+export function decodeCharacterReferences(text: string): string {
+  return text.replace(CHARACTER_REFERENCE, (match, body: string) => {
+    if (body[0] !== '#') return NAMED_REFERENCES[body] ?? match;
+    const hex = body[1] === 'x' || body[1] === 'X';
+    const code = parseInt(hex ? body.slice(2) : body.slice(1), hex ? 16 : 10);
+    if (!Number.isInteger(code) || code <= 0 || code > 0x10ffff) return '\uFFFD';
+    try {
+      return String.fromCodePoint(code);
+    } catch {
+      return '\uFFFD';
+    }
+  });
+}
+
 /** Whether a URL's path promises markdown. Safe on anything unparseable. */
 export function promisesMarkdownUrl(url: string): boolean {
   try {
@@ -123,12 +160,13 @@ function blankCode(text: string): string {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // Fences inside markdown table cells are a vendor extension, not real
-    // CommonMark fences; `markdown-code-fence-validity` skips them too.
-    if (line.includes('|')) continue;
-
     const match = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line);
+
     if (open) {
+      // Everything inside an open fence is blanked, whatever it contains.
+      // The table-cell guard below must not reach here: a fenced shell
+      // example such as `cat x | grep '[a](../b.md)'` would otherwise stay
+      // in the scan and fail the page on a link that is sample code.
       lines[i] = blankRun(line);
       if (
         match &&
@@ -140,7 +178,12 @@ function blankCode(text: string): string {
       }
       continue;
     }
+
     if (!match) continue;
+    // Fences inside markdown table cells are a vendor extension, not real
+    // CommonMark fences; `markdown-code-fence-validity` skips them too. This
+    // only prevents *opening* a fence.
+    if (line.includes('|')) continue;
     // A backtick fence's info string may not itself contain a backtick.
     if (match[1][0] === '`' && match[2].includes('`')) continue;
     open = { char: match[1][0], length: match[1].length };
@@ -149,7 +192,62 @@ function blankCode(text: string): string {
 
   // An unclosed fence runs to the end of the document, per CommonMark, so
   // whatever followed it has already been blanked.
-  return lines.join('\n').replace(/`[^`\n]+`/g, blankRun);
+  return blankCodeSpans(lines.join('\n'));
+}
+
+/**
+ * Blank inline code spans the way CommonMark delimits them: a backtick
+ * string of length N opens a span, the next backtick string of exactly
+ * length N closes it, and the span may run across lines. A backtick run with
+ * no matching closer is literal text, not a delimiter.
+ *
+ * A regex over single backticks on one line gets both directions wrong: a
+ * double-backtick span wrapping a link on the following line stays visible
+ * to the scanner and fails the page on sample code, while a backslash-escaped
+ * backtick reads as a delimiter and can hide a real link.
+ */
+function blankCodeSpans(text: string): string {
+  const out = text.split('');
+  let i = 0;
+
+  while (i < text.length) {
+    if (text[i] !== '`' || isEscapedAt(text, i)) {
+      i++;
+      continue;
+    }
+    const start = i;
+    while (i < text.length && text[i] === '`') i++;
+    const runLength = i - start;
+
+    let j = i;
+    let closed = false;
+    while (j < text.length) {
+      if (text[j] !== '`' || isEscapedAt(text, j)) {
+        j++;
+        continue;
+      }
+      const runStart = j;
+      while (j < text.length && text[j] === '`') j++;
+      if (j - runStart === runLength) {
+        for (let k = start; k < j; k++) {
+          if (out[k] !== '\n') out[k] = ' ';
+        }
+        i = j;
+        closed = true;
+        break;
+      }
+    }
+    if (!closed) i = start + runLength;
+  }
+
+  return out.join('');
+}
+
+/** True when the character at `i` is preceded by an odd run of backslashes. */
+function isEscapedAt(text: string, i: number): boolean {
+  let count = 0;
+  for (let j = i - 1; j >= 0 && text[j] === '\\'; j--) count++;
+  return count % 2 === 1;
 }
 
 function shorten(text: string): string {
@@ -262,6 +360,13 @@ function scanInlineLinks(text: string): RawLink[] {
   while (i < text.length) {
     const open = text.indexOf('[', i);
     if (open === -1) break;
+    // CommonMark renders `\[example](../x)` as literal text, so an escaped
+    // bracket opens nothing. Without this, documentation that shows escaped
+    // markdown syntax is graded on its own examples.
+    if (isEscapedAt(text, open)) {
+      i = open + 1;
+      continue;
+    }
 
     let depth = 1;
     let j = open + 1;
@@ -319,7 +424,7 @@ export function classifyLink(url: string): LinkClass {
 }
 
 function describe(rawUrl: string, text: string, baseUrl: string): MarkdownLink | null {
-  const url = rawUrl.trim();
+  const url = decodeCharacterReferences(rawUrl.trim());
   if (url === '' || UNSAFE_DESTINATION.test(url)) return null;
 
   const linkClass = classifyLink(url);

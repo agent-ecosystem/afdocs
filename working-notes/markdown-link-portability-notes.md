@@ -55,11 +55,21 @@ change:
 
 `src/helpers/classify-markdown-links.ts`, a pure module with its own tests.
 
-- **Inline links only** (`[text](url)`), via `extractMarkdownLinks` from
-  `llms-txt-valid`, run over a copy with fenced code and inline code replaced
-  by same-length whitespace. Blanking code is not optional: documentation
-  about markdown is full of example links, and afdocs' own docs would have
-  been graded on its examples otherwise.
+- **Inline links only** (`[text](url)`), parsed by `scanInlineLinks` and
+  `readDestination` in this module, run over a copy with fenced code and
+  inline code spans replaced by same-length whitespace. The first build used
+  `extractMarkdownLinks` from `llms-txt-valid`, as the issue asked; the
+  review round moved off it, and the reasoning is under "Review rounds"
+  below. Blanking code is not optional: documentation about markdown is full
+  of example links, and afdocs' own docs would have been graded on its
+  examples otherwise.
+- **The parser follows CommonMark where getting it wrong would invent a
+  link or a failure**: balanced parentheses and angle-bracket forms in
+  destinations, nested brackets in labels, backslash escapes restricted to
+  ASCII punctuation, escaped `\[` opening nothing, character references
+  decoded before resolution, and code spans delimited by matching backtick
+  runs across lines. Each of those is a case where the naive reading
+  produces a destination the check would then fetch and report on.
 - Autolinks and bare URLs are deliberately not collected. They are absolute
   by construction, so including them would only pad the absolute count and
   flatter sites that write out full URLs in prose. Reference definitions
@@ -220,7 +230,7 @@ one run each, JSON kept only in the session scratchpad.
 | pinecone   | Mintlify             | pass   | pass  | warn   | 8     | 38    | 20 / 16 / 0      | 2        | 2 ok                 |
 | mongodb    | Snooty (Gatsby/Next) | warn   | warn  | pass   | 7     | 117   | 116 / 0 / 0      | 6        | 6 ok                 |
 | vercel     | Next.js              | pass   | pass  | warn   | 8     | 190   | 74 / 108 / 0     | 8        | 8 ok                 |
-| neon       | Next.js              | pass   | pass  | pass   | 7     | 207   | 207 / 0 / 0      | 5        | 5 ok                 |
+| neon       | Next.js              | pass   | pass  | pass   | 7     | 206   | 206 / 0 / 0      | 5        | 5 ok                 |
 | resend     | Mintlify             | pass   | pass  | warn   | 8     | 52    | 32 / 19 / 0      | 6        | 6 ok                 |
 | **nvidia** | custom (curated URL) | pass   | pass  | `fail` | 1     | 100   | 0 / 100 / 0      | 8        | 7 not-markdown, 1 ok |
 
@@ -242,13 +252,15 @@ Reading the run:
   false-positive fixes below landed. The class is real (the spec's fail
   level names it) but no modern generator emits one, so in practice `fail`
   means broken links rather than relative ones.
-- **The counts in this table are from the final code**, re-run after the
-  review round rewrote the link parser. Every verdict is identical to the
-  first run; only the link totals moved, and only upward (Stripe 208 to 226,
-  Vercel 188 to 190, Neon 206 to 207, Supabase 25 to 26), which is the
-  parser finding links the regex had dropped. No site changed bucket, which
-  is the evidence that the rewrite added recall without adding false
-  positives.
+- **The counts in this table are from the final code.** The eleven cases
+  were re-run after each of the two review rounds touched the parser, and
+  **every verdict is identical across all three runs**. Only the link totals
+  moved: up after the first rewrite, where the CommonMark parser found links
+  the old regex had truncated or dropped (Stripe 208 to 226, Vercel 188 to
+  190, Neon 206 to 207, Supabase 25 to 26), and back down by one on Neon
+  after the second, where a link that was really inside code stopped being
+  counted. No site changed bucket in either direction, which is the evidence
+  that the rewrites bought correctness without buying false positives.
 - **Cost.** Between 2 and 8 requests per site: the per-page quota is 1 at
   `--max-links 8` with eight sampled pages, and shared navigation links
   collapse to a single fetch. Pinecone spent 2 for 8 pages because its
@@ -328,7 +340,9 @@ documentation from; it reads as a build-time identifier substituted into the
 link template. Status codes alone pass all 100 of these links, which is the
 spec's point.
 
-## Review round (PR #129)
+## Review rounds (PR #129)
+
+### First round
 
 Six findings, all acted on. Four of them were about the link parser, which is
 the part of this check that decides everything else.
@@ -396,3 +410,56 @@ the part of this check that decides everything else.
 
 - The field-run section said "Ten sites" and "Five pass" against an
   eleven-row table with six passes. Corrected.
+
+### Second round
+
+Six more, all real, and five of them were places where the parser let sample
+code reach the scan. Each of those classified a path-relative link, which
+fails a page, so every one was a live false-positive source rather than a
+style point.
+
+- **The table-cell guard was running inside an open fence.** `blankCode`
+  skipped any line containing `|` before checking whether a fence was open,
+  so a fenced line was left unblanked. A shell example with a pipe is the
+  most common line in fenced code there is: `cat notes | grep '[a](../b.md)'`
+  registered as a path-relative link. The guard now only prevents _opening_ a
+  fence; content inside one is always blanked.
+
+- **Inline code spans are scanned by delimiter run, not by regex.** The old
+  ``/`[^`\n]+`/g`` matched single-backtick spans on one line only.
+  CommonMark opens a span with a backtick run of length N and closes it with
+  the next run of exactly N, across lines. A double-backtick span wrapping a
+  link on the following line stayed visible (false fail), and a
+  backslash-escaped backtick read as a delimiter and could swallow a real
+  link (false pass). `blankCodeSpans` honours run length, escapes, and line
+  breaks, and leaves an unmatched run as literal text.
+
+- **An escaped `\[` is not a link opener.** The scanner took every `[`. A
+  page demonstrating escaped markdown syntax was graded on the example.
+  Openers preceded by an odd-length backslash run are skipped.
+
+- **Character references are decoded before resolution.** `[s](/s?a=1&amp;b=2)`
+  navigates to `?a=1&b=2`; the check was fetching `?a=1&amp;b=2`, verifying a
+  different resource than the link points at. `decodeCharacterReferences`
+  handles numeric references and the named ones that HTML-to-markdown
+  converters actually emit into URLs. An unrecognized name is left as
+  written rather than guessed at, so this does not pretend to be the full
+  HTML5 entity table.
+
+- **A declared Content-Type now decides.** Verification sniffed the body
+  whenever the declared type was not `text/*`, so a `.md` link answering
+  `application/json` passed on the strength of one bracket in a string
+  value: `looksLikeMarkdown` counts a single `[a](b)` as a signal. Sniffing
+  is now reserved for a response that declares nothing or declares
+  `application/octet-stream`, the "unknown bytes" type some static hosts
+  serve `.md` with.
+
+  The asymmetry is deliberate and is what keeps the grounding case working:
+  **sniffing may not rescue a contradictory type, but it still condemns**. A
+  body shaped like HTML is HTML whatever the header says, which is what
+  catches an SPA shell served as `text/markdown`. There is a test for that
+  direction specifically.
+
+- The "Extraction and classification" section above still described the
+  first build's use of `extractMarkdownLinks`, contradicting the review-round
+  entry below it. Corrected.

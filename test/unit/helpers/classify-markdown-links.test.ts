@@ -164,6 +164,56 @@ describe('scanMarkdownLinks', () => {
     expect(scanMarkdownLinks(content, BASE).links.map((l) => l.url)).toEqual(['/guide.md']);
   });
 
+  it('blanks a fenced line containing a pipe', () => {
+    // The table-cell guard must not reach inside an open fence: a shell
+    // example with a pipe is the single most common line in fenced code.
+    const content = [
+      '```bash',
+      "cat notes | grep '[example](../relative.md)'",
+      '```',
+      '',
+      '[real](/real.md)',
+    ].join('\n');
+    expect(scanMarkdownLinks(content, BASE).links.map((l) => l.url)).toEqual(['/real.md']);
+  });
+
+  it('blanks a multi-line double-backtick code span', () => {
+    const content = 'Use ``\n[example](../x)\n`` here, then [real](/real.md).';
+    expect(scanMarkdownLinks(content, BASE).links.map((l) => l.url)).toEqual(['/real.md']);
+  });
+
+  it('treats an escaped backtick as literal text, not a span delimiter', () => {
+    // If `\`` were a delimiter the span would swallow the real link.
+    const content = 'A literal \\` backtick, then [real](/real.md).';
+    expect(scanMarkdownLinks(content, BASE).links.map((l) => l.url)).toEqual(['/real.md']);
+  });
+
+  it('leaves an unmatched backtick run as literal text', () => {
+    const content = 'One ` stray backtick and [real](/real.md).';
+    expect(scanMarkdownLinks(content, BASE).links.map((l) => l.url)).toEqual(['/real.md']);
+  });
+
+  it('does not read an escaped bracket as a link opener', () => {
+    const content = 'Literal: \\[example](../x)\n\nReal: [real](/real.md)';
+    expect(scanMarkdownLinks(content, BASE).links.map((l) => l.url)).toEqual(['/real.md']);
+  });
+
+  it('still reads a link after an escaped backslash', () => {
+    const content = 'Escaped backslash \\\\[real](/real.md)';
+    expect(scanMarkdownLinks(content, BASE).links.map((l) => l.url)).toEqual(['/real.md']);
+  });
+
+  it('decodes character references in a destination', () => {
+    const { links } = scanMarkdownLinks('[search](/search?a=1&amp;b=2)', BASE);
+    expect(links[0].url).toBe('/search?a=1&b=2');
+    expect(links[0].fetchUrl).toBe('https://docs.example.com/search?a=1&b=2');
+  });
+
+  it('decodes numeric character references and leaves unknown names alone', () => {
+    const { links } = scanMarkdownLinks('[a](/a&#x2D;b.md) [b](/b&notareference;.md)', BASE);
+    expect(links.map((l) => l.url)).toEqual(['/a-b.md', '/b&notareference;.md']);
+  });
+
   it('deduplicates repeated links but keeps document order', () => {
     const { links } = scanMarkdownLinks('[a](/a.md) [b](/b.md) [a again](/a.md)', BASE);
     expect(links.map((l) => l.url)).toEqual(['/a.md', '/b.md']);

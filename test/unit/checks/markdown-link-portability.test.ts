@@ -229,6 +229,80 @@ describe('markdown-link-portability', () => {
     expect(result.message).toContain('malformed links (1)');
   });
 
+  it('fails a .md link that declares a non-text content type', async () => {
+    // One bracket in a JSON string must not sniff its way past an explicit
+    // contradictory type.
+    server.use(
+      http.get(`${ORIGIN}/api/b.md`, () =>
+        HttpResponse.json({ note: 'see [guide](/guide) for details' }),
+      ),
+    );
+    const ctx = cachedCtx([
+      { url: `${ORIGIN}/docs/a`, content: `# A\n\n[B](${ORIGIN}/api/b.md)\n` },
+    ]);
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('fail');
+    expect(pageResults(result)[0].samples[0]).toMatchObject({
+      outcome: 'not-markdown',
+      status: 200,
+    });
+  });
+
+  it('accepts a .md link served as text/plain', async () => {
+    server.use(
+      http.get(
+        `${ORIGIN}/docs/b.md`,
+        () =>
+          new HttpResponse('# B\n\nContent.\n', {
+            status: 200,
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          }),
+      ),
+    );
+    const ctx = cachedCtx([
+      { url: `${ORIGIN}/docs/a`, content: `# A\n\n[B](${ORIGIN}/docs/b.md)\n` },
+    ]);
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(pageResults(result)[0].samples[0].outcome).toBe('ok');
+  });
+
+  it('sniffs the body when the response declares no content type', async () => {
+    server.use(
+      http.get(`${ORIGIN}/docs/b.md`, () => new HttpResponse('# B\n\nContent.\n', { status: 200 })),
+    );
+    const ctx = cachedCtx([
+      { url: `${ORIGIN}/docs/a`, content: `# A\n\n[B](${ORIGIN}/docs/b.md)\n` },
+    ]);
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(pageResults(result)[0].samples[0].outcome).toBe('ok');
+  });
+
+  it('still catches an HTML shell that declares text/markdown', async () => {
+    // Sniffing may not rescue a contradictory type, but it must still condemn.
+    server.use(
+      http.get(
+        `${ORIGIN}/docs/b.md`,
+        () =>
+          new HttpResponse(SPA_SHELL, {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown' },
+          }),
+      ),
+    );
+    const ctx = cachedCtx([
+      { url: `${ORIGIN}/docs/a`, content: `# A\n\n[B](${ORIGIN}/docs/b.md)\n` },
+    ]);
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('fail');
+    expect(pageResults(result)[0].samples[0].outcome).toBe('not-markdown');
+  });
+
   it('accepts HTML for a link that never promised markdown', async () => {
     server.use(http.get(`${ORIGIN}/docs/b`, html('<!doctype html><html><body>B</body></html>')));
     const content = `# A\n\nSee [B](${ORIGIN}/docs/b).\n`;
