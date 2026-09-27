@@ -108,7 +108,14 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
           url: string;
           mdUrl?: string;
           status: string;
-          links?: { absolute: number; rootRelative: number; pathRelative: number; total: number };
+          links?: {
+            absolute: number;
+            rootRelative: number;
+            protocolRelative?: number;
+            pathRelative: number;
+            unresolvable?: number;
+            total: number;
+          };
           samples?: Array<{ url: string; outcome: string; status?: number }>;
         }>
       | undefined;
@@ -117,8 +124,13 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
       .filter((p) => p.status !== 'pass')
       .map((p) => {
         const l = p.links;
+        // Protocol-relative links warn alongside root-relative ones, so they
+        // are reported together; a page whose only fragile links are `//host`
+        // would otherwise show zeroes next to a warning.
+        const rootish = l ? l.rootRelative + (l.protocolRelative ?? 0) : 0;
+        const malformed = l?.unresolvable ? `, ${l.unresolvable} malformed` : '';
         const counts = l
-          ? `${l.total} links: ${l.absolute} absolute, ${l.rootRelative} root-relative, ${l.pathRelative} path-relative`
+          ? `${l.total} links: ${l.absolute} absolute, ${rootish} root-relative, ${l.pathRelative} path-relative${malformed}`
           : 'links';
         const broken = (p.samples ?? [])
           .filter((s) => s.outcome !== 'ok')

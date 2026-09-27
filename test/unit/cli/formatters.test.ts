@@ -215,7 +215,13 @@ describe('formatText', () => {
                   url: 'https://example.com/list',
                   mdUrl: 'https://example.com/list.md',
                   status: 'warn',
-                  links: { absolute: 4, rootRelative: 3, pathRelative: 0, total: 7 },
+                  links: {
+                    absolute: 4,
+                    rootRelative: 1,
+                    protocolRelative: 2,
+                    pathRelative: 0,
+                    total: 7,
+                  },
                   samples: [{ url: '/list/a.md', outcome: 'ok', status: 200 }],
                 },
                 {
@@ -234,6 +240,8 @@ describe('formatText', () => {
       expect(output).toContain(
         'https://example.com/models.md 102 links: 0 absolute, 2 root-relative, 0 path-relative; sampled: /wrong/a.md (not-markdown 200)',
       );
+      // Protocol-relative links warn like root-relative ones, so they are
+      // reported with them; otherwise this line shows zeroes next to a warning.
       expect(output).toContain(
         'https://example.com/list.md 7 links: 4 absolute, 3 root-relative, 0 path-relative',
       );

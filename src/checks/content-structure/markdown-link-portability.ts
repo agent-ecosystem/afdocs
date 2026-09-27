@@ -6,6 +6,7 @@ import {
 } from '../../helpers/get-markdown-content.js';
 import {
   countByClass,
+  promisesMarkdownUrl,
   scanMarkdownLinks,
   type LinkClassCounts,
   type MarkdownLink,
@@ -75,6 +76,8 @@ export interface PortabilityReasons {
   pathRelative: number;
   /** Pages carrying at least one root-relative or protocol-relative link. */
   rootRelative: number;
+  /** Pages carrying at least one destination that never parsed as a URL. */
+  unresolvable: number;
   /** Pages with at least one sampled link that was broken. */
   broken: number;
   /** Pages with at least one `.md` link that redirected to HTML. */
@@ -147,10 +150,15 @@ async function verifyLink(
       const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
       const isHtml = contentType.includes('text/html') || looksLikeHtml(body);
       if (isHtml) {
-        // A redirect to a real HTML page is the spec's minor mismatch: the
-        // content is there, the representation is not what was promised. A
-        // `.md` URL answering with HTML in place is the SPA-shell failure.
-        return { outcome: redirected ? 'html-redirect' : 'not-markdown', status, ...redirect };
+        // A redirect that lands on an HTML *page* is the spec's minor
+        // mismatch: the content is there, the representation is not what was
+        // promised. A `.md` URL answering with HTML in place is the SPA-shell
+        // failure, and so is a redirect from one `.md` URL to another that
+        // serves HTML: the final URL still promises markdown and does not
+        // deliver it.
+        const landedOnMarkdownUrl = promisesMarkdownUrl(finalUrl);
+        const minorMismatch = redirected && !landedOnMarkdownUrl;
+        return { outcome: minorMismatch ? 'html-redirect' : 'not-markdown', status, ...redirect };
       }
       const textual =
         contentType === '' || contentType.startsWith('text/') || contentType.includes('markdown');
@@ -207,6 +215,10 @@ function buildPageResult(scan: PageScan, samples: LinkSample[]): PortabilityPage
   if (rootish > 0) {
     issues.push(`${rootish} root-relative link${rootish === 1 ? '' : 's'}`);
   }
+  if (counts.unresolvable > 0) {
+    const n = counts.unresolvable;
+    issues.push(`${n} malformed link${n === 1 ? '' : 's'} that never parsed as a URL`);
+  }
   for (const sample of samples) {
     if (sample.outcome !== 'ok') issues.push(`${sample.url} ${describeOutcome(sample)}`);
   }
@@ -214,7 +226,11 @@ function buildPageResult(scan: PageScan, samples: LinkSample[]): PortabilityPage
   const broken = samples.some((s) => BROKEN_OUTCOMES.has(s.outcome));
   const mismatched = samples.some((s) => s.outcome === 'html-redirect');
   const status: CheckStatus =
-    counts.pathRelative > 0 || broken ? 'fail' : rootish > 0 || mismatched ? 'warn' : 'pass';
+    counts.pathRelative > 0 || counts.unresolvable > 0 || broken
+      ? 'fail'
+      : rootish > 0 || mismatched
+        ? 'warn'
+        : 'pass';
 
   return {
     url: scan.page.url,
@@ -235,6 +251,7 @@ function summarizeReasons(reasons: PortabilityReasons, kind: 'warn' | 'fail'): s
     if (reasons.mismatched > 0) parts.push(`.md links redirecting to HTML (${reasons.mismatched})`);
   } else {
     if (reasons.pathRelative > 0) parts.push(`path-relative links (${reasons.pathRelative})`);
+    if (reasons.unresolvable > 0) parts.push(`malformed links (${reasons.unresolvable})`);
     if (reasons.broken > 0) parts.push(`broken sampled links (${reasons.broken})`);
   }
   return parts.join(', ');
@@ -341,12 +358,14 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const reasons: PortabilityReasons = {
     pathRelative: 0,
     rootRelative: 0,
+    unresolvable: 0,
     broken: 0,
     mismatched: 0,
   };
   for (const page of pageResults) {
     if (page.links.pathRelative > 0) reasons.pathRelative++;
     if (page.links.rootRelative + page.links.protocolRelative > 0) reasons.rootRelative++;
+    if (page.links.unresolvable > 0) reasons.unresolvable++;
     if (page.samples.some((s) => BROKEN_OUTCOMES.has(s.outcome))) reasons.broken++;
     if (page.samples.some((s) => s.outcome === 'html-redirect')) reasons.mismatched++;
   }

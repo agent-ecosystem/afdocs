@@ -199,6 +199,36 @@ describe('markdown-link-portability', () => {
     expect(result.message).toContain('.md links redirecting to HTML (1)');
   });
 
+  it('fails a .md link that redirects to another .md URL still serving HTML', async () => {
+    // The final URL still promises markdown, so this is the SPA-shell failure
+    // with a redirect in front of it, not the spec's minor mismatch.
+    server.use(
+      http.get(`${ORIGIN}/docs/b.md`, () => HttpResponse.redirect(`${ORIGIN}/moved/b.md`, 302)),
+      http.get(`${ORIGIN}/moved/b.md`, html(SPA_SHELL)),
+    );
+    const ctx = cachedCtx([
+      { url: `${ORIGIN}/docs/a`, content: `# A\n\n[B](${ORIGIN}/docs/b.md)\n` },
+    ]);
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('fail');
+    expect(pageResults(result)[0].samples[0]).toMatchObject({
+      outcome: 'not-markdown',
+      redirectedTo: `${ORIGIN}/moved/b.md`,
+    });
+  });
+
+  it('fails a page whose link never parsed as a URL rather than counting it absolute', async () => {
+    const ctx = cachedCtx([{ url: `${ORIGIN}/docs/a`, content: '# A\n\n[broken](https://[)\n' }]);
+    const result = await check.run(ctx);
+    expect(result.status).toBe('fail');
+    const [page] = pageResults(result);
+    expect(page.links).toMatchObject({ absolute: 1, unresolvable: 1 });
+    expect(page.samples).toEqual([]);
+    expect(page.issues).toEqual(['1 malformed link that never parsed as a URL']);
+    expect(result.message).toContain('malformed links (1)');
+  });
+
   it('accepts HTML for a link that never promised markdown', async () => {
     server.use(http.get(`${ORIGIN}/docs/b`, html('<!doctype html><html><body>B</body></html>')));
     const content = `# A\n\nSee [B](${ORIGIN}/docs/b).\n`;

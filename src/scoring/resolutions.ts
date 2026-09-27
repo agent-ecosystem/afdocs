@@ -561,6 +561,7 @@ function portabilityReasons(d: Record<string, unknown>, kind: 'warn' | 'fail'): 
     if (r.mismatched) parts.push(`a .md link that redirects to HTML on ${r.mismatched}`);
   } else {
     if (r.pathRelative) parts.push(`path-relative links on ${r.pathRelative}`);
+    if (r.unresolvable) parts.push(`a malformed link URL on ${r.unresolvable}`);
     if (r.broken) parts.push(`a sampled link that does not resolve on ${r.broken}`);
   }
   return parts.length > 0 ? ` (${parts.join('; ')})` : '';

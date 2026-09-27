@@ -206,7 +206,7 @@ diagnostic lands with #125, the last of them. What it can read here:
 
 ## Field run (2026-09-26)
 
-Ten sites,
+Eleven runs: ten documentation sites plus the curated NVIDIA URL,
 `--checks llms-txt-exists,markdown-url-support,content-negotiation,llms-txt-links-markdown,markdown-link-portability --sampling deterministic --max-links 8`,
 one run each, JSON kept only in the session scratchpad.
 
@@ -214,13 +214,13 @@ one run each, JSON kept only in the session scratchpad.
 | ---------- | -------------------- | ------ | ----- | ------ | ----- | ----- | ---------------- | -------- | -------------------- |
 | afdocs.dev | VitePress            | pass   | pass  | warn   | 8     | 46    | 10 / 35 / 0      | 5        | 7 ok                 |
 | cloudflare | Starlight (Astro)    | pass   | pass  | pass   | 8     | 94    | 84 / 0 / 0       | 8        | 8 ok                 |
-| supabase   | Next.js              | warn   | warn  | pass   | 5     | 25    | 24 / 0 / 0       | 5        | 5 ok                 |
-| stripe     | custom               | pass   | pass  | pass   | 8     | 207   | 207 / 0 / 0      | 8        | 8 ok                 |
+| supabase   | Next.js              | warn   | warn  | pass   | 5     | 26    | 25 / 0 / 0       | 5        | 5 ok                 |
+| stripe     | custom               | pass   | pass  | pass   | 8     | 226   | 226 / 0 / 0      | 8        | 8 ok                 |
 | anthropic  | Mintlify             | pass   | pass  | pass   | 1     | 4     | 4 / 0 / 0        | 4        | 4 ok                 |
 | pinecone   | Mintlify             | pass   | pass  | warn   | 8     | 38    | 20 / 16 / 0      | 2        | 2 ok                 |
 | mongodb    | Snooty (Gatsby/Next) | warn   | warn  | pass   | 7     | 117   | 116 / 0 / 0      | 6        | 6 ok                 |
-| vercel     | Next.js              | pass   | pass  | warn   | 8     | 188   | 72 / 108 / 0     | 8        | 8 ok                 |
-| neon       | Next.js              | pass   | pass  | pass   | 7     | 206   | 206 / 0 / 0      | 5        | 5 ok                 |
+| vercel     | Next.js              | pass   | pass  | warn   | 8     | 190   | 74 / 108 / 0     | 8        | 8 ok                 |
+| neon       | Next.js              | pass   | pass  | pass   | 7     | 207   | 207 / 0 / 0      | 5        | 5 ok                 |
 | resend     | Mintlify             | pass   | pass  | warn   | 8     | 52    | 32 / 19 / 0      | 6        | 6 ok                 |
 | **nvidia** | custom (curated URL) | pass   | pass  | `fail` | 1     | 100   | 0 / 100 / 0      | 8        | 7 not-markdown, 1 ok |
 
@@ -230,7 +230,7 @@ Fragment and `mailto:` links are excluded from the three.
 
 Reading the run:
 
-- **Five pass, four warn, one fail**, and the fail is the spec's grounding
+- **Six pass, four warn, one fail**, and the fail is the spec's grounding
   case. The warns are all the same thing: a generator emitting root-relative
   links. VitePress, Mintlify, and Next.js all do it; Starlight, Snooty, and
   Stripe's custom pipeline emit absolute URLs. This is a platform property,
@@ -242,6 +242,13 @@ Reading the run:
   false-positive fixes below landed. The class is real (the spec's fail
   level names it) but no modern generator emits one, so in practice `fail`
   means broken links rather than relative ones.
+- **The counts in this table are from the final code**, re-run after the
+  review round rewrote the link parser. Every verdict is identical to the
+  first run; only the link totals moved, and only upward (Stripe 208 to 226,
+  Vercel 188 to 190, Neon 206 to 207, Supabase 25 to 26), which is the
+  parser finding links the regex had dropped. No site changed bucket, which
+  is the evidence that the rewrite added recall without adding false
+  positives.
 - **Cost.** Between 2 and 8 requests per site: the per-page quota is 1 at
   `--max-links 8` with eight sampled pages, and shared navigation links
   collapse to a single fetch. Pinecone spent 2 for 8 pages because its
@@ -250,7 +257,7 @@ Reading the run:
   Resend 19) and none of it was fetched. Verifying it would have roughly
   doubled the check's request count for no signal about the site under test.
 
-### Three false positives the first run found, and what they changed
+### Three false positives the field run found, and what they changed
 
 Every one of these was caught by running against real sites, and each has a
 unit test now.
@@ -320,3 +327,72 @@ site to verify a sample in CI for that reason.
 documentation from; it reads as a build-time identifier substituted into the
 link template. Status codes alone pass all 100 of these links, which is the
 spec's point.
+
+## Review round (PR #129)
+
+Six findings, all acted on. Four of them were about the link parser, which is
+the part of this check that decides everything else.
+
+- **Extraction no longer goes through `extractMarkdownLinks`.** The issue
+  said to reuse it, and the first build did. It is a single regex written for
+  `llms.txt`, where destinations are plain absolute URLs, and it is not
+  enough for arbitrary served markdown: `[guide](https://host/chapter_(draft).md)`
+  stops at the first `)` and yields `https://host/chapter_(draft`, which this
+  check would then fetch and report as a broken link that does not exist.
+  Inventing a 404 is the worst failure this check has. An angle-bracket
+  destination containing a space (`[g](</docs/user guide.md>)`) is missed
+  entirely, and nested brackets in link text break the label match.
+
+  `scanInlineLinks` and `readDestination` in the helper now parse the
+  CommonMark inline-link form directly: angle-bracket and bare destinations,
+  balanced parentheses, optional titles, nested brackets in labels, and
+  backslash escapes restricted to ASCII punctuation as the spec requires.
+  A destination whose parentheses never close is skipped rather than
+  truncated. `extractMarkdownLinks` is untouched; the llms.txt checks keep
+  using it, and `fetchLlmsTxtLinkedMarkdown` still does too.
+
+  The punctuation restriction on escapes is load-bearing: treating `\w` as an
+  escaped `w` would have unescaped the Mintlify MDX regex literal into a
+  plausible destination and undone the field-run fix below.
+
+- **Fence blanking is now a line scanner.** The first build reused
+  `detect-pagination`'s regex, whose backreference requires the closing fence
+  to be at column 1 and exactly as long as the opener. CommonMark allows a
+  longer closer, and a fence nested in a list item carries the list's indent.
+  Neither was theoretical: deeply nested fenced code is ordinary in tutorial
+  documentation, and an unrecognized fence puts every example link inside it
+  into the scan. The scanner accepts an opener at any indent and a closer of
+  at least the opener's length, and it keeps the existing table-cell guard
+  `markdown-code-fence-validity` uses. Accepting an opener at any indent
+  trades recall for safety deliberately, in the same direction
+  `detect-pagination` documents: blanking too much loses a link, blanking too
+  little invents a broken one.
+
+  `detect-pagination.ts` has the same weakness and is deliberately left
+  alone: changing it would move `single-fetch-completeness`'s behaviour with
+  no field evidence behind it. Worth revisiting together if either check
+  produces a fence-related false positive.
+
+- **A destination that never parses is no longer silently absolute.** A
+  malformed target such as `https://[` was classified `absolute`, dropped
+  from sampling for want of a `fetchUrl`, and counted toward the absolute
+  total, so a page whose only link was malformed passed as fully portable.
+  `MarkdownLink.unresolvable` records it, `LinkClassCounts.unresolvable`
+  tallies it, and it fails the page: an unusable link is not a portable one.
+
+- **A `.md` link that redirects to another `.md` URL serving HTML now
+  fails.** The first build warned on any redirect that ended in HTML. The
+  spec's minor mismatch is "a `.md` link that redirects to an HTML page";
+  when the final URL still ends in `.md` and still answers with a shell, the
+  representation still contradicts the link and nothing about the redirect
+  softens it. `promisesMarkdownUrl(finalUrl)` decides which it is.
+
+- **Protocol-relative links appear in the verbose counts.** They warn
+  alongside root-relative links but the detail line printed only
+  `rootRelative`, so a page whose only fragile links were `//host/path`
+  showed zeroes beside its warning. They are now reported in the same
+  number, which is also how the status is computed, and malformed links get
+  their own count on the line.
+
+- The field-run section said "Ten sites" and "Five pass" against an
+  eleven-row table with six passes. Corrected.

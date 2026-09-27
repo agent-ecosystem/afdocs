@@ -105,6 +105,65 @@ describe('scanMarkdownLinks', () => {
     expect(links.map((l) => l.url)).toEqual(['/real.md']);
   });
 
+  it('keeps balanced parentheses inside a destination', () => {
+    // A regex that stops at the first `)` would fetch
+    // https://host/chapter_(draft and report a 404 that does not exist.
+    const { links } = scanMarkdownLinks('[guide](https://host/chapter_(draft).md)', BASE);
+    expect(links.map((l) => l.url)).toEqual(['https://host/chapter_(draft).md']);
+    expect(links[0].promisesMarkdown).toBe(true);
+  });
+
+  it('reads an angle-bracket destination containing spaces', () => {
+    const { links } = scanMarkdownLinks('[guide](</docs/user guide.md>)', BASE);
+    expect(links.map((l) => l.url)).toEqual(['/docs/user guide.md']);
+    expect(links[0].fetchUrl).toBe('https://docs.example.com/docs/user%20guide.md');
+  });
+
+  it('skips a destination whose parentheses never close', () => {
+    const { links } = scanMarkdownLinks('[broken](https://host/a(b and more text', BASE);
+    expect(links).toEqual([]);
+  });
+
+  it('reads a destination followed by a title', () => {
+    const { links } = scanMarkdownLinks('[guide](/a.md "The guide") [b](/b.md \'B\')', BASE);
+    expect(links.map((l) => l.url)).toEqual(['/a.md', '/b.md']);
+  });
+
+  it('handles nested brackets in link text', () => {
+    const { links } = scanMarkdownLinks('[see [note] here](/a.md)', BASE);
+    expect(links.map((l) => l.url)).toEqual(['/a.md']);
+    expect(links[0].text).toBe('see [note] here');
+  });
+
+  it('marks a destination that never parses as a URL instead of dropping it', () => {
+    const { links } = scanMarkdownLinks('[broken](https://[)', BASE);
+    expect(links).toHaveLength(1);
+    expect(links[0].class).toBe('absolute');
+    expect(links[0].unresolvable).toBe(true);
+    expect(links[0].fetchUrl).toBeUndefined();
+    expect(countByClass(links).unresolvable).toBe(1);
+  });
+
+  it('blanks a fence closed by a longer fence', () => {
+    const content = ['```js', '[x](/inside.md)', '````', '', '[real](/real.md)'].join('\n');
+    expect(scanMarkdownLinks(content, BASE).links.map((l) => l.url)).toEqual(['/real.md']);
+  });
+
+  it('blanks a fence indented inside a list item', () => {
+    // Deeply nested fenced code is ordinary in tutorial documentation, not an
+    // edge case, and an unrecognized fence puts its example links in the scan.
+    const content = [
+      '1. Write the file:',
+      '',
+      '   ```markdown',
+      '   [example](../relative/example.md)',
+      '   ```',
+      '',
+      '2. Then read [the guide](/guide.md).',
+    ].join('\n');
+    expect(scanMarkdownLinks(content, BASE).links.map((l) => l.url)).toEqual(['/guide.md']);
+  });
+
   it('deduplicates repeated links but keeps document order', () => {
     const { links } = scanMarkdownLinks('[a](/a.md) [b](/b.md) [a again](/a.md)', BASE);
     expect(links.map((l) => l.url)).toEqual(['/a.md', '/b.md']);
@@ -139,6 +198,7 @@ describe('countByClass', () => {
       fragment: 1,
       otherScheme: 1,
       crossOrigin: 1,
+      unresolvable: 0,
       total: 7,
     });
   });

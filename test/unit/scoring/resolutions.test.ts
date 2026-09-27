@@ -125,11 +125,12 @@ describe('resolutions', () => {
         r('markdown-link-portability', 'fail', {
           failBucket: 2,
           testedPages: 8,
-          reasons: { pathRelative: 1, broken: 2 },
+          reasons: { pathRelative: 1, unresolvable: 1, broken: 2 },
         }),
       );
       expect(text).toContain('2 of 8 markdown pages');
       expect(text).toContain('path-relative links on 1');
+      expect(text).toContain('a malformed link URL on 1');
       expect(text).toContain('a sampled link that does not resolve on 2');
       expect(text).toContain('Fix the link generation first');
       expect(text).toContain('200 with an HTML shell');

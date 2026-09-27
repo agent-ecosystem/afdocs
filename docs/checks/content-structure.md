@@ -119,6 +119,8 @@ The check reads the same markdown responses the other markdown checks already fe
 - **Root-relative** (`/guide.md`): the scheme and host.
 - **Path-relative** (`guide.md`, `../guide.md`): the scheme, the host, and the directory of the document that carried the link.
 
+A destination that never parses as a URL at all (a generator emitting `https://[`) fails the page rather than being counted as a well-formed absolute link.
+
 Same-document fragment links (`#anchor` with no path) are exempt: they resolve within the content the agent already holds, and rewriting them to absolute URLs adds nothing. Links with a non-HTTP scheme (`mailto:`, `tel:`) are exempt for the same reason. Links inside fenced code blocks and inline code are ignored, so documentation that shows example markdown is not graded on its examples. Image references are classified and reported but never affect the result: they point at assets rather than at documentation an agent navigates to.
 
 Relative links are resolved against the URL that served the markdown, not the page URL. For a site serving `/docs/api` as `/md/docs/api.md`, `guide.md` means `/md/docs/guide.md`.
@@ -129,11 +131,13 @@ A sample of the links is then fetched and verified: a success status, a non-empt
 
 Each sampled markdown page is scored from the worst link class it carries and the results for its sampled links; the overall result is proportional.
 
-| Result | Condition                                                                                                                                |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Pass   | Links are absolute, and sampled links resolve to the expected representation                                                             |
-| Warn   | Links are root-relative, or a sampled `.md` link redirects to an HTML page that carries the right content                                |
-| Fail   | Links are path-relative, or a sampled link is broken: a hard 404, a soft 404, an empty body, or a content type that contradicts the link |
+| Result | Condition                                                                                                                                             |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pass   | Links are absolute, and sampled links resolve to the expected representation                                                                          |
+| Warn   | Links are root-relative, or a sampled `.md` link redirects to an HTML page that carries the right content                                             |
+| Fail   | Links are path-relative or malformed, or a sampled link is broken: a hard 404, a soft 404, an empty body, or a content type that contradicts the link |
+
+The redirect case is narrow on purpose. A `.md` link that redirects to an HTML page has delivered the content in the wrong representation, which is the warn. A `.md` link that redirects to another `.md` URL and then serves HTML is not: the final URL still promises markdown and still doesn't deliver it, so that fails like any other shell at a `.md` address.
 
 The verbose output names the link counts per page and each broken sample with its reason.
 
