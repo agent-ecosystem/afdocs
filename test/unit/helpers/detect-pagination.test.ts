@@ -146,6 +146,20 @@ describe('detectPagination', () => {
       });
     });
 
+    it('detects the spec’s grounding case as served: an italic trailing note with a root-relative path', () => {
+      // build.nvidia.com/models.md, fetched 2026-09-27.
+      const content = `# Models\n\n${'- [m](/x/m.md) — a model\n'.repeat(100)}\n_100 of 101 shown. Fetch /models.md?page=2 for the next 100._\n`;
+      const result = detectPagination(content, { baseUrl: 'https://build.nvidia.com/models.md' });
+      expect(result.signals.map((s) => s.type)).toEqual(['n-of-m', 'pagination-param']);
+      expect(result.signals[0].text).toBe('100 of 101 shown');
+      expect(result.continuation).toMatchObject({
+        url: '/models.md?page=2',
+        resolvedUrl: 'https://build.nvidia.com/models.md?page=2',
+        absolute: false,
+        declaredIn: 'content',
+      });
+    });
+
     it('detects a bare root-relative path quoted in an instruction', () => {
       const content = `# Models\n\n- a\n\nFor the remaining models, fetch /models?offset=100.`;
       const result = detectPagination(content, { baseUrl: BASE });

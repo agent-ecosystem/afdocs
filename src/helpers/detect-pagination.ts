@@ -71,8 +71,8 @@ const N_OF_M_PATTERNS: RegExp[] = [
   /(?<![A-Za-z0-9])(?:showing|displaying|listing|page)\s+(?:the\s+first\s+)?(\d[\d,]*)\s+(?:of|out\s+of)\s+(\d[\d,]*)(?![A-Za-z0-9])/gi,
   // "Showing 1-100 of 102", "Showing results 1 to 25 of 80"
   /(?<![A-Za-z0-9])(?:showing|displaying|listing)\s+(?:results?\s+|items?\s+|entries\s+)?\d[\d,]*\s*(?:-|–|to)\s*(\d[\d,]*)\s+(?:of|out\s+of)\s+(\d[\d,]*)(?![A-Za-z0-9])/gi,
-  // "100 of 102 models", "25 of 80 results"
-  /(?<![A-Za-z0-9])(\d[\d,]*)\s+(?:of|out\s+of)\s+(\d[\d,]*)\s+(?:results?|items?|entries|records|models|rows|pages)(?![A-Za-z0-9])/gi,
+  // "100 of 102 models", "25 of 80 results", "100 of 101 shown"
+  /(?<![A-Za-z0-9])(\d[\d,]*)\s+(?:of|out\s+of)\s+(\d[\d,]*)\s+(?:results?|items?|entries|records|models|rows|pages|shown|displayed|listed|total)(?![A-Za-z0-9])/gi,
 ];
 
 /**

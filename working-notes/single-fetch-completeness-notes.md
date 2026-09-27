@@ -177,7 +177,49 @@ line, after at most markdown structure and one short label such as
 illustrative counts sit mid-sentence. The site was re-run once after the
 fix and passed; the sentence is now a regression test.
 
-Reading the run:
+### The grounding case, live (2026-09-27)
+
+The spec's motivating catalog is https://build.nvidia.com/models.md. Fetched
+once and run through the check with `--urls https://build.nvidia.com/models
+--checks markdown-url-support,content-negotiation,single-fetch-completeness`:
+
+| what         | observed                                                                      |
+| ------------ | ----------------------------------------------------------------------------- |
+| page 1       | 31,606 chars, `text/markdown`, 100 models, note on the last line              |
+| the note     | `_100 of 101 shown. Fetch /models.md?page=2 for the next 100._`               |
+| signals      | `n-of-m` "100 of 101 shown" @31546; `pagination-param` `/models.md?page=2`    |
+| continuation | resolved against the `.md` URL to `https://build.nvidia.com/models.md?page=2` |
+| verification | `ok`, HTTP 200, 351 bytes of markdown, the 101st model                        |
+| result       | **warn**: relative URL, declared at 100% of content                           |
+
+Two things the live page taught:
+
+- **"shown" was missing from the trailing-noun list.** The first build of the
+  pattern matched `100 of 102 models` but not `100 of 101 shown`, so the
+  page registered only through the root-relative path in the instruction.
+  It would still have warned (the path alone is a signal and a continuation),
+  but the evidence line would have named the URL, not the note. `shown`,
+  `displayed`, `listed`, and `total` are now trailing words, and the exact
+  sentence is a unit test.
+- **The continuation now works.** The spec recorded an empty body; the site
+  has since fixed that, so the page moved from the spec's fail case to the
+  warn case, and the fix text's first question still applies: 101 entries
+  serialize to about 32K characters, under the 50K pass threshold, so the
+  markdown variant does not need pagination at all.
+
+Unrelated to this check but visible in the same body: every model entry
+appears twice (100 unique entries, 200 list lines, the whole list repeated
+once), and page 2 lists its one model twice too. That is a generator
+defect in `markdown-content-parity`'s and `embedded-data-serialization`'s
+territory and belongs in the "Dynamic Content Rendered Statically"
+diagnostic's evidence when it lands.
+
+The docs.github.com sniff test from the same session (llms.txt steering
+agents to a JSON Search API that returns 10 of 1,098 hits with page/size
+counters only) is out of this check's scope and became agent-docs-spec #39
+and afdocs #127.
+
+Reading the ten-site run:
 
 - **No pagination was found on any of these ten sites**, which is the
   expected shape for documentation sites: pagination in a markdown variant
