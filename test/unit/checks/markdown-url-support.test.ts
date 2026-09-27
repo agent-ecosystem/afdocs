@@ -97,6 +97,52 @@ describe('markdown-url-support', () => {
     expect(result.details?.supportRate).toBe(100);
   });
 
+  it.each([true, false])(
+    'includes versioned pages in the denominator (supports markdown: %j, #134)',
+    async (supportsMarkdown) => {
+      const versionedUrl = 'http://test.local/migration/v0.22.0';
+      const versionedRequests: string[] = [];
+      server.use(
+        http.get(
+          'http://test.local/docs/version-control.md',
+          () =>
+            new HttpResponse('# Guide\n\nContent.', {
+              headers: { 'Content-Type': 'text/markdown' },
+            }),
+        ),
+        http.get(`${versionedUrl}.md`, ({ request }) => {
+          versionedRequests.push(request.url);
+          return supportsMarkdown
+            ? new HttpResponse('# Migration\n\nUpgrade steps.', {
+                headers: { 'Content-Type': 'text/markdown' },
+              })
+            : new HttpResponse('Not Found', { status: 404 });
+        }),
+        http.get(`${versionedUrl}/index.md`, ({ request }) => {
+          versionedRequests.push(request.url);
+          return new HttpResponse('Not Found', { status: 404 });
+        }),
+      );
+
+      const content = `# Docs\n> Summary\n## Links\n- [Guide](http://test.local/docs/version-control): Guide\n- [Migration](${versionedUrl}): Upgrade\n`;
+      const result = await check.run(makeCtx({ content }));
+
+      expect(result.status).toBe(supportsMarkdown ? 'pass' : 'warn');
+      expect(result.details).toMatchObject({
+        testedPages: 2,
+        skippedPages: 0,
+        mdSupported: supportsMarkdown ? 2 : 1,
+        mdUnsupported: supportsMarkdown ? 0 : 1,
+        supportRate: supportsMarkdown ? 100 : 50,
+      });
+      expect(versionedRequests).toEqual(
+        supportsMarkdown
+          ? [`${versionedUrl}.md`]
+          : [`${versionedUrl}.md`, `${versionedUrl}/index.md`],
+      );
+    },
+  );
+
   it('fails when .md URLs return 404', async () => {
     server.use(
       http.get(

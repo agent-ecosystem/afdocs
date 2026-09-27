@@ -4,7 +4,7 @@ Design history of `src/helpers/get-page-urls.ts`: how page URLs are found
 in `llms.txt` and sitemaps, how `.md` links become page URLs, and how the
 sample is drawn. Every entry below was a response to a real site, and
 several later issues were about the side effects of an earlier fix, so
-read this before changing `normalizePageUrl`, the aggregate walker,
+read this before changing `isNonPageUrl`, `normalizePageUrl`, the aggregate walker,
 `deduplicateVersionedUrls` or `discoverAndSamplePages`.
 
 The recurring tension is **request budget versus correctness**. The
@@ -204,6 +204,49 @@ initial leaf cases failed before the fix. These tests establish page
 preservation and version selection, not identical request counts or
 runtime.
 
+### September 2026: numeric suffixes are not file-type evidence (issue #134)
+
+`isNonPageUrl` treated the final `.0` in `/migration/v0.22.0` as a file
+extension. This is separate from #135: even after version leaves survive
+deduplication, the classifier can exclude them elsewhere. It removed
+versioned links from depth-1 aggregate indexes and from the sitemap side
+of coverage matching, creating false "llms.txt links not in sitemap"
+diagnostics. Markdown URL support and content negotiation skipped them
+instead of counting failures. Directive checks fell back to negotiation,
+so production could pass while a local server without negotiation failed.
+
+Decision: **a non-page extension must contain at least one letter.**
+Numeric-only suffixes are not sufficient evidence to exclude a page.
+This preserves version and date paths such as `v0.22.0`, `2.4.1`, and
+`release.2026` while retaining asset filtering for `.txt`, `.json`, `.xml`,
+`.7z`, `.mp4`, and `.h264`. HTML and Markdown exceptions remain unchanged.
+Do not strip trailing slashes before classifying: this change concerns a
+numeric suffix on the last path segment, not dotted directory names.
+
+This remains a URL heuristic, not content-type detection. A real file
+with a numeric-only suffix, such as a split archive ending in `.001`, can
+now be a page candidate. Conversely, a documentation route ending in
+`node.js` still looks like a non-page file. Neither ambiguity is solved
+here. A semver-only exception would miss date and other numeric suffixes;
+an asset-extension allowlist would broaden the change and require ongoing
+maintenance. Fetching candidate URLs to classify them would violate the
+discovery request budget. Keep the decision in the shared classifier,
+not separate exceptions in each check.
+
+No classification requests are added. Retained aggregate links enter the
+existing sampling process; previously skipped sampled pages now receive
+their normal checks. This can add requests and change denominators, but
+does not imply fetching every discovered URL or raising sampling limits.
+Coverage compares URL sets without probing the pages. No runtime
+benchmark was performed.
+
+Tests cover numeric suffixes with and without trailing slashes, preserved
+asset filtering, success and failure denominators, coverage matching for
+plain and `.md` links, and directives on a server without negotiation.
+Nested-index regressions assert that discovery fetches only the index,
+not its page candidates. Markdown and negotiation regressions also pin
+the requests made for the formerly skipped pages.
+
 ## Invariants
 
 - Discovery emits page URLs; `.md` candidates are derived per check.
@@ -213,6 +256,8 @@ runtime.
 - Version deduplication may strip only non-terminal version segments
   from grouping keys. A version-named leaf alone is not evidence of
   duplicate content. (#135)
+- Numeric-only suffixes are not sufficient evidence of a non-page file;
+  classify them without adding discovery fetches. (#134)
 - Every request made during discovery is bounded by `maxLinksToTest` or
   by the number of `.txt` indexes at depth 0 and 1, never by the number
   of discovered URLs. (#45, ce698fc, #112)

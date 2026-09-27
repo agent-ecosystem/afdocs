@@ -2,9 +2,33 @@ import { describe, it, expect } from 'vitest';
 import {
   isCrossHostRedirect,
   isMdUrl,
+  isNonPageUrl,
   toHtmlUrl,
   toMdUrls,
 } from '../../../src/helpers/to-md-urls.js';
+
+describe('isNonPageUrl', () => {
+  it.each(['migration/v0.22.0', 'docs/v1.0', 'release-notes/2.4.1', 'release.2026'])(
+    'keeps numeric suffixes as page paths: %s',
+    (path) => {
+      expect(isNonPageUrl(`https://example.com/${path}`)).toBe(false);
+      expect(isNonPageUrl(`https://example.com/${path}/`)).toBe(false);
+    },
+  );
+
+  it.each([
+    'llms.txt',
+    'openapi.json',
+    'sitemap.xml',
+    'diagram.png',
+    'clip.mp4',
+    'bundle.7z',
+    'video.h264',
+    'schema.JSON',
+  ])('still classifies real file extensions as non-pages: %s', (path) => {
+    expect(isNonPageUrl(`https://example.com/${path}`)).toBe(true);
+  });
+});
 
 describe('toMdUrls', () => {
   it('returns URL as-is when it already ends in .md', () => {
@@ -19,6 +43,16 @@ describe('toMdUrls', () => {
       'https://example.com/docs/guide/index.md',
     ]);
   });
+
+  it.each(['migration/v0.22.0', 'docs/v1.0', 'release-notes/2.4.1', 'release.2026'])(
+    'generates markdown candidates for numeric suffixes: %s',
+    (path) => {
+      const pageUrl = `https://example.com/${path}`;
+      const expected = [`${pageUrl}.md`, `${pageUrl}/index.md`];
+      expect(toMdUrls(pageUrl)).toEqual(expected);
+      expect(toMdUrls(`${pageUrl}/`)).toEqual(expected);
+    },
+  );
 
   it('strips trailing slash before generating candidates', () => {
     expect(toMdUrls('https://example.com/docs/')).toEqual([

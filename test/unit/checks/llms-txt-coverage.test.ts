@@ -102,6 +102,48 @@ describe('llms-txt-coverage', () => {
     expect(result.details?.unmatchedCount).toBe(0);
   });
 
+  test.each(['', '.md'])(
+    'matches versioned sitemap pages to llms.txt links (suffix: %j, #134)',
+    async (suffix) => {
+      const host = 'cov-versioned.local';
+      const pages = [
+        `http://${host}/migration/guide`,
+        `http://${host}/migration/v0.17.0`,
+        `http://${host}/migration/v0.22.0`,
+      ];
+      const ctx = makeCtx(
+        host,
+        pages.map((url) => `${url}${suffix}`),
+        '/migration',
+      );
+      server.use(
+        http.get(
+          `http://${host}/robots.txt`,
+          () => new HttpResponse(`Sitemap: http://${host}/sitemap.xml`),
+        ),
+        http.get(
+          `http://${host}/sitemap.xml`,
+          () =>
+            new HttpResponse(makeSitemap([...pages, `http://${host}/migration/schema.json`]), {
+              headers: { 'Content-Type': 'application/xml' },
+            }),
+        ),
+      );
+
+      const result = await check.run(ctx);
+      expect(result.status).toBe('pass');
+      expect(result.details).toMatchObject({
+        sitemapScoped: 3,
+        sitemapDocPages: 3,
+        coverageRate: 100,
+        missingCount: 0,
+        unmatchedCount: 0,
+        unmatchedLlmsTxtUrls: [],
+      });
+      expect(result.message).not.toContain('not in sitemap');
+    },
+  );
+
   test('passes when llms.txt uses .md URLs matching sitemap HTML URLs', async () => {
     const host = 'cov-md.local';
     const llmsUrls = [

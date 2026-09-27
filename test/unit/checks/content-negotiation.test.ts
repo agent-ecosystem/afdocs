@@ -76,6 +76,37 @@ describe('content-negotiation', () => {
     expect(result.details?.negotiationRate).toBe(100);
   });
 
+  it.each([true, false])(
+    'tests versioned pages instead of skipping them (negotiates: %j, #134)',
+    async (negotiates) => {
+      const pageUrl = 'http://test.local/migration/v0.22.0';
+      const acceptHeaders: Array<string | null> = [];
+      server.use(
+        http.get(pageUrl, ({ request }) => {
+          acceptHeaders.push(request.headers.get('accept'));
+          return new HttpResponse(
+            negotiates
+              ? '# Migration\n\nUpgrade steps.'
+              : '<html><body>Upgrade steps.</body></html>',
+            { headers: { 'Content-Type': negotiates ? 'text/markdown' : 'text/html' } },
+          );
+        }),
+      );
+
+      const content = `# Docs\n> Summary\n## Links\n- [Migration](${pageUrl}): Upgrade\n`;
+      const result = await check.run(makeCtx(content));
+
+      expect(result.status).toBe(negotiates ? 'pass' : 'fail');
+      expect(result.details).toMatchObject({
+        testedPages: 1,
+        skippedPages: 0,
+        markdownWithCorrectType: negotiates ? 1 : 0,
+        htmlOnly: negotiates ? 0 : 1,
+      });
+      expect(acceptHeaders).toEqual(['text/markdown']);
+    },
+  );
+
   it('warns when server returns markdown but with wrong Content-Type', async () => {
     server.use(
       http.get(
