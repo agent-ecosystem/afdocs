@@ -50,7 +50,18 @@ Checks that fail cause the test to fail. Checks that warn still pass (they're in
 
 ## Running a subset of checks
 
-If certain checks don't apply to your site (for example, you don't serve markdown), limit which checks run in the config:
+To exclude specific checks, use `skipChecks`. For example, a local preview server may not implement the content negotiation or cache headers supplied by your production server:
+
+```yaml
+url: https://docs.example.com
+skipChecks:
+  - content-negotiation
+  - cache-header-hygiene
+```
+
+Both helpers honor `skipChecks`. Excluded checks do not run; the per-check helper logs their results with a `skip` status. Prefer this exclude-list for ongoing CI: checks added in later AFDocs versions still run automatically.
+
+For a deliberately narrow run, use the `checks` include-list instead:
 
 ```yaml
 url: https://docs.example.com
@@ -69,7 +80,12 @@ Checks not in the list show as skipped in the test output.
 ```yaml
 url: https://docs.example.com
 
-# Optional: run only specific checks (omit to run all 28)
+# Optional: skip specific checks (run everything else, including future checks)
+# skipChecks:
+#   - content-negotiation
+#   - cache-header-hygiene
+
+# Optional: run only specific checks
 # checks:
 #   - llms-txt-exists
 #   - llms-txt-valid
@@ -208,7 +224,7 @@ on:
       - 'docs/**'
 ```
 
-One limitation to plan around: `skipChecks` is currently honored by the CLI and ignored by the vitest helpers ([afdocs#133](https://github.com/agent-ecosystem/afdocs/issues/133)). Until that is fixed, run the localhost target through `afdocs check --config agent-docs.local.yml` rather than the helpers.
+The CLI and both vitest helpers honor `skipChecks`.
 
 AFDocs checks its own docs site this way; the two workflows are [agent-docs.yml](https://github.com/agent-ecosystem/afdocs/blob/main/.github/workflows/agent-docs.yml) and [agent-docs-live.yml](https://github.com/agent-ecosystem/afdocs/blob/main/.github/workflows/agent-docs-live.yml).
 

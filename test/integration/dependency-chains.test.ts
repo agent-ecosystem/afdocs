@@ -200,7 +200,7 @@ describe('--skip-checks interaction with dependencies', () => {
     // markdown-url-support should be explicitly skipped
     const mdUrl = report.results.find((r) => r.id === 'markdown-url-support')!;
     expect(mdUrl.status).toBe('skip');
-    expect(mdUrl.message).toContain('--skip-checks');
+    expect(mdUrl.message).toBe('Check explicitly skipped');
 
     // content-negotiation should still run (not affected by skip)
     const cn = report.results.find((r) => r.id === 'content-negotiation')!;
@@ -234,7 +234,7 @@ describe('--skip-checks interaction with dependencies', () => {
 
     const exists = report.results.find((r) => r.id === 'llms-txt-exists')!;
     expect(exists.status).toBe('skip');
-    expect(exists.message).toContain('--skip-checks');
+    expect(exists.message).toBe('Check explicitly skipped');
 
     // The runner does NOT block llms-txt-valid (dep "never ran" from runner's
     // perspective, since --skip-checks results aren't stored in previousResults).

@@ -54,6 +54,7 @@ export function describeAgentDocs(
             : undefined;
         const report = await runChecks(config.url, {
           checkIds: config.checks,
+          skipCheckIds: config.skipChecks,
           ...config.options,
           ...(inferredStrategy && { samplingStrategy: inferredStrategy as 'curated' }),
           curatedPages: config.pages,
@@ -104,6 +105,7 @@ export function describeAgentDocsPerCheck(
           : undefined;
       report = await runChecks(config.url, {
         checkIds: config.checks,
+        skipCheckIds: config.skipChecks,
         ...config.options,
         ...(inferredStrategy && { samplingStrategy: inferredStrategy as 'curated' }),
         curatedPages: config.pages,
