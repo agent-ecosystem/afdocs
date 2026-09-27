@@ -158,10 +158,18 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
 
   // Oversized pages whose bytes are mostly non-content. The fix for these
   // lives in framework configuration (hydration payloads, duplicate embedded
-  // source), not in the documentation itself.
-  const architectureSignaturePages = successful.filter(
+  // source), not in the documentation itself. Their own maximum ratio is
+  // reported separately from `maxRatio`: a small passing page can carry the
+  // highest ratio on the site, and the fix text must not attribute it to
+  // the oversized pages.
+  const architectureSignatures = successful.filter(
     (r) => r.status !== 'pass' && (r.ratio ?? 0) >= ARCHITECTURE_SIGNATURE_RATIO,
-  ).length;
+  );
+  const architectureSignaturePages = architectureSignatures.length;
+  const architectureSignatureMaxRatio =
+    architectureSignatures.length > 0
+      ? Math.max(...architectureSignatures.map((r) => r.ratio ?? 0))
+      : undefined;
 
   const suffix =
     (fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '') +
@@ -196,6 +204,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       max: maxServed,
       ...(maxRatio !== undefined && { maxRatio }),
       architectureSignaturePages,
+      ...(architectureSignatureMaxRatio !== undefined && { architectureSignatureMaxRatio }),
       passBucket,
       warnBucket,
       failBucket,

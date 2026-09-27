@@ -96,12 +96,26 @@ describe('resolutions', () => {
           warnBucket: 2,
           testedPages: 20,
           architectureSignaturePages: 2,
-          maxRatio: 120,
+          architectureSignatureMaxRatio: 120,
+          maxRatio: 141,
         }),
       );
       expect(text).toContain('2 of the oversized pages ship');
       expect(text).toContain('~120:1');
+      expect(text).not.toContain('141');
       expect(text).toContain('framework configuration');
+    });
+
+    it('omits the architecture note when only passing pages have a high ratio', () => {
+      const text = getResolution(
+        r('page-size-transfer', 'warn', {
+          warnBucket: 1,
+          testedPages: 20,
+          architectureSignaturePages: 0,
+          maxRatio: 141,
+        }),
+      );
+      expect(text).not.toContain('architecture signature');
     });
 
     it('reflects configured thresholds', () => {

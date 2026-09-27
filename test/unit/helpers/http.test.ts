@@ -910,30 +910,51 @@ describe('createHttpClient', () => {
       });
     }
 
+    function sentHeaders(fetchMock: ReturnType<typeof vi.fn>): Headers {
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      return new Headers(init.headers);
+    }
+
+    function clientWithMock(fetchMock: ReturnType<typeof vi.fn>) {
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      return createHttpClient({ requestDelay: 0, requestTimeout: 5000, maxConcurrency: 10 });
+    }
+
     it('sends an explicit Accept-Encoding typical of agent HTTP clients', async () => {
       const fetchMock = vi.fn(async () => streamResponse(chunked('<html></html>')));
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-      const client = createHttpClient({
-        requestDelay: 0,
-        requestTimeout: 5000,
-        maxConcurrency: 10,
-      });
-      await client.fetch('http://example.com/page');
-      const init = fetchMock.mock.calls[0][1] as RequestInit;
-      expect((init.headers as Record<string, string>)['Accept-Encoding']).toBe('gzip, deflate, br');
+      await clientWithMock(fetchMock).fetch('http://example.com/page');
+      const headers = sentHeaders(fetchMock);
+      expect(headers.get('accept-encoding')).toBe('gzip, deflate, br');
+      expect(headers.get('user-agent')).toMatch(/^afdocs\//);
     });
 
     it('lets a caller override Accept-Encoding', async () => {
       const fetchMock = vi.fn(async () => streamResponse(chunked('<html></html>')));
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-      const client = createHttpClient({
-        requestDelay: 0,
-        requestTimeout: 5000,
-        maxConcurrency: 10,
+      await clientWithMock(fetchMock).fetch('http://example.com/page', {
+        headers: { 'Accept-Encoding': 'identity' },
       });
-      await client.fetch('http://example.com/page', { headers: { 'Accept-Encoding': 'identity' } });
-      const init = fetchMock.mock.calls[0][1] as RequestInit;
-      expect((init.headers as Record<string, string>)['Accept-Encoding']).toBe('identity');
+      expect(sentHeaders(fetchMock).get('accept-encoding')).toBe('identity');
+    });
+
+    it('replaces a default header on a lowercase override instead of sending both', async () => {
+      const fetchMock = vi.fn(async () => streamResponse(chunked('<html></html>')));
+      await clientWithMock(fetchMock).fetch('http://example.com/page', {
+        headers: { 'accept-encoding': 'identity', 'user-agent': 'custom-agent/1.0' },
+      });
+      const headers = sentHeaders(fetchMock);
+      expect(headers.get('accept-encoding')).toBe('identity');
+      expect(headers.get('user-agent')).toBe('custom-agent/1.0');
+    });
+
+    it("keeps the caller's extra headers alongside the defaults", async () => {
+      const fetchMock = vi.fn(async () => streamResponse(chunked('<html></html>')));
+      await clientWithMock(fetchMock).fetch('http://example.com/page', {
+        headers: { Accept: 'text/markdown' },
+      });
+      const headers = sentHeaders(fetchMock);
+      expect(headers.get('accept')).toBe('text/markdown');
+      expect(headers.get('accept-encoding')).toBe('gzip, deflate, br');
+      expect(headers.get('user-agent')).toMatch(/^afdocs\//);
     });
 
     it('counts decoded bytes across chunks, distinct from character count', async () => {

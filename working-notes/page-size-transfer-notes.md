@@ -71,8 +71,18 @@ contentCharacters)`, undefined when the page converts to nothing. The
   serialized-payload pages that motivated the spec check measured 40:1 to
   200:1. A high ratio on a _passing_ page is not flagged: the page is small
   enough that the payload costs little. `details.architectureSignaturePages`
-  and `details.maxRatio` drive the fix text, which then says the fix lives in
-  framework configuration, not the docs.
+  and `details.architectureSignatureMaxRatio` drive the fix text, which then
+  says the fix lives in framework configuration, not the docs.
+  `details.maxRatio` is the site-wide maximum and stays separate: in the
+  Pinecone field run the one oversized page was 26:1 while a passing model
+  page was 141:1, and the first draft of the fix text quoted 141:1 for the
+  oversized page (caught in review on PR #126).
+- **Default headers merge case-insensitively.** `buildHeaders` in
+  `src/http.ts` puts `User-Agent` and `Accept-Encoding` into a `Headers`
+  object and `set()`s the caller's headers over them, so a lowercase
+  `accept-encoding` override replaces the default instead of being sent
+  alongside it (object spread would have let fetch combine the two values).
+  The User-Agent default had the same latent problem before this check.
 - **Not in `HTML_PATH_CHECKS`.** The rendering coefficient scales checks
   whose measurement is meaningless on an SPA shell. Served bytes are what
   the agent transfers whether or not the shell renders, so the check keeps

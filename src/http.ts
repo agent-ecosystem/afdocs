@@ -31,14 +31,29 @@ interface RateLimitedHttpClientOptions {
 const MAX_RETRIES = 2;
 
 /**
- * Sent on every request unless the caller overrides it. Node's fetch sends
- * `gzip, deflate` by default and the exact list has changed between
- * versions; pinning it keeps the transfer-size measurement deterministic and
- * matches what agent HTTP clients (curl, Python requests with brotli, the
- * browsers they wrap) typically negotiate. undici decodes each of these
- * transparently, so callers always read a decoded body.
+ * Sent on every request unless the caller overrides them. Node's fetch sends
+ * `Accept-Encoding: gzip, deflate` by default and the exact list has changed
+ * between versions; pinning it keeps the transfer-size measurement
+ * deterministic and matches what agent HTTP clients (curl, Python requests
+ * with brotli, the browsers they wrap) typically negotiate. undici decodes
+ * each of these transparently, so callers always read a decoded body.
  */
-const DEFAULT_HEADERS: Record<string, string> = { 'Accept-Encoding': 'gzip, deflate, br' };
+const DEFAULT_HEADERS: Record<string, string> = {
+  'User-Agent': USER_AGENT,
+  'Accept-Encoding': 'gzip, deflate, br',
+};
+
+/**
+ * Header names are case-insensitive but object spread is not: a caller's
+ * `accept-encoding` would sit next to the default `Accept-Encoding` and
+ * fetch would send both, combined. Merging through `Headers` makes the
+ * caller's value replace the default whatever its spelling.
+ */
+function buildHeaders(overrides?: Record<string, string>): Headers {
+  const headers = new Headers(DEFAULT_HEADERS);
+  for (const [name, value] of Object.entries(overrides ?? {})) headers.set(name, value);
+  return headers;
+}
 
 /**
  * A body that keeps trickling bytes is still a tarpit from the agent's point
@@ -156,7 +171,7 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
           try {
             response = await globalThis.fetch(url, {
               method: reqOptions?.method ?? 'GET',
-              headers: { 'User-Agent': USER_AGENT, ...DEFAULT_HEADERS, ...reqOptions?.headers },
+              headers: buildHeaders(reqOptions?.headers),
               redirect: reqOptions?.redirect ?? 'follow',
               signal: reqOptions?.signal ?? controller.signal,
             });

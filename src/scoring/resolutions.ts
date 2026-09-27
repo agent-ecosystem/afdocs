@@ -456,7 +456,7 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
  */
 function architectureNote(d: Record<string, unknown>): string {
   const count = (d.architectureSignaturePages as number) ?? 0;
-  const maxRatio = d.maxRatio as number | undefined;
+  const maxRatio = d.architectureSignatureMaxRatio as number | undefined;
   if (count === 0 || maxRatio === undefined) return '';
   const pages = count === 1 ? 'page ships' : 'pages ship';
   return (

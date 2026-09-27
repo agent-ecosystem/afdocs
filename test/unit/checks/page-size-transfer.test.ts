@@ -136,6 +136,34 @@ describe('page-size-transfer', () => {
     const result = await check.run(makeCtx());
     expect(result.status).toBe('pass');
     expect(result.details?.architectureSignaturePages).toBe(0);
+    expect(result.details?.architectureSignatureMaxRatio).toBeUndefined();
+    // The overall maximum is still reported as a signal on a passing site.
+    expect(result.details?.maxRatio).toBeGreaterThanOrEqual(ARCHITECTURE_SIGNATURE_RATIO);
+  });
+
+  it('takes the architecture-signature ratio from oversized pages, not the site maximum', async () => {
+    // A tiny page with a huge payload-to-content ratio passes; a large page
+    // with a lower ratio warns. Only the warn page's ratio may feed the fix text.
+    const tinyHighRatio =
+      '<html><head><script>' + 'x'.repeat(5_000) + '</script></head><body><p>a</p></body></html>';
+    server.use(
+      http.get('http://pst.local/docs/page1', html(tinyHighRatio)),
+      http.get('http://pst.local/docs/page2', html(payloadPage(20_000))),
+    );
+    const content = `# Docs\n> Summary\n## Links\n- [A](http://pst.local/docs/page1): A\n- [B](http://pst.local/docs/page2): B\n`;
+
+    const result = await check.run(
+      makeCtx({ transferThresholds: { pass: 10_000, fail: 100_000 } }, content),
+    );
+    const pages = result.details?.pageResults as PageResult[];
+    const tiny = pages.find((p) => p.url.endsWith('page1'))!;
+    const big = pages.find((p) => p.url.endsWith('page2'))!;
+    expect(tiny.status).toBe('pass');
+    expect(big.status).toBe('warn');
+    expect(tiny.ratio!).toBeGreaterThan(big.ratio!);
+    expect(result.details?.maxRatio).toBe(tiny.ratio);
+    expect(result.details?.architectureSignaturePages).toBe(1);
+    expect(result.details?.architectureSignatureMaxRatio).toBe(big.ratio);
   });
 
   it('counts a mostly-content page at a low ratio', async () => {
