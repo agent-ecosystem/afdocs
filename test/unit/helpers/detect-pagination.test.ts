@@ -89,6 +89,23 @@ describe('detectPagination', () => {
       }
     });
 
+    it('ignores image syntax whose alt text looks like a next link', () => {
+      const content = `# Guide\n\n![Next page](/img/next-page.png)\n\n![](/img/a.png?page=2)`;
+      expect(detectPagination(content, { baseUrl: BASE }).signals).toEqual([]);
+    });
+
+    it('ignores explicit "next page" links to other hosts', () => {
+      const content = `# Pagination\n\nThe API returns a [next page](https://api.example.com/v1/items?page=2) link.`;
+      expect(detectPagination(content, { baseUrl: BASE }).signals).toEqual([]);
+    });
+
+    it('survives malformed percent-encoding in a paging parameter', () => {
+      const content = `# Models\n\n[2](/models?page=%) [next](/models?page=%32)`;
+      const result = detectPagination(content, { baseUrl: BASE });
+      // `%` is not a later window (NaN); `%32` decodes to page 2 and is.
+      expect(result.signals.map((s) => s.url)).toEqual(['/models?page=%32']);
+    });
+
     it('treats "N of M" with N >= M as complete', () => {
       const content = `# Models\n\nShowing 20 of 20 models.\n\nPage 3 of 3.`;
       expect(detectPagination(content, { baseUrl: BASE }).signals).toEqual([]);

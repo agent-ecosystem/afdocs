@@ -425,6 +425,32 @@ describe('markdown-url-support', () => {
     expect(cached?.markdown?.linkHeader).toBeUndefined();
   });
 
+  it('records the post-redirect URL as the markdown URL', async () => {
+    server.use(
+      http.get('http://test.local/docs/moved.md', () =>
+        HttpResponse.redirect('http://test.local/md/docs/moved.md', 301),
+      ),
+      http.get(
+        'http://test.local/md/docs/moved.md',
+        () =>
+          new HttpResponse('# Moved\n\n- a', {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown' },
+          }),
+      ),
+    );
+
+    const content = `# Docs
+> Summary
+## Links
+- [Moved](http://test.local/docs/moved): A moved page
+`;
+    const ctx = makeCtx({ content });
+    await check.run(ctx);
+    const cached = ctx.pageCache.get('http://test.local/docs/moved');
+    expect(cached?.markdown?.mdUrl).toBe('http://test.local/md/docs/moved.md');
+  });
+
   it('records the Link response header on the cached markdown', async () => {
     server.use(
       http.get(

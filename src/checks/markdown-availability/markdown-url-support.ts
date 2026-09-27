@@ -146,7 +146,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
                 markdown: {
                   content: body,
                   source: 'md-url',
-                  mdUrl,
+                  // The URL that served the body, after any redirect: what
+                  // relative links inside the markdown resolve against.
+                  mdUrl: response.url || mdUrl,
                   ...(linkHeader && { linkHeader }),
                 },
               });

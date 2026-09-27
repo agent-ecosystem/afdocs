@@ -77,7 +77,8 @@ const N_OF_M_PATTERNS: RegExp[] = [
 
 /**
  * Link text that names pagination outright. Counts as a continuation
- * wherever it points.
+ * wherever on this site it points; a continuation of this document does
+ * not live on another host.
  */
 const EXPLICIT_NEXT_TEXT =
   /^\s*(?:[»›→>]+\s*)?(?:next\s+page|next\s+\d+(?:\s+\w+)?|more\s+results|load\s+more|show\s+more)\s*(?:[»›→>]+)?\s*$/i;
@@ -90,7 +91,8 @@ const EXPLICIT_NEXT_TEXT =
 const GENERIC_NEXT_TEXT =
   /^\s*(?:[»›→>]+\s*)?(?:next|more|continue|see\s+more|view\s+more|older|newer|next\s*[»›→>]+)\s*(?:[»›→>]+)?\s*$/i;
 
-const MARKDOWN_LINK = /\[([^\]]*)\]\(\s*<?([^\s)>]+)>?(?:\s+"[^"]*")?\s*\)/g;
+/** `[text](url)`, but not the tail of an image `![alt](src)`. */
+const MARKDOWN_LINK = /(?<!!)\[([^\]]*)\]\(\s*<?([^\s)>]+)>?(?:\s+"[^"]*")?\s*\)/g;
 const BARE_URL = /\bhttps?:\/\/[^\s<>()\]"']+/gi;
 /** A root-relative path carrying a paging parameter, quoted in prose or an instruction. */
 const BARE_PAGED_PATH =
@@ -118,6 +120,15 @@ function blankCode(text: string): string {
   return text
     .replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[ \t]*$/gm, blank)
     .replace(/`[^`\n]+`/g, blank);
+}
+
+/** `decodeURIComponent` throws on malformed escapes (`?page=%`) that `new URL` accepts. */
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function parseCount(raw: string): number {
@@ -150,7 +161,7 @@ function pointsToLaterWindow(url: string): boolean {
   const param = PAGINATION_PARAM.exec(url);
   if (param) {
     const name = param[1].toLowerCase();
-    const value = decodeURIComponent(param[2] ?? '');
+    const value = safeDecode(param[2] ?? '');
     if (name === 'page') return Number(value) >= 2;
     if (name === 'offset') return Number(value) > 0;
     return value.length > 0;
@@ -210,10 +221,14 @@ interface LinkOccurrence {
   offset: number;
 }
 
+const MARKDOWN_IMAGE = /!\[[^\]]*\]\([^)]*\)/g;
+
 function collectLinks(text: string): { links: LinkOccurrence[]; remainder: string } {
   const links: LinkOccurrence[] = [];
-  let remainder = text;
   const blank = (m: string) => m.replace(/[^\n]/g, ' ');
+  // Images are not links an agent follows, and their sources can carry
+  // paging-looking query strings; drop them before any URL matching.
+  let remainder = text.replace(MARKDOWN_IMAGE, blank);
   remainder = remainder.replace(
     MARKDOWN_LINK,
     (m, linkText: string, url: string, offset: number) => {
@@ -280,7 +295,7 @@ export function detectPagination(
     const onThisSite =
       !isAbsoluteUrl(link.url) || (resolved !== null && sameHost(resolved, ...bases));
 
-    if (explicitNext) {
+    if (explicitNext && onThisSite) {
       signals.push({
         type: 'next-link',
         text: shorten(link.text),

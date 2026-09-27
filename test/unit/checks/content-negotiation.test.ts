@@ -297,6 +297,31 @@ describe('content-negotiation', () => {
     });
   });
 
+  it('records the post-redirect URL as the markdown URL', async () => {
+    server.use(
+      // A distinct target path: msw matches `/docs/page` for `/docs/page/`
+      // too, which would make the redirect answer its own destination.
+      http.get('http://test.local/docs/page', () =>
+        HttpResponse.redirect('http://test.local/docs/page-v2', 301),
+      ),
+      http.get(
+        'http://test.local/docs/page-v2',
+        () =>
+          new HttpResponse('# Page\n\nContent negotiated.', {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown' },
+          }),
+      ),
+    );
+
+    const content = `# Docs\n> Summary\n## Links\n- [Page](http://test.local/docs/page): A page\n`;
+    const ctx = makeCtx(content);
+    await check.run(ctx);
+    expect(ctx.pageCache.get('http://test.local/docs/page')?.markdown?.mdUrl).toBe(
+      'http://test.local/docs/page-v2',
+    );
+  });
+
   it('does not overwrite pageCache when already populated', async () => {
     server.use(
       http.get(

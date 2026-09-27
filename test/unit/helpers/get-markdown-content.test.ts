@@ -494,6 +494,26 @@ describe('fetchLlmsTxtLinkedMarkdown', () => {
     });
   });
 
+  it('records the post-redirect URL as the markdown URL', async () => {
+    server.use(
+      http.get('http://test.local/agents/old.md', () =>
+        HttpResponse.redirect('http://test.local/agents/v2/new.md', 302),
+      ),
+      http.get(
+        'http://test.local/agents/v2/new.md',
+        () =>
+          new HttpResponse('# New\n\n- one', {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown' },
+          }),
+      ),
+    );
+    const ctx = ctxWithLlmsTxt('# Docs\n- [Old](http://test.local/agents/old.md): moved');
+    const [page] = await fetchLlmsTxtLinkedMarkdown(ctx);
+    expect(page.url).toBe('http://test.local/agents/old.md');
+    expect(page.mdUrl).toBe('http://test.local/agents/v2/new.md');
+  });
+
   it('prefers .md links and caps at maxLinksToTest', async () => {
     const requested: string[] = [];
     server.use(

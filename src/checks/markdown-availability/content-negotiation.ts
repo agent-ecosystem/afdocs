@@ -80,7 +80,9 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
               markdown: {
                 content: body,
                 source: 'content-negotiation',
-                mdUrl: fetchUrl,
+                // Post-redirect URL, so relative links resolve against the
+                // location that actually served the markdown.
+                mdUrl: response.url || fetchUrl,
                 ...(linkHeader && { linkHeader }),
               },
             });

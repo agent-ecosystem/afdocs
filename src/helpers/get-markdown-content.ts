@@ -11,9 +11,10 @@ export interface MarkdownPage {
   content: string;
   source: string;
   /**
-   * The URL that served the markdown, when known. Relative links inside the
-   * content resolve against this. Equals `url` for pages fetched at their
-   * own URL; differs for `.md` variants cached under the page URL.
+   * The URL that served the markdown, when known: the final URL after any
+   * redirect. Relative links inside the content resolve against this. It
+   * differs from `url` for `.md` variants cached under the page URL and
+   * for anything that redirected.
    */
   mdUrl?: string;
   /** Raw `Link` response header, when the server sent one. */
@@ -103,7 +104,7 @@ async function fetchMarkdownPages(ctx: CheckContext): Promise<MarkdownPage[]> {
                 url: candidateUrl,
                 content: body,
                 source: 'standalone-md-url',
-                mdUrl: candidateUrl,
+                mdUrl: response.url || candidateUrl,
                 ...(linkHeader && { linkHeader }),
               };
             }
@@ -125,7 +126,7 @@ async function fetchMarkdownPages(ctx: CheckContext): Promise<MarkdownPage[]> {
                 url,
                 content: body,
                 source: 'standalone-content-negotiation',
-                mdUrl: url,
+                mdUrl: response.url || url,
                 ...(linkHeader && { linkHeader }),
               };
             }
@@ -202,7 +203,7 @@ export async function fetchLlmsTxtLinkedMarkdown(ctx: CheckContext): Promise<Mar
             url,
             content: body,
             source: 'llms-txt-link',
-            mdUrl: url,
+            mdUrl: response.url || url,
             ...(linkHeader && { linkHeader }),
           };
         } catch {

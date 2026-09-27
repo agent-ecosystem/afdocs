@@ -70,8 +70,9 @@ register. Signals, in the spec's order:
   `api.example.com/v1/items?page=2` in prose is documentation, not
   pagination. Root-relative paths quoted in prose ("fetch /models?page=2
   for the rest") count too; the spec says "links or instructions".
-- **"Next" link text.** Two tiers. Explicit text (`next page`, `next 50`,
-  `more results`, `load more`, `show more`) counts wherever it points.
+- **"Next" link text.** Two tiers, both same-host. Explicit text (`next
+page`, `next 50`, `more results`, `load more`, `show more`) counts
+  wherever on this site it points.
   Generic text (`next`, `more`, `continue`, `see more`, `older`, `»`)
   counts only when the URL has a paging shape or points at the same
   document with a different query. This is the guard against prev/next
