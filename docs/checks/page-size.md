@@ -108,6 +108,7 @@ The output also reports the conversion ratio. A page that converts from 505KB HT
 - **Large pages**: Break long reference pages into smaller sections.
 - **Navigation boilerplate**: Reduce navigation, sidebar, and breadcrumb markup that inflates the converted output.
 - **Tabbed content**: See [tabbed-content-serialization](/checks/content-structure#tabbed-content-serialization).
+- **Generated tables and data blobs**: See [embedded-data-serialization](/checks/content-structure#embedded-data-serialization), which attributes the page's size to the specific elements responsible.
 - **Markdown alternative**: Provide markdown versions as a smaller alternative path for agents that bypass HTML conversion overhead.
 
 Markdown availability helps agents that request it, but most agents still fetch HTML, so fixing the HTML path remains important.

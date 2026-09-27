@@ -28,7 +28,7 @@ The scorecard tells you _what's wrong_. The verbose text output tells you _where
 
 ## Step 3: Work through fixes iteratively
 
-You don't need to run all 27 checks every time you make a change. Target just the check you're fixing for fast feedback:
+You don't need to run all 28 checks every time you make a change. Target just the check you're fixing for fast feedback:
 
 ```bash
 # Iterate on llms.txt
@@ -117,6 +117,7 @@ These are worth addressing but won't move the score as dramatically:
 - **Tabbed content** (`tabbed-content-serialization`): If tabbed UI components create oversized output, consider restructuring into separate pages or using query params to retrieve only specific tab versions.
 - **Code fence validity** (`markdown-code-fence-validity`): Fix unclosed code fences in your markdown sources.
 - **Markdown link portability** (`markdown-link-portability`): Emit absolute URLs when generating markdown, and verify a sample of the generated links in CI by checking both status and content type.
+- **Embedded data** (`embedded-data-serialization`): If a generated table or data blob is what pushes a page over the size thresholds, split it into per-section pages reached from an index, offer a filtered view, and put the explanatory prose before the data.
 - **Redirect behavior** (`redirect-behavior`): Replace JavaScript and cross-host redirects with standard HTTP redirects.
 - **llms.txt coverage** (`llms-txt-coverage`): Generate llms.txt at build time to keep it in sync with your site.
 - **Content parity** (`markdown-content-parity`): Ensure markdown and HTML versions of pages contain the same content.

@@ -317,6 +317,35 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
     },
   },
 
+  'embedded-data-serialization': {
+    warn: (d) => {
+      const warnCount = (d.warnBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      const t = sizeThresholds(d);
+      return (
+        `${warnCount} of ${tested} pages convert to ${t.pass}–${t.fail} characters ` +
+        `mainly because of embedded data${bulkReasons(d)}. ` +
+        BULK_STRUCTURE_ADVICE +
+        ' Report the attribution to the page owners: a page an author ' +
+        'experiences as two paragraphs and a widget should not ship as tens ' +
+        'of thousands of characters without them knowing.'
+      );
+    },
+    fail: (d) => {
+      const failCount = (d.failBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      const t = sizeThresholds(d);
+      return (
+        `${failCount} of ${tested} pages convert to over ${t.fail} characters ` +
+        `mainly because of embedded data${bulkReasons(d)}. Content after the ` +
+        'bulk element is beyond the truncation point for most platforms. ' +
+        BULK_STRUCTURE_ADVICE +
+        ' Report the attribution to the page owners: the size is a property ' +
+        'of the generated data, not of anything they wrote.'
+      );
+    },
+  },
+
   'tabbed-content-serialization': {
     warn: (d) => {
       const pages = d.tabbedPages as Array<{ status?: string }> | undefined;
@@ -565,6 +594,44 @@ function portabilityReasons(d: Record<string, unknown>, kind: 'warn' | 'fail'): 
     if (r.broken) parts.push(`a sampled link that does not resolve on ${r.broken}`);
   }
   return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
+
+/**
+ * The spec's recommended action for embedded data: structure, not removal.
+ * Shared by the warn and fail texts.
+ */
+const BULK_STRUCTURE_ADVICE =
+  'Bulk data is usually legitimate content (a support matrix is the point ' +
+  'of a support-matrix page), so the fix is structure, not removal: split ' +
+  'large generated tables into per-section pages reached from an index, ' +
+  'each complete for its scope (paginating one table into windows trades ' +
+  'this problem for the one single-fetch-completeness describes); offer ' +
+  'filtered or queryable views; load embedded data blobs on demand; and put ' +
+  'the explanatory prose before the data so truncation removes rows rather ' +
+  'than explanation.';
+
+/**
+ * Name what the bulk was on the flagged pages, from the tallies the check
+ * records in `details.reasons`.
+ */
+function bulkReasons(d: Record<string, unknown>): string {
+  const r = d.reasons as Partial<Record<string, number>> | undefined;
+  if (!r) return '';
+  const parts: string[] = [];
+  if (r.table) parts.push(`large tables on ${r.table}`);
+  if (r.json) parts.push(`JSON blobs on ${r.json}`);
+  if (r.base64) parts.push(`base64 payloads on ${r.base64}`);
+  if (r.proseAfterBulk) parts.push(`most of the prose comes after the data on ${r.proseAfterBulk}`);
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
+
+/** Character thresholds the check recorded (its `thresholds.size`), formatted like "50,000". */
+function sizeThresholds(d: Record<string, unknown>): { pass: string; fail: string } {
+  const t = (d.thresholds as { size?: { pass?: number; fail?: number } } | undefined)?.size;
+  return {
+    pass: (t?.pass ?? DEFAULT_THRESHOLDS.pass).toLocaleString(),
+    fail: (t?.fail ?? DEFAULT_THRESHOLDS.fail).toLocaleString(),
+  };
 }
 
 function completenessThreshold(d: Record<string, unknown>): string {

@@ -23,7 +23,7 @@ The score reflects how well agents can _actually use_ your documentation, not ju
 
 ## What we check
 
-The 27 checks are grouped into seven categories. Each check is assigned a **weight tier** based on its observed impact on agent workflows (3 critical, 9 high, 13 medium, 2 low; max raw score 149):
+The 28 checks are grouped into seven categories. Each check is assigned a **weight tier** based on its observed impact on agent workflows (3 critical, 9 high, 14 medium, 2 low; max raw score 153):
 
 - **Critical (10 pts)**: Agents cannot function without this. Failure means zero content, zero navigation, or zero access.
 - **High (7 pts)**: Directly limits agent effectiveness. Failure means truncation, dead ends, or agents stuck on a worse path.
@@ -76,6 +76,7 @@ Whether page content is structured in ways agents can consume.
 | [section-header-quality](https://agentdocsspec.com/spec/web/content-structure/#section-header-quality)             | Low (2)    | Whether headers in tabbed sections include variant context (e.g., "Step 1 (Python)" vs. just "Step 1"). |
 | [markdown-code-fence-validity](https://agentdocsspec.com/spec/web/content-structure/#markdown-code-fence-validity) | Medium (4) | Whether code fences are properly closed. An unclosed fence corrupts all content after the break point.  |
 | [markdown-link-portability](https://agentdocsspec.com/spec/web/content-structure/#markdown-link-portability)       | Medium (4) | Whether links in served markdown are absolute, and whether a sample resolves to what the link promises. |
+| [embedded-data-serialization](https://agentdocsspec.com/spec/web/content-structure/#embedded-data-serialization)   | Medium (4) | Whether machine-generated bulk data (large tables, data blobs) is what makes a page oversized.          |
 
 ### URL Stability and Redirects
 
@@ -147,12 +148,12 @@ This behavior does **not** apply when:
 
 Not all warnings represent the same degree of degradation. A warning on `llms-txt-valid` (structure is non-standard but links are parseable) is less severe than a warning on `rendering-strategy` (sparse content that might need JavaScript). Most checks have a specific warn coefficient:
 
-| Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                                                                            |
-| ----------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                                                                                 |
-| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`, `single-fetch-completeness`, `markdown-link-portability`                                                                                                                                                                                                                                 |
-| **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `page-size-transfer`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `bot-protection-interference`, `http-status-codes`† |
-| **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML; agents don't discover .md variants on their own)                                                                                                                                                                                                                                           |
+| Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                                                                                                                |
+| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`, `single-fetch-completeness`, `markdown-link-portability`                                                                                                                                                                                                                                                                |
+| **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `page-size-transfer`, `content-start-position`, `tabbed-content-serialization`, `embedded-data-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `bot-protection-interference`, `http-status-codes`† |
+| **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML; agents don't discover .md variants on their own)                                                                                                                                                                                                                                                                          |
 
 `markdown-code-fence-validity` only has pass/fail (no warn state).
 
@@ -301,7 +302,7 @@ If multiple conditions are met, the highest coefficient applies.
 
 ### HTML path coefficient
 
-**Affects**: `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`
+**Affects**: `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `embedded-data-serialization`
 
 If pages are SPA shells, measuring HTML quality is meaningless; if pages are sparse, HTML quality counts for less because agents have less content to work with. This coefficient equals the same weighted proportion that drives the score caps above: `(serverRendered + sparseContent × 0.5) / total`. Fully server-rendered pages count for full weight, sparse pages count for half, and SPA shells count for nothing.
 

@@ -73,6 +73,9 @@ const NUMERIC_OPTION_RULES: [string, { integer?: boolean; min?: number; max?: nu
   ['coverageWarnThreshold', { integer: true, min: 0, max: 100 }],
   ['parityPassThreshold', { integer: true, min: 0, max: 100 }],
   ['parityWarnThreshold', { integer: true, min: 0, max: 100 }],
+  ['bulkTableRows', { integer: true, min: 1 }],
+  ['bulkBlobChars', { integer: true, min: 1 }],
+  ['bulkDominantShare', { integer: true, min: 0, max: 100 }],
 ];
 
 function validateOptions(options: Record<string, unknown>, source: string): void {

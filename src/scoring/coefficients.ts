@@ -61,6 +61,7 @@ const HTML_PATH_CHECKS = new Set([
   'content-start-position',
   'tabbed-content-serialization',
   'section-header-quality',
+  'embedded-data-serialization',
 ]);
 
 /**

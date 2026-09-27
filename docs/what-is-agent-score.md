@@ -25,7 +25,7 @@ For the full business case, including how agents fail on documentation, the conc
 
 ## What the score measures
 
-The 27 checks cover seven categories:
+The 28 checks cover seven categories:
 
 | Category                                                   | What it tests                                                                                      |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |

@@ -39,7 +39,7 @@ The URL can be a site root or a specific page. When pointing to a site root, `af
 | `--score`               |         | Include scoring data in JSON output (only usable with `json` output format)                                                                      |
 | `-q, --quiet`           |         | Suppress progress output on stderr                                                                                                               |
 
-While a run is in progress, each check writes a numbered progress line to stderr as it starts and completes, e.g. `[7/27] llms-txt-directive-html... done (47 tested, 3 fetch errors, 12s)`. The banner and progress lines go to stderr for every format, including `json`, so piped `json` or `scorecard` output on stdout stays parseable. Use `--quiet` to suppress it (e.g. in CI logs).
+While a run is in progress, each check writes a numbered progress line to stderr as it starts and completes, e.g. `[7/28] llms-txt-directive-html... done (47 tested, 3 fetch errors, 12s)`. The banner and progress lines go to stderr for every format, including `json`, so piped `json` or `scorecard` output on stdout stays parseable. Use `--quiet` to suppress it (e.g. in CI logs).
 
 **Which format to use:**
 
@@ -233,6 +233,16 @@ The defaults (50K pass, 100K fail) reflect observed agent truncation limits. You
 | `--transfer-fail-threshold <bytes>` | `10000000` | Served (decoded) HTML size fail threshold in bytes |
 
 These thresholds apply to `page-size-transfer`, which measures the decoded byte size of the HTML document as served rather than its post-conversion character count. The 10MB fail default is anchored to Claude Code's documented fetch buffer; the 1MB warn default is the spec's conservative line for pages whose bytes are mostly serialized framework payload. Byte-level caps on other platforms are less documented than character limits, so adjust these if you know your users' tools.
+
+### Embedded data thresholds
+
+| Flag                          | Default | Description                                                                           |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------------- |
+| `--bulk-table-rows <n>`       | `20`    | Data rows at or above which a uniform table counts as bulk                            |
+| `--bulk-blob-chars <n>`       | `2000`  | Characters at or above which a JSON blob or base64 run counts as bulk                 |
+| `--bulk-dominant-share <pct>` | `50`    | Bulk share of the converted content (0-100) at which bulk is the dominant contributor |
+
+These control what `embedded-data-serialization` counts as machine-generated bulk data and when that data is blamed for a page's size. The verdict itself is coupled to the size thresholds above: the check only warns or fails on a page that `page-size-html` already put in its warn or fail band. Hand-written tables rarely reach twenty rows, so the row default separates authored tables from generated matrices and catalogs; raise it if your reference pages legitimately carry long authored tables.
 
 ### Coverage thresholds
 

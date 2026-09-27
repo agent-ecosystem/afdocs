@@ -79,6 +79,19 @@ export const DEFAULT_PARITY_PASS_THRESHOLD = 5;
 /** Default markdown-content-parity warn threshold (percentage of missing segments). */
 export const DEFAULT_PARITY_WARN_THRESHOLD = 20;
 
+/**
+ * embedded-data-serialization: data rows at or above which a uniform table
+ * counts as machine-generated bulk. Hand-written tables rarely pass twenty
+ * rows; generated matrices and catalogs run to hundreds.
+ */
+export const DEFAULT_BULK_TABLE_ROWS = 20;
+
+/** embedded-data-serialization: characters at or above which a JSON blob or base64 run counts as bulk. */
+export const DEFAULT_BULK_BLOB_CHARS = 2_000;
+
+/** embedded-data-serialization: bulk share (percent of converted content) at which bulk is the dominant contributor. */
+export const DEFAULT_BULK_DOMINANT_SHARE = 50;
+
 /** Minimum discovered pages before page-level scores are considered meaningful. */
 export const MIN_PAGES_FOR_SCORING = 5;
 

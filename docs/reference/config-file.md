@@ -53,6 +53,10 @@ options:
   # parityExclusions:
   #   - .human-only-content
   #   - '[data-audience="humans"]'  # quote selectors starting with [ (YAML treats unquoted [] as arrays)
+  # Embedded data: what counts as bulk, and when it is blamed for page size
+  # bulkTableRows: 20
+  # bulkBlobChars: 2000
+  # bulkDominantShare: 50
 
 # Optional: test specific pages instead of discovering via llms.txt/sitemap
 # pages:
@@ -69,7 +73,7 @@ The documentation site URL to check. This is the only required field.
 
 ### `checks` (optional)
 
-A list of check IDs to run. If omitted, all 27 checks run. Use this to focus on checks that are actionable for your platform. See the [Checks Reference](/checks/) for the full list of check IDs.
+A list of check IDs to run. If omitted, all 28 checks run. Use this to focus on checks that are actionable for your platform. See the [Checks Reference](/checks/) for the full list of check IDs.
 
 This is particularly useful when your docs platform doesn't support certain capabilities. For example, if you can't serve markdown, exclude the markdown-related checks so your score reflects what you can control. See [Improve Your Score](/improve-your-score#step-3-work-through-fixes-iteratively) for more on this approach.
 
@@ -110,6 +114,9 @@ Override default runner options. All fields are optional:
 | `parityPassThreshold`     | `5`         | `markdown-content-parity` pass threshold: maximum missing % to pass (lower = stricter)                   |
 | `parityWarnThreshold`     | `20`        | `markdown-content-parity` warn threshold: maximum missing % to avoid failure (lower = stricter)          |
 | `parityExclusions`        |             | CSS selectors to strip from HTML before parity comparison                                                |
+| `bulkTableRows`           | `20`        | `embedded-data-serialization`: data rows at or above which a uniform table counts as bulk                |
+| `bulkBlobChars`           | `2000`      | `embedded-data-serialization`: characters at or above which a JSON blob or base64 run counts as bulk     |
+| `bulkDominantShare`       | `50`        | `embedded-data-serialization`: bulk share of converted content (0-100) at which bulk is blamed for size  |
 
 ### `pages` (optional)
 

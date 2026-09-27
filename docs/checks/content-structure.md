@@ -1,8 +1,8 @@
 # Content Structure
 
-Whether page content is structured in ways agents can consume. These checks cover patterns that are great for humans but problematic for agents: tabbed interfaces that serialize into massive documents, generic headers that lose context when tabs are flattened, code fences that corrupt everything after them when left unclosed, and links that stop working once the content leaves the fetch that carried its base URL.
+Whether page content is structured in ways agents can consume. These checks cover patterns that are great for humans but problematic for agents: tabbed interfaces that serialize into massive documents, generic headers that lose context when tabs are flattened, code fences that corrupt everything after them when left unclosed, links that stop working once the content leaves the fetch that carried its base URL, and data widgets that flatten into hundreds of serialized rows under a few paragraphs of prose.
 
-The checks in this section focus on structural patterns that have measurable impact on agents: serialization behavior, header disambiguation, code fence integrity, and link portability. How you organize your content (page granularity, information architecture, what to include) is a separate question that we don't yet have enough empirical data to score.
+The checks in this section focus on structural patterns that have measurable impact on agents: serialization behavior, header disambiguation, code fence integrity, link portability, and size attribution. How you organize your content (page granularity, information architecture, what to include) is a separate question that we don't yet have enough empirical data to score.
 
 ## tabbed-content-serialization
 
@@ -148,3 +148,58 @@ The verbose output names the link counts per page and each broken sample with it
 **If this check fails**, fix the link generation first, then make the links absolute. Verify generated links in CI by fetching a sample and checking both status and content type: a link set that is generated is a link set that can break wholesale, and a status code alone will not catch it.
 
 Like `page-size-markdown`, this check is scaled by the [discovery coefficient](/agent-score-calculation#discovery-coefficient): portable links in markdown are worth less when agents can't find the markdown path.
+
+---
+
+## embedded-data-serialization
+
+Whether machine-generated bulk data (large uniform tables, inline JSON or data blobs, base64 payloads) is what makes a page oversized, and which elements are responsible.
+
+|            |                                                                                                                  |
+| ---------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Weight** | Medium (4)                                                                                                       |
+| **Spec**   | [embedded-data-serialization](https://agentdocsspec.com/spec/web/content-structure/#embedded-data-serialization) |
+
+### Why it matters
+
+Dynamic widgets (compatibility matrices, model catalogs, spec browsers, pricing tables) flatten into static content when a page is rendered for agents. The result can be a page whose size wildly exceeds what its author believes they wrote: the author sees a few paragraphs and a widget; the built page carries hundreds of serialized rows under them. The [size checks](/checks/page-size) catch the symptom but do not explain it, and without attribution the person who can fix the page has no idea what to fix, or that anything is wrong at all.
+
+The spec's grounding case is a production reference page that served 302KB of HTML, 64% of it table markup, including a single generated table of 218 rows. The page converts to roughly 83,000 characters (the warn band) while its non-table prose totals about 17,000. The page's truncation risk is entirely a property of its generated tables, which an aggregate size number cannot show.
+
+### What is measured
+
+The check reads exactly the content `page-size-html` measured: the HTML-to-markdown conversion for HTML responses, or the body itself for markdown responses, from the same cached fetch. In that content it looks for three kinds of bulk element:
+
+- **Tables** with at least 20 data rows (configurable with `--bulk-table-rows`) whose rows share a common cell structure. Pipe tables and raw `<table>` markup that the converter left in place (tables without a header row) both count, because both occupy the converted content.
+- **JSON blobs** of at least 2,000 characters (configurable with `--bulk-blob-chars`), whether in a fenced or indented code block or dropped inline as a paragraph. JSON is recognized by a `json` language tag, by parsing, or by key density when the blob carries comments or elisions. Long code samples in other languages are not bulk data.
+- **Base64 runs** of at least the same size, including `data:` URIs.
+
+For each element the check records its kind, size, share of the converted content, position, and for tables the row and column counts. It also records how much of the page's prose comes before the first bulk element, so the spec's "prose before data" recommendation is checkable per page.
+
+This check only sees bulk that survives conversion into content. Serialized payloads inside `<script>` tags are stripped by conversion and belong to [page-size-transfer](/checks/page-size#page-size-transfer): script payloads burden every fetch, content-embedded bulk burdens what the model reads.
+
+### Results
+
+The verdict is coupled to `page-size-html`: the check reads that check's per-page bucket when it ran (or applies the same thresholds when it did not), so the two checks never disagree about the same content. Bulk data is the dominant contributor when it makes up at least half of the converted content (configurable with `--bulk-dominant-share`).
+
+| Result | Condition                                                                                                |
+| ------ | -------------------------------------------------------------------------------------------------------- |
+| Pass   | No bulk elements, or the page passes the size checks regardless, or bulk is not the dominant contributor |
+| Warn   | Bulk elements are the dominant contributor to a page in the size checks' warn band                       |
+| Fail   | Bulk elements are the dominant contributor to a page over the size checks' fail threshold                |
+
+An oversized page whose bulk is not the dominant contributor passes here: the size check already carries that page, and the attribution is still reported in the details. The verbose output names the largest element on each flagged page, its share of the converted content, and how much of the prose precedes it.
+
+### How to fix
+
+Bulk data is usually legitimate content (a support matrix is the point of a support-matrix page), so the goal is structure, not removal:
+
+- **Split large generated tables across per-section pages**, as self-contained units reached from an index, each complete for its scope. Paginating one table into windows trades this problem for the one [single-fetch-completeness](/checks/page-size#single-fetch-completeness) describes.
+- **Provide filtered or queryable views** so an agent can fetch the rows it needs.
+- **Load embedded data blobs on demand** rather than inlining them in the page.
+- **Place prose before bulk elements**, so truncation removes data rows rather than explanation.
+- **Report the attribution to content authors.** A page that an author experiences as two paragraphs should not ship as a hundred kilobytes without the author knowing.
+
+This is the data-widget sibling of [tabbed-content-serialization](#tabbed-content-serialization), which covers the same flattening failure for tab and accordion UI. Together with [content-start-position](/checks/page-size#content-start-position), these checks explain why a page fails the size checks, not just that it does. When this check flags a page that [single-fetch-completeness](/checks/page-size#single-fetch-completeness), [markdown-content-parity](/checks/observability#markdown-content-parity), or [markdown-link-portability](#markdown-link-portability) also flagged, the report presents them together as the [dynamic content rendered statically](/interaction-diagnostics#dynamic-content-rendered-statically) diagnostic.
+
+Like the other HTML-path checks, this check is scaled by the [HTML path coefficient](/agent-score-calculation#html-path-coefficient): attribution on pages that are SPA shells measures nothing.
