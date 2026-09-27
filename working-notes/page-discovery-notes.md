@@ -4,8 +4,8 @@ Design history of `src/helpers/get-page-urls.ts`: how page URLs are found
 in `llms.txt` and sitemaps, how `.md` links become page URLs, and how the
 sample is drawn. Every entry below was a response to a real site, and
 several later issues were about the side effects of an earlier fix, so
-read this before changing `normalizePageUrl`, the aggregate walker, or
-`discoverAndSamplePages`.
+read this before changing `normalizePageUrl`, the aggregate walker,
+`deduplicateVersionedUrls` or `discoverAndSamplePages`.
 
 The recurring tension is **request budget versus correctness**. The
 default run makes at most `maxLinksToTest` (50) page samples, and a
@@ -147,12 +147,72 @@ Alternatives considered and rejected for #112:
 6. **Verify every discovered `.md` link.** Thousands of requests on
    large sites. Verification is per sampled page only.
 
+### September 2026: version-named leaf pages (issue #135, PR #136)
+
+`deduplicateVersionedUrls` stripped a terminal version segment, giving
+`/docs/v1.0/` the same grouping key as `/docs/`. The unversioned parent
+won, silently removing the leaf before any check could report it as
+skipped. Without a parent index, sibling release pages such as
+`/changelog/2.4.1/` and `/changelog/2.4.0/` still collapsed to one.
+
+Decision: **only non-terminal segments can be version prefixes for
+deduplication.** Keep terminal version segments in the grouping key.
+Ordinary child pages such as `/docs/v1/intro` and `/docs/v2/intro` still
+deduplicate, using the existing version priorities. Version roots such
+as `/docs/v1/` and `/docs/v2/` remain separate candidates, even with an
+explicit version preference, subject to the existing path and locale
+filters. URL shape alone cannot distinguish a version landing page from
+a distinct release note; preserving documents is preferable to silently
+discarding them.
+
+Do not apply this rule to `extractVersionFromUrl`. A user-supplied base
+URL ending in `/v1/` must still select v1 child pages. Detecting the
+requested version and deciding that two discovered pages are duplicates
+are different decisions.
+
+Alternative rejected: give terminal versions a separate shared key
+namespace. This prevents collisions with the parent index but still
+discards sibling changelog entries. Fetching every version root to infer
+whether its content is redundant would violate the per-sample request
+budget; this fix adds no content probing.
+
+Request budget and sampling tradeoffs:
+
+- The change operates on already-discovered URL strings. It adds no
+  fetch operation and does not expand the walker depth.
+- With random or deterministic sampling, retained pages can increase
+  the number checked up to `maxLinksToTest` (50 by default). Once the
+  sample is full, roots can displace other pages rather than enlarge
+  it. Curated and `none` strategies bypass this discovery path.
+- A page limit is not a request limit. Additional sampled pages can
+  require HTML and multiple Markdown probes; the existing caches still
+  apply. Even a fixed-size sample can take longer if different pages
+  require more probes or time out. No wall-clock benchmark was performed.
+
+The existing 20% version-duplication threshold is unchanged, but its
+inputs change: leaves no longer contribute false duplicate groups.
+On a borderline URL set this can disable deduplication of child-version
+groups too, so the candidate increase is not necessarily just the roots.
+The sampling cap still applies. Future grouping or threshold changes
+need to consider sample composition, not only the number of requests.
+
+Regression tests in `test/unit/helpers/get-page-urls.test.ts` cover
+leaves with and without trailing slashes, siblings with and without a
+parent index, mixed roots and child pages with default and explicit
+version preferences, and both `llms.txt` and sitemap discovery. The four
+initial leaf cases failed before the fix. These tests establish page
+preservation and version selection, not identical request counts or
+runtime.
+
 ## Invariants
 
 - Discovery emits page URLs; `.md` candidates are derived per check.
   (#44, #77)
 - The `.md` to page-URL mapping is declared with `urlPathPattern`, never
   inferred. (#95)
+- Version deduplication may strip only non-terminal version segments
+  from grouping keys. A version-named leaf alone is not evidence of
+  duplicate content. (#135)
 - Every request made during discovery is bounded by `maxLinksToTest` or
   by the number of `.txt` indexes at depth 0 and 1, never by the number
   of discovered URLs. (#45, ce698fc, #112)
