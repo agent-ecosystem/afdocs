@@ -32,6 +32,12 @@ history alone does not carry the reasoning.
   count and which navigation patterns deliberately don't, how the
   continuation is chosen and verified, what "at the top" means, the
   llms.txt-only prerequisite path, and the field run against real sites.
+- `markdown-link-portability-notes.md`: design notes for the
+  `markdown-link-portability` check (spec v0.6.0): the link classes and what
+  each one needs from the base URL, why images and cross-origin links are
+  classified but not scored, how the per-page sample spends the link budget,
+  the `html-redirect` addition to the verification vocabulary, and the field
+  run that reproduced the spec's grounding case live.
 - `parity-sites.txt`: the 20 sites used to validate parity changes, with
   base URLs. Referenced throughout the parity notes.
 - `run-parity-baseline.sh`: runs the parity check against one of those

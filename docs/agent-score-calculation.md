@@ -66,6 +66,7 @@ Every check is assigned a weight tier based on its observed impact on agent work
 | `tabbed-content-serialization` | Medium (4) |
 | `section-header-quality`       | Low (2)    |
 | `markdown-code-fence-validity` | Medium (4) |
+| `markdown-link-portability`    | Medium (4) |
 
 ### URL Stability and Redirects
 
@@ -116,6 +117,7 @@ These checks sample pages from your site and score based on the pass rate across
 | `tabbed-content-serialization` | Whether tabbed content creates oversized output                                                                           |
 | `section-header-quality`       | Whether tab section headers include variant context                                                                       |
 | `markdown-code-fence-validity` | Whether code fences are properly closed                                                                                   |
+| `markdown-link-portability`    | Whether the page's links are absolute, and whether a sampled link resolves to the representation it promises              |
 | `markdown-content-parity`      | Whether markdown and HTML versions match                                                                                  |
 | `cache-header-hygiene`         | Whether cache headers allow timely updates                                                                                |
 | `auth-alternative-access`      | Whether auth-gated pages have alternative access paths                                                                    |
@@ -143,7 +145,7 @@ A warning is not a binary "half credit." Different warnings represent different 
 | Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                                                      |
 | ----------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                                                           |
-| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`, `single-fetch-completeness`                                                                                                                                                                                                                                        |
+| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`, `single-fetch-completeness`, `markdown-link-portability`                                                                                                                                                                                                           |
 | **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `page-size-transfer`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `bot-protection-interference` |
 | **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML)                                                                                                                                                                                                                                                                      |
 
@@ -188,7 +190,7 @@ Some checks only matter if agents can actually reach the content they measure. I
 
 ### Discovery coefficient
 
-**Affects**: `page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`, `single-fetch-completeness`
+**Affects**: `page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`, `single-fetch-completeness`, `markdown-link-portability`
 
 These checks measure markdown path quality. But if agents can't discover that path, the quality is irrelevant.
 

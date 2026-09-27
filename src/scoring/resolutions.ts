@@ -266,6 +266,35 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
     },
   },
 
+  'markdown-link-portability': {
+    warn: (d) => {
+      const warnCount = (d.warnBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      return (
+        `${warnCount} of ${tested} markdown pages link in a way that depends on ` +
+        `the base URL${portabilityReasons(d, 'warn')}. Emit absolute URLs when ` +
+        'generating markdown: the canonical host is known at build time, so ' +
+        'absolute links cost nothing to produce. Root-relative links resolve ' +
+        'only while the fetch URL is still around, and agent pipelines lose ' +
+        'it routinely, to summarization, to RAG chunking, or to content being ' +
+        'pasted somewhere else.'
+      );
+    },
+    fail: (d) => {
+      const failCount = (d.failBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      return (
+        `${failCount} of ${tested} markdown pages carry links an agent cannot ` +
+        `follow${portabilityReasons(d, 'fail')}. Fix the link generation first, ` +
+        'then make the links absolute. Verify generated links in CI by ' +
+        'fetching a sample and checking both status and content type: a link ' +
+        'set that is generated is a link set that can break wholesale, and a ' +
+        'status code alone will not catch it, because a broken `.md` link ' +
+        'commonly returns 200 with an HTML shell.'
+      );
+    },
+  },
+
   'content-start-position': {
     warn: (d) => {
       const warnCount = (d.warnBucket as number) ?? 0;
@@ -515,6 +544,25 @@ function completenessReasons(d: Record<string, unknown>, kind: 'warn' | 'fail'):
     if (r.missing) parts.push(`no continuation link on ${r.missing}`);
     if (r.broken) parts.push(`a continuation that returns nothing usable on ${r.broken}`);
     if (r.unresolvable) parts.push(`an unresolvable continuation URL on ${r.unresolvable}`);
+  }
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
+
+/**
+ * Name the dominant reasons behind a markdown-link-portability warn or fail,
+ * from the per-page tallies the check records in `details.reasons`.
+ */
+function portabilityReasons(d: Record<string, unknown>, kind: 'warn' | 'fail'): string {
+  const r = d.reasons as Partial<Record<string, number>> | undefined;
+  if (!r) return '';
+  const parts: string[] = [];
+  if (kind === 'warn') {
+    if (r.rootRelative) parts.push(`root-relative links on ${r.rootRelative}`);
+    if (r.mismatched) parts.push(`a .md link that redirects to HTML on ${r.mismatched}`);
+  } else {
+    if (r.pathRelative) parts.push(`path-relative links on ${r.pathRelative}`);
+    if (r.unresolvable) parts.push(`a malformed link URL on ${r.unresolvable}`);
+    if (r.broken) parts.push(`a sampled link that does not resolve on ${r.broken}`);
   }
   return parts.length > 0 ? ` (${parts.join('; ')})` : '';
 }

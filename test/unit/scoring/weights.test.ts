@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { CHECK_WEIGHTS, getCheckWeight } from '../../../src/scoring/weights.js';
 
 describe('weights', () => {
-  it('has weights for all 26 checks', () => {
-    expect(Object.keys(CHECK_WEIGHTS)).toHaveLength(26);
+  it('has weights for all 27 checks', () => {
+    expect(Object.keys(CHECK_WEIGHTS)).toHaveLength(27);
   });
 
   it('returns undefined for unknown check IDs', () => {
@@ -37,17 +37,27 @@ describe('weights', () => {
     expect(getCheckWeight('single-fetch-completeness')!.warnCoefficient).toBe(0.6);
   });
 
-  it('has 3 critical, 9 high, 12 medium, 2 low checks', () => {
+  it('gives markdown-link-portability the medium weight and the platform-dependent warn tier', () => {
+    // Spec v0.6.0 checks table: Content Structure, Medium. A root-relative
+    // link survives or breaks depending on whether the agent's pipeline still
+    // holds the fetch URL, which is the same platform-dependent shape as a
+    // buried directive or a fragile continuation.
+    expect(getCheckWeight('markdown-link-portability')!.tier).toBe('medium');
+    expect(getCheckWeight('markdown-link-portability')!.weight).toBe(4);
+    expect(getCheckWeight('markdown-link-portability')!.warnCoefficient).toBe(0.6);
+  });
+
+  it('has 3 critical, 9 high, 13 medium, 2 low checks', () => {
     const tiers = Object.values(CHECK_WEIGHTS).map((w) => w.tier);
     expect(tiers.filter((t) => t === 'critical')).toHaveLength(3);
     expect(tiers.filter((t) => t === 'high')).toHaveLength(9);
-    expect(tiers.filter((t) => t === 'medium')).toHaveLength(12);
+    expect(tiers.filter((t) => t === 'medium')).toHaveLength(13);
     expect(tiers.filter((t) => t === 'low')).toHaveLength(2);
   });
 
-  it('sums to 145 max raw score', () => {
+  it('sums to 149 max raw score', () => {
     const total = Object.values(CHECK_WEIGHTS).reduce((sum, w) => sum + w.weight, 0);
-    expect(total).toBe(145);
+    expect(total).toBe(149);
   });
 
   it('assigns warn coefficients correctly', () => {

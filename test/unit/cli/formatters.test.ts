@@ -191,6 +191,63 @@ describe('formatText', () => {
       expect(output).not.toContain('https://example.com/fine.md');
     });
 
+    it('shows link counts and broken samples for markdown-link-portability', () => {
+      const report = makeReport({
+        results: [
+          {
+            id: 'markdown-link-portability',
+            category: 'content-structure',
+            status: 'fail',
+            message: '1 of 3 markdown pages carry links that do not resolve',
+            details: {
+              pageResults: [
+                {
+                  url: 'https://example.com/models',
+                  mdUrl: 'https://example.com/models.md',
+                  status: 'fail',
+                  links: { absolute: 0, rootRelative: 2, pathRelative: 0, total: 102 },
+                  samples: [
+                    { url: '/wrong/a.md', outcome: 'not-markdown', status: 200 },
+                    { url: '/wrong/b.md', outcome: 'ok', status: 200 },
+                  ],
+                },
+                {
+                  url: 'https://example.com/list',
+                  mdUrl: 'https://example.com/list.md',
+                  status: 'warn',
+                  links: {
+                    absolute: 4,
+                    rootRelative: 1,
+                    protocolRelative: 2,
+                    pathRelative: 0,
+                    total: 7,
+                  },
+                  samples: [{ url: '/list/a.md', outcome: 'ok', status: 200 }],
+                },
+                {
+                  url: 'https://example.com/fine',
+                  mdUrl: 'https://example.com/fine.md',
+                  status: 'pass',
+                  links: { absolute: 5, rootRelative: 0, pathRelative: 0, total: 5 },
+                  samples: [],
+                },
+              ],
+            },
+          },
+        ],
+      });
+      const output = formatText(report, { verbose: true });
+      expect(output).toContain(
+        'https://example.com/models.md 102 links: 0 absolute, 2 root-relative, 0 path-relative; sampled: /wrong/a.md (not-markdown 200)',
+      );
+      // Protocol-relative links warn like root-relative ones, so they are
+      // reported with them; otherwise this line shows zeroes next to a warning.
+      expect(output).toContain(
+        'https://example.com/list.md 7 links: 4 absolute, 3 root-relative, 0 path-relative',
+      );
+      expect(output).not.toContain('https://example.com/fine.md');
+    });
+
     it('shows served bytes, content size, ratio, and wire size for page-size-transfer', () => {
       const report = makeReport({
         results: [

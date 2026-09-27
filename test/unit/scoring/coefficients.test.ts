@@ -21,6 +21,7 @@ describe('coefficients', () => {
       'markdown-code-fence-validity',
       'markdown-content-parity',
       'single-fetch-completeness',
+      'markdown-link-portability',
     ];
 
     it('returns 1.0 when content-negotiation passes', () => {

@@ -69,7 +69,7 @@ Full documentation is available at **[afdocs.dev](https://afdocs.dev)**:
 
 - [Understand Your Score](https://afdocs.dev/what-is-agent-score) — what the score means and how it's calculated
 - [Improve Your Score](https://afdocs.dev/improve-your-score) — prioritized fix guide
-- [Checks Reference](https://afdocs.dev/checks/) — all 26 checks with fix suggestions
+- [Checks Reference](https://afdocs.dev/checks/) — all 27 checks with fix suggestions
 - [CLI Reference](https://afdocs.dev/reference/cli) — flags, output formats, sampling strategies
 - [CI Integration](https://afdocs.dev/ci-integration) — vitest helpers for your pipeline
 - [Programmatic API](https://afdocs.dev/reference/programmatic-api) — TypeScript API for custom tooling
