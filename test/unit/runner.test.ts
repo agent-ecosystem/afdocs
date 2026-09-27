@@ -482,7 +482,7 @@ describe('runner', () => {
     const skipped = report.results.find((r) => r.id === 'llms-txt-valid');
     expect(skipped).toBeDefined();
     expect(skipped?.status).toBe('skip');
-    expect(skipped?.message).toContain('--skip-checks');
+    expect(skipped?.message).toBe('Check explicitly skipped');
 
     // llms-txt-exists should still run (not in skipCheckIds)
     const exists = report.results.find((r) => r.id === 'llms-txt-exists');
@@ -520,7 +520,7 @@ describe('runner', () => {
 
     const exists = report.results.find((r) => r.id === 'llms-txt-exists');
     expect(exists?.status).toBe('skip');
-    expect(exists?.message).toContain('--skip-checks');
+    expect(exists?.message).toBe('Check explicitly skipped');
 
     // llms-txt-valid should run in standalone mode, not cascade-skip
     const valid = report.results.find((r) => r.id === 'llms-txt-valid');

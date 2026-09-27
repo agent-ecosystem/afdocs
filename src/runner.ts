@@ -173,7 +173,7 @@ export async function runChecks(
         id: check.id,
         category: check.category,
         status: 'skip',
-        message: 'Check skipped (excluded via --skip-checks)',
+        message: 'Check explicitly skipped',
       };
       storeInPreviousResults = false;
     } else if (
