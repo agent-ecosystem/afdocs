@@ -5,6 +5,7 @@ coverage/
 docs/.vitepress/cache/
 docs/deploy
 .DS_Store
+.claude/
 
 # Raw output from working-notes/run-parity-baseline.sh (snapshots go stale; keep the tables in the notes instead)
 parity-results/

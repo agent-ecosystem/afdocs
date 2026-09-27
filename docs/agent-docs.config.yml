@@ -1,0 +1,7 @@
+# The deployed site. Checked by .github/workflows/agent-docs-live.yml after a
+# release, and by `npm run docs:check:live` on demand.
+#
+# This is the config the CLI and the vitest helpers auto-discover, so running
+# `npx afdocs check` from inside docs/ needs no arguments. The localhost
+# counterpart lives in agent-docs.local.yml and has to be passed explicitly.
+url: https://afdocs.dev

@@ -172,6 +172,46 @@ Then reference it in the workflow:
   run: npm run test:agent-docs
 ```
 
+## Checking a build and the deployed site
+
+A single workflow pointed at your production URL tells you whether your docs are agent-friendly right now. It can't tell you whether the pull request in front of you is about to change that, because the pull request isn't deployed yet. Two targets cover both questions.
+
+**On pull requests, check the build.** Build the docs, serve the output, and check localhost. This gates a docs change before it ships, and it measures the branch's own content. Skip the checks only your real server can answer, and set `canonicalOrigin` so the production URLs baked into your generated `llms.txt` and `sitemap.xml` resolve against localhost:
+
+```yaml
+# agent-docs.local.yml
+url: http://localhost:4173
+
+options:
+  canonicalOrigin: https://docs.example.com
+
+skipChecks:
+  - content-negotiation
+  - cache-header-hygiene
+```
+
+See [Run Locally](/run-locally#local-vs-production-differences) for which checks a local server can't answer and why.
+
+**On release, or on a schedule, check the deployed site.** This is the run that covers the checks the build can't answer, along with everything your host supplies: redirects, cache headers, bot protection.
+
+```yaml
+# agent-docs.config.yml
+url: https://docs.example.com
+```
+
+Keep the deployed-site config in `agent-docs.config.yml` so it is the one discovered by default, and pass the localhost config explicitly with `--config`. Restrict the pull request workflow to the paths that can affect the result, so unrelated changes don't pay for a site scan:
+
+```yaml
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+```
+
+One limitation to plan around: `skipChecks` is currently honored by the CLI and ignored by the vitest helpers ([afdocs#133](https://github.com/agent-ecosystem/afdocs/issues/133)). Until that is fixed, run the localhost target through `afdocs check --config agent-docs.local.yml` rather than the helpers.
+
+AFDocs checks its own docs site this way; the two workflows are [agent-docs.yml](https://github.com/agent-ecosystem/afdocs/blob/main/.github/workflows/agent-docs.yml) and [agent-docs-live.yml](https://github.com/agent-ecosystem/afdocs/blob/main/.github/workflows/agent-docs-live.yml).
+
 ## Other CI providers
 
 The GitHub Actions workflow is just Node.js setup + `npm install` + running the test. The same steps work on any CI provider. The test exits with code 0 if all checks pass (or warn) and code 1 if any check fails.

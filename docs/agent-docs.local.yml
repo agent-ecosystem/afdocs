@@ -1,0 +1,24 @@
+# The VitePress production build served by `vitepress preview`. Checked on
+# every pull request that touches the docs site, via
+# scripts/check-docs-local.sh (`npm run docs:check`).
+#
+# The script serves the build on a port it picks and passes that URL on the
+# command line, which overrides the url below. The url matters only when
+# running the config by hand against an already-running preview server.
+url: http://localhost:4173
+
+options:
+  # llms.txt and sitemap.xml are generated at build time with the production
+  # domain baked in. Without this, every same-origin comparison fails and
+  # llms-txt-coverage reports 0%.
+  canonicalOrigin: https://afdocs.dev
+
+# Both of these are Apache behaviour configured in docs/public/.htaccess, which
+# `vitepress preview` knows nothing about. Running them here would measure the
+# preview server rather than the site; the live workflow is what covers them.
+skipChecks:
+  # Serving markdown for an Accept: text/markdown request is a mod_rewrite rule.
+  - content-negotiation
+  # Real Cache-Control headers come from .htaccess. The preview server sets its
+  # own, so a pass here would say nothing about production.
+  - cache-header-hygiene

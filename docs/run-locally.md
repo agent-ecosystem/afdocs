@@ -61,6 +61,11 @@ For repeated local runs, create an `agent-docs.config.yml` pointing to localhost
 ```yaml
 url: http://localhost:3000
 
+# Optional: skip the checks that can only be answered by your real server
+# skipChecks:
+#   - content-negotiation
+#   - cache-header-hygiene
+
 # Optional: run only specific checks
 # checks:
 #   - llms-txt-exists
@@ -72,6 +77,10 @@ url: http://localhost:3000
 #   maxLinksToTest: 20
 #   samplingStrategy: deterministic
 ```
+
+Skipped checks are reported with `status: "skip"` and left out of scoring, so a local run says plainly which checks it didn't answer instead of quietly passing them.
+
+Prefer `skipChecks` to `checks` for this. `skipChecks` is an exclude-list, so checks added in later AFDocs versions keep running locally; a `checks` include-list silently stops covering them.
 
 Then run checks without specifying the URL each time:
 
@@ -91,6 +100,7 @@ This lets you maintain separate configs for different contexts (local developmen
 
 Some checks may behave differently against a local server:
 
+- **Content negotiation**: Serving markdown when a request carries `Accept: text/markdown` is server configuration (a rewrite rule, a middleware, a CDN behavior), not something your build output contains. Dev and preview servers almost never do it, so `content-negotiation` fails locally on sites where it passes in production. Skip it locally and let your production run cover it.
 - **Redirects**: Your production CDN or hosting provider may add redirects (e.g., trailing slash normalization, www redirects) that your local server doesn't. The `redirect-behavior` check may pass locally but warn or fail in production.
 - **Cache headers**: Local dev servers typically don't set cache headers. The `cache-header-hygiene` check will likely fail locally. This is expected; check it against production instead.
 - **Auth gating**: If your production site has authentication, your local server probably doesn't. The `auth-gate-detection` check will pass locally but may fail in production. This represents a real agent failure mode; if an agent can't access your documentation without logging in, an agent can't access your documentation.

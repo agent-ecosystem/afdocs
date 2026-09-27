@@ -1,0 +1,45 @@
+name: Agent-Friendly Docs
+
+# Runs afdocs against the docs site built from the pull request, so a docs
+# change is checked before it ships. Checks that depend on the Apache config in
+# docs/public/.htaccess are skipped here and covered by agent-docs-live.yml
+# instead; see docs/agent-docs.local.yml.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'scripts/check-docs-local.sh'
+      - '.github/workflows/agent-docs.yml'
+
+jobs:
+  built-site:
+    name: Built site
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            docs/package-lock.json
+
+      - run: npm ci
+
+      - name: Install docs dependencies
+        run: npm ci --prefix docs
+
+      # The checks run through this working tree's own build, not a published
+      # release, so a pull request that touches both the checks and the docs is
+      # measured against its own code.
+      - name: Build afdocs
+        run: npm run build
+
+      - name: Check the built docs site
+        run: npm run docs:check
+        timeout-minutes: 10

@@ -1,0 +1,36 @@
+name: Agent-Friendly Docs (live site)
+
+# Runs the full check set against https://afdocs.dev. This covers the checks the
+# pull request workflow has to skip, because content negotiation and cache
+# headers come from docs/public/.htaccess and only exist on the real server.
+#
+# afdocs.dev is deployed by hand, so a release does not guarantee the site has
+# caught up. Treat a run as a report on whatever is live at the time, and use
+# workflow_dispatch after deploying.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  live-site:
+    name: afdocs.dev
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build afdocs
+        run: npm run build
+
+      - name: Check the deployed docs site
+        run: npm run docs:check:live
+        timeout-minutes: 10

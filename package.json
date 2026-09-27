@@ -34,10 +34,15 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
-    "prepublishOnly": "npm run lint && npm test && npm run build",
+    "prepublishOnly": "npm run version:check && npm run lint && npm test && npm run build",
     "docs:dev": "npm run dev --prefix docs",
     "docs:build": "npm run build --prefix docs",
-    "docs:preview": "npm run preview --prefix docs"
+    "docs:preview": "npm run preview --prefix docs",
+    "docs:check": "scripts/check-docs-local.sh",
+    "docs:check:live": "node bin/afdocs.mjs check --config docs/agent-docs.config.yml",
+    "version:check": "node scripts/version-refs.mjs",
+    "version:sync": "node scripts/version-refs.mjs --fix",
+    "version": "node scripts/version-refs.mjs --fix"
   },
   "lint-staged": {
     "*.{ts,js,mjs}": [

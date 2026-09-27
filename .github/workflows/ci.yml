@@ -24,6 +24,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Version references
+        run: npm run version:check
+
       - name: Lint
         run: npm run lint
 

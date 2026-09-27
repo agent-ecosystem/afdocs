@@ -15,6 +15,17 @@ export default tseslint.config(
     },
   },
   {
+    // Repo maintenance scripts are plain Node programs, not library code, so
+    // they need the Node globals that the TypeScript sources get from tsc.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+      },
+    },
+  },
+  {
     ignores: [
       'dist/',
       'coverage/',
