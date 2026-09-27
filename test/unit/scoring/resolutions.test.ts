@@ -63,6 +63,59 @@ describe('resolutions', () => {
     expect(text).toContain('8 of 50');
   });
 
+  describe('page-size-transfer', () => {
+    it('interpolates counts and thresholds for warn', () => {
+      const text = getResolution(
+        r('page-size-transfer', 'warn', {
+          warnBucket: 3,
+          testedPages: 20,
+          thresholds: { pass: 1_000_000, fail: 10_000_000 },
+          architectureSignaturePages: 0,
+        }),
+      );
+      expect(text).toContain('3 of 20 pages serve 1MB-10MB');
+      expect(text).toContain('markdown variants');
+      expect(text).not.toContain('architecture signature');
+    });
+
+    it('names the transfer cap for fail', () => {
+      const text = getResolution(
+        r('page-size-transfer', 'fail', {
+          failBucket: 1,
+          testedPages: 20,
+          thresholds: { pass: 1_000_000, fail: 10_000_000 },
+        }),
+      );
+      expect(text).toContain('1 of 20 pages serve over 10MB');
+      expect(text).toContain("Claude Code's fetch buffer");
+    });
+
+    it('points at framework configuration when the ratio is an architecture signature', () => {
+      const text = getResolution(
+        r('page-size-transfer', 'warn', {
+          warnBucket: 2,
+          testedPages: 20,
+          architectureSignaturePages: 2,
+          maxRatio: 120,
+        }),
+      );
+      expect(text).toContain('2 of the oversized pages ship');
+      expect(text).toContain('~120:1');
+      expect(text).toContain('framework configuration');
+    });
+
+    it('reflects configured thresholds', () => {
+      const text = getResolution(
+        r('page-size-transfer', 'warn', {
+          warnBucket: 1,
+          testedPages: 5,
+          thresholds: { pass: 500_000, fail: 2_000_000 },
+        }),
+      );
+      expect(text).toContain('serve 500KB-2MB');
+    });
+  });
+
   it('returns "unknown" when sizes array is empty', () => {
     const text = getResolution(r('llms-txt-size', 'warn', { sizes: [] }));
     expect(text).toContain('unknown');
@@ -239,6 +292,7 @@ describe('resolutions', () => {
       'rendering-strategy',
       'page-size-markdown',
       'page-size-html',
+      'page-size-transfer',
       'content-start-position',
       'tabbed-content-serialization',
       'section-header-quality',

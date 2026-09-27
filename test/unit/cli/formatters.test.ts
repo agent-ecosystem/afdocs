@@ -140,6 +140,61 @@ describe('formatText', () => {
       expect(output).not.toContain('https://example.com/page2');
     });
 
+    it('shows served bytes, content size, ratio, and wire size for page-size-transfer', () => {
+      const report = makeReport({
+        results: [
+          {
+            id: 'page-size-transfer',
+            category: 'page-size',
+            status: 'warn',
+            message: '1 of 3 pages serve 1MB–10MB',
+            details: {
+              pageResults: [
+                {
+                  url: 'https://example.com/heavy',
+                  servedBytes: 3_400_000,
+                  wireBytes: 410_000,
+                  contentEncoding: 'br',
+                  contentCharacters: 29_000,
+                  ratio: 117,
+                  status: 'warn',
+                },
+                {
+                  url: 'https://example.com/plain',
+                  servedBytes: 1_200_000,
+                  contentCharacters: 40_000,
+                  ratio: 30,
+                  status: 'warn',
+                },
+                {
+                  url: 'https://example.com/light',
+                  servedBytes: 90_000,
+                  contentCharacters: 20_000,
+                  ratio: 5,
+                  status: 'pass',
+                },
+                {
+                  url: 'https://example.com/broken',
+                  servedBytes: 0,
+                  contentCharacters: 0,
+                  status: 'fail',
+                  error: 'fetch failed',
+                },
+              ],
+            },
+          },
+        ],
+        summary: { total: 1, pass: 0, warn: 1, fail: 0, skip: 0, error: 0 },
+      });
+      const output = formatText(report, { verbose: true });
+      expect(output).toContain('https://example.com/heavy');
+      expect(output).toContain('3.4MB served → 29KB content (~117:1), 410KB on the wire (br)');
+      expect(output).toContain('https://example.com/plain');
+      expect(output).toContain('1.2MB served → 40KB content (~30:1)');
+      expect(output).not.toContain('https://example.com/light');
+      expect(output).not.toContain('https://example.com/broken');
+    });
+
     it('shows per-page details for page-size-html', () => {
       const report = makeReport({
         results: [

@@ -5,6 +5,7 @@ import { TextDecoder } from 'node:util';
 import type {
   FetchObserver,
   FetchRecord,
+  HttpBody,
   HttpClient,
   HttpRequestOptions,
   HttpResponse,
@@ -28,6 +29,16 @@ interface RateLimitedHttpClientOptions {
 }
 
 const MAX_RETRIES = 2;
+
+/**
+ * Sent on every request unless the caller overrides it. Node's fetch sends
+ * `gzip, deflate` by default and the exact list has changed between
+ * versions; pinning it keeps the transfer-size measurement deterministic and
+ * matches what agent HTTP clients (curl, Python requests with brotli, the
+ * browsers they wrap) typically negotiate. undici decodes each of these
+ * transparently, so callers always read a decoded body.
+ */
+const DEFAULT_HEADERS: Record<string, string> = { 'Accept-Encoding': 'gzip, deflate, br' };
 
 /**
  * A body that keeps trickling bytes is still a tarpit from the agent's point
@@ -145,7 +156,7 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
           try {
             response = await globalThis.fetch(url, {
               method: reqOptions?.method ?? 'GET',
-              headers: { 'User-Agent': USER_AGENT, ...reqOptions?.headers },
+              headers: { 'User-Agent': USER_AGENT, ...DEFAULT_HEADERS, ...reqOptions?.headers },
               redirect: reqOptions?.redirect ?? 'follow',
               signal: reqOptions?.signal ?? controller.signal,
             });
@@ -215,6 +226,8 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
 
           interface StreamedBody {
             body: string;
+            /** Decoded (post transfer-decoding) bytes read from the stream. */
+            bytes: number;
             /** True when `maxBytes` was reached; the body is unusable and the reader was cancelled. */
             truncated: boolean;
           }
@@ -248,7 +261,7 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
                   received += value.byteLength;
                   if (received > maxBytes) {
                     void reader.cancel().catch(() => undefined);
-                    return { body: '', truncated: true };
+                    return { body: '', bytes: received, truncated: true };
                   }
                 }
                 armIdle();
@@ -261,14 +274,14 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
               clearTimeout(totalTimer);
             }
             if (state.stalled) throw stallError(state.stalled);
-            return { body: decodeBody(chunks, contentType), truncated: false };
+            return { body: decodeBody(chunks, contentType), bytes: received, truncated: false };
           };
 
           // Fallback for responses without a readable stream (test doubles):
           // race the whole text() call against the idle timeout. The abort is
           // still signalled, but the race is what guarantees the guard when a
           // double ignores the controller.
-          const readWholeBody = async (): Promise<string> => {
+          const readWholeBody = async (): Promise<HttpBody> => {
             let bodyTimeout: ReturnType<typeof setTimeout> | undefined;
             const timedOut = new Promise<never>((_resolve, reject) => {
               bodyTimeout = setTimeout(() => {
@@ -277,7 +290,10 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
               }, timeoutMs);
             });
             try {
-              return await Promise.race([response.text(), timedOut]);
+              const text = await Promise.race([response.text(), timedOut]);
+              // No stream to count from: the UTF-8 length of the decoded text
+              // is the closest available stand-in for the served size.
+              return { text, bytes: Buffer.byteLength(text, 'utf8') };
             } catch (err) {
               if (err instanceof BodyReadTimeoutError) throw err;
               if (record.outcome === 'stalled-body') throw stallError('idle', err);
@@ -298,15 +314,25 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
             observer?.onBody(record, body, contentType);
           };
 
-          const readBody = async (): Promise<string> => {
+          let pendingBody: Promise<HttpBody> | undefined;
+          const readBody = (): Promise<HttpBody> => {
             if (record.outcome === 'stalled-body') {
-              throw new BodyReadTimeoutError(record.error ?? 'Body read stalled');
+              return Promise.reject(new BodyReadTimeoutError(record.error ?? 'Body read stalled'));
             }
-            const body = bodyStream
-              ? (await readStreamedBody(bodyStream)).body
-              : await readWholeBody();
-            inspect(body);
-            return body;
+            // A body stream can be consumed once, so every reader (text(),
+            // body(), the origin-rewrite branch) shares the same read.
+            pendingBody ??= (async () => {
+              let read: HttpBody;
+              if (bodyStream) {
+                const { body, bytes } = await readStreamedBody(bodyStream);
+                read = { text: body, bytes };
+              } else {
+                read = await readWholeBody();
+              }
+              inspect(read.text);
+              return read;
+            })();
+            return pendingBody;
           };
 
           // A denied HTML response is read eagerly so the ledger inspects it
@@ -315,7 +341,7 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
           // Content-Length): the inspection branch of a tee stops at the
           // challenge-page size limit, and the caller keeps the other branch,
           // so an arbitrarily large denied page is never buffered here.
-          let eagerBody: string | undefined;
+          let eagerBody: HttpBody | undefined;
           if (record.blocked && /text\/html/i.test(contentType)) {
             const length = Number(response.headers.get('content-length'));
             if (length > MAX_CHALLENGE_PAGE_LENGTH) {
@@ -323,13 +349,13 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
             } else if (bodyStream) {
               const [inspectBranch, callerBranch] = bodyStream.tee();
               bodyStream = callerBranch;
-              const { body, truncated } = await readStreamedBody(
+              const { body, bytes, truncated } = await readStreamedBody(
                 inspectBranch,
                 MAX_CHALLENGE_PAGE_LENGTH,
               );
               if (!truncated) {
                 inspect(body);
-                eagerBody = body;
+                eagerBody = { text: body, bytes };
               }
             } else {
               eagerBody = await readBody();
@@ -340,13 +366,16 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
           if (originPattern && options.targetOrigin) {
             const ct = response.headers.get('content-type') ?? '';
             if (/text|xml|json|markdown/.test(ct)) {
-              const body = eager ?? (await readBody());
+              const { text, bytes } = eager ?? (await readBody());
               originPattern.lastIndex = 0;
               // Use a function replacer so `$` in the target (e.g. a preview path
               // containing `$'` or `$&`) is inserted literally, not interpreted as a
               // String.replace replacement pattern.
               const target = options.targetOrigin;
-              const rewritten = body.replace(originPattern, () => target);
+              const rewritten = text.replace(originPattern, () => target);
+              // `bytes` stays the size the server actually served; the rewrite
+              // is a testing convenience, not something an agent would receive.
+              const rewrittenBody: HttpBody = { text: rewritten, bytes };
               return {
                 ok: response.ok,
                 status: response.status,
@@ -355,6 +384,7 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
                 url: response.url,
                 redirected: response.redirected,
                 text: async () => rewritten,
+                body: async () => rewrittenBody,
               } as HttpResponse;
             }
           }
@@ -366,7 +396,9 @@ export function createHttpClient(options: RateLimitedHttpClientOptions): HttpCli
             headers: response.headers,
             url: response.url,
             redirected: response.redirected,
-            text: eager !== undefined ? async () => eager : readBody,
+            text:
+              eager !== undefined ? async () => eager.text : () => readBody().then((b) => b.text),
+            body: eager !== undefined ? async () => eager : readBody,
           } as HttpResponse;
         } finally {
           activeRequests--;

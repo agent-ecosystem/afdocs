@@ -39,7 +39,7 @@ The URL can be a site root or a specific page. When pointing to a site root, `af
 | `--score`               |         | Include scoring data in JSON output (only usable with `json` output format)                                                                      |
 | `-q, --quiet`           |         | Suppress progress output on stderr                                                                                                               |
 
-While a run is in progress, each check writes a numbered progress line to stderr as it starts and completes, e.g. `[7/24] llms-txt-directive-html... done (47 tested, 3 fetch errors, 12s)`. The banner and progress lines go to stderr for every format, including `json`, so piped `json` or `scorecard` output on stdout stays parseable. Use `--quiet` to suppress it (e.g. in CI logs).
+While a run is in progress, each check writes a numbered progress line to stderr as it starts and completes, e.g. `[7/25] llms-txt-directive-html... done (47 tested, 3 fetch errors, 12s)`. The banner and progress lines go to stderr for every format, including `json`, so piped `json` or `scorecard` output on stdout stays parseable. Use `--quiet` to suppress it (e.g. in CI logs).
 
 **Which format to use:**
 
@@ -224,6 +224,15 @@ When the override is set, `llms-txt-exists` probes only that URL and reports fai
 These thresholds apply to `page-size-html`, `page-size-markdown`, and `tabbed-content-serialization`. Pages under the pass threshold pass; pages between the two thresholds warn; pages over the fail threshold fail.
 
 The defaults (50K pass, 100K fail) reflect observed agent truncation limits. You generally don't need to change these unless you have specific knowledge of your users' agent platforms.
+
+### Transfer size thresholds
+
+| Flag                                | Default    | Description                                        |
+| ----------------------------------- | ---------- | -------------------------------------------------- |
+| `--transfer-pass-threshold <bytes>` | `1000000`  | Served (decoded) HTML size pass threshold in bytes |
+| `--transfer-fail-threshold <bytes>` | `10000000` | Served (decoded) HTML size fail threshold in bytes |
+
+These thresholds apply to `page-size-transfer`, which measures the decoded byte size of the HTML document as served rather than its post-conversion character count. The 10MB fail default is anchored to Claude Code's documented fetch buffer; the 1MB warn default is the spec's conservative line for pages whose bytes are mostly serialized framework payload. Byte-level caps on other platforms are less documented than character limits, so adjust these if you know your users' tools.
 
 ### Coverage thresholds
 

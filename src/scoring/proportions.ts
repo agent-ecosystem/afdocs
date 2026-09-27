@@ -64,6 +64,7 @@ const PROPORTION_EXTRACTORS: Record<string, ProportionExtractor> = {
   // --- Bucket-based checks (passBucket / warnBucket / failBucket) ---
   'page-size-markdown': bucketExtractor,
   'page-size-html': bucketExtractor,
+  'page-size-transfer': bucketExtractor,
   'content-start-position': bucketExtractor,
   'cache-header-hygiene': bucketExtractor,
   'markdown-content-parity': bucketExtractor,

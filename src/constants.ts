@@ -1,4 +1,5 @@
 import type {
+  ByteThresholds,
   CheckOptions,
   NetworkContextClass,
   SamplingStrategy,
@@ -26,6 +27,16 @@ export const DEFAULT_THRESHOLDS: SizeThresholds = {
   fail: 100_000,
 };
 
+/**
+ * Served-size thresholds for page-size-transfer, in decoded bytes. The 10MB
+ * fail line is anchored to Claude Code's documented fetch buffer; the 1MB
+ * warn line is the spec's conservative default (Appendix A).
+ */
+export const DEFAULT_TRANSFER_THRESHOLDS: ByteThresholds = {
+  pass: 1_000_000,
+  fail: 10_000_000,
+};
+
 export const DEFAULT_OPTIONS: CheckOptions = {
   maxConcurrency: 3,
   requestDelay: 200,
@@ -33,6 +44,7 @@ export const DEFAULT_OPTIONS: CheckOptions = {
   maxLinksToTest: 50,
   samplingStrategy: 'random',
   thresholds: DEFAULT_THRESHOLDS,
+  transferThresholds: DEFAULT_TRANSFER_THRESHOLDS,
 };
 
 export const CATEGORIES = [

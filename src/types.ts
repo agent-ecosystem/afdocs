@@ -25,6 +25,19 @@ export interface FetchedPage {
   body: string;
   contentType: string;
   isHtml: boolean;
+  /**
+   * Served size of the response body in bytes, after transfer decoding
+   * (decompression): what an agent's HTTP client hands to its pipeline.
+   */
+  bytes: number;
+  /**
+   * On-the-wire (compressed) size from Content-Length, only when the response
+   * carried a Content-Encoding. Absent for identity responses (where it would
+   * equal `bytes`) and for chunked responses without a length.
+   */
+  wireBytes?: number;
+  /** Content-Encoding the server applied, when any. */
+  contentEncoding?: string;
 }
 
 export interface CheckContext {
@@ -180,8 +193,10 @@ export interface CheckOptions {
   maxLinksToTest: number;
   /** URL sampling strategy: random (default), deterministic, or none. */
   samplingStrategy: SamplingStrategy;
-  /** Size thresholds. */
+  /** Post-conversion size thresholds in characters. */
   thresholds: SizeThresholds;
+  /** Served (transfer-decoded) size thresholds in bytes for page-size-transfer. */
+  transferThresholds: ByteThresholds;
   /** How llms.txt .md links map to page URLs. Default 'clean' (strip the extension). */
   urlPathPattern?: UrlPathPattern;
   /** Preferred locale for URL discovery (e.g. 'en', 'fr', 'ja'). Overrides auto-detection from baseUrl. */
@@ -232,6 +247,13 @@ export interface SizeThresholds {
   fail: number;
 }
 
+export interface ByteThresholds {
+  /** Served bytes at or below which a page passes (default 1,000,000). */
+  pass: number;
+  /** Served bytes above which a page fails (default 10,000,000). */
+  fail: number;
+}
+
 export type CheckFunction = (ctx: CheckContext) => Promise<CheckResult>;
 
 export interface CheckDefinition {
@@ -254,6 +276,16 @@ export interface HttpRequestOptions {
   signal?: AbortSignal;
 }
 
+/** A response body together with its served size. */
+export interface HttpBody {
+  text: string;
+  /**
+   * Bytes read from the response stream after transfer decoding. When the
+   * response exposed no stream, the UTF-8 length of `text` stands in.
+   */
+  bytes: number;
+}
+
 export interface HttpResponse {
   ok: boolean;
   status: number;
@@ -262,6 +294,12 @@ export interface HttpResponse {
   url: string;
   redirected: boolean;
   text(): Promise<string>;
+  /**
+   * The body with its served byte count. Optional so hand-rolled doubles that
+   * only implement `text()` keep working; `fetchPage` falls back to the text
+   * length when it is absent.
+   */
+  body?(): Promise<HttpBody>;
 }
 
 export interface DiscoveredFile {

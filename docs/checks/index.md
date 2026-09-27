@@ -1,6 +1,6 @@
 # Checks Reference
 
-AFDocs runs 24 checks across 7 categories. Each check implements a section of the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/), which documents the observed agent behaviors and failure modes that motivated the check.
+AFDocs runs 25 checks across 7 categories. Each check implements a section of the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/), which documents the observed agent behaviors and failure modes that motivated the check.
 
 ## Categories
 
@@ -8,7 +8,7 @@ AFDocs runs 24 checks across 7 categories. Each check implements a section of th
 | ---------------------------------------------------------- | ------ | -------------------------------------------------------------------- |
 | [Content Discoverability](/checks/content-discoverability) | 7      | Whether agents can find and navigate your documentation via llms.txt |
 | [Markdown Availability](/checks/markdown-availability)     | 2      | Whether agents can get documentation as markdown instead of HTML     |
-| [Page Size and Truncation Risk](/checks/page-size)         | 4      | Whether agents can process your pages without losing content         |
+| [Page Size and Truncation Risk](/checks/page-size)         | 5      | Whether agents can process your pages without losing content         |
 | [Content Structure](/checks/content-structure)             | 3      | Whether page content is structured in ways agents can consume        |
 | [URL Stability and Redirects](/checks/url-stability)       | 2      | Whether documentation URLs behave predictably for agents             |
 | [Observability and Content Health](/checks/observability)  | 3      | Whether agent-facing resources stay accurate over time               |

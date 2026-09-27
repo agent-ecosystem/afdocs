@@ -2,7 +2,7 @@
 
 Whether agents can process your pages without losing content. Agent platforms have diverse truncation limits, from 5K characters on some platforms to over 100K on others. Pages that exceed these limits are silently truncated: the agent sees the beginning of the page and loses the rest.
 
-This category also covers the related problem of pages that technically fit within limits but waste most of that budget on boilerplate (navigation chrome, breadcrumbs, sidebars) instead of documentation content.
+This category also covers the related problem of pages that technically fit within limits but waste most of that budget on boilerplate (navigation chrome, breadcrumbs, sidebars) instead of documentation content, and the transfer-layer problem of pages that ship many times their content's weight in serialized framework payload.
 
 ## rendering-strategy
 
@@ -111,6 +111,57 @@ The output also reports the conversion ratio. A page that converts from 505KB HT
 - **Markdown alternative**: Provide markdown versions as a smaller alternative path for agents that bypass HTML conversion overhead.
 
 Markdown availability helps agents that request it, but most agents still fetch HTML, so fixing the HTML path remains important.
+
+---
+
+## page-size-transfer
+
+Served byte size of the HTML document response after transfer decoding: what an agent's HTTP client hands to its pipeline before any processing.
+
+|            |                                                                                        |
+| ---------- | -------------------------------------------------------------------------------------- |
+| **Weight** | Medium (4)                                                                             |
+| **Spec**   | [page-size-transfer](https://agentdocsspec.com/spec/web/page-size/#page-size-transfer) |
+
+### Why it matters
+
+`page-size-html` measures what survives HTML-to-markdown conversion, which models pipelines that strip scripts and convert before truncating. Served size measures what every agent pays before any processing happens, and it fails differently:
+
+- **Truncate-first and raw-ingestion pipelines** apply their size limit to the bytes as served, so inline scripts and serialized data consume the budget before any content does.
+- **Fetch caps** apply to response bytes, not converted output. A page can convert to a few kilobytes of clean markdown and still exceed the byte budget of the tool fetching it. Claude Code's fetch buffer caps at about 10MB.
+- **Bandwidth and latency** apply to every fetch regardless of pipeline, and multi-page reading sessions multiply them.
+
+Modern server-rendering frameworks can make the gap between served bytes and content arbitrarily large. In measurements of production documentation sites on one hosted platform, pages shipped 75-84% of their bytes as serialized framework payloads inside inline script tags: component trees, resolved metadata, and a complete duplicate of the page's markdown source. Served-bytes-to-content ratios ran from 40:1 to 200:1. Those pages score well on `page-size-html` because conversion strips the payload, while every agent fetching them transfers half a megabyte to several megabytes per page.
+
+### What is measured
+
+AFDocs fetches each sampled page with `Accept-Encoding: gzip, deflate, br`, decodes the response, and counts the decoded bytes of the document body. Subresources (linked CSS, JavaScript, images) are not counted, because agents generally don't fetch them. Inline scripts, styles, and serialized data payloads embedded in the document are counted, because agents can't avoid receiving them.
+
+The fetch is shared with `page-size-html` through the run's page cache, so the served size and the post-conversion content size come from the same response. When the response was compressed, the output also reports the on-the-wire size from `Content-Length`; serialized payloads compress well, so wire size understates the processing burden.
+
+### Results
+
+Based on decoded byte count:
+
+| Result | Condition                                                                                   |
+| ------ | ------------------------------------------------------------------------------------------- |
+| Pass   | Under 1MB                                                                                   |
+| Warn   | 1MB-10MB (no documented cap is exceeded, but truncate-first agents read mostly non-content) |
+| Fail   | Over 10MB (exceeds Claude Code's fetch buffer; content beyond the cap is unreachable)       |
+
+These are byte thresholds, not character thresholds. Byte-level caps are less documented than character-level truncation limits, so the defaults are conservative and configurable with `--transfer-pass-threshold` and `--transfer-fail-threshold` (or `transferThresholds` in the [config file](/reference/config-file)).
+
+Each page is reported as served bytes alongside its post-conversion content size and the ratio between them, for example `3.4MB served → 29KB content (~120:1)`. A ratio of 20:1 or more on an oversized page is treated as an architecture signature: the bytes are hydration payloads or embedded duplicate content rather than documentation, and the fix suggestion says so.
+
+### How to fix
+
+**If this check warns**, identify what the non-content bytes are. In practice they are usually inline serialization visible in the page source: framework hydration payloads, an embedded duplicate of the page's markdown source, resolved data objects. Avoid shipping the same content twice in different formats, load large data payloads on demand, and confirm markdown variants are available and discoverable so agents have a cheaper path.
+
+**If this check fails**, take the same actions urgently. At this size, at least one major platform cuts the page off at the transfer layer.
+
+When the served-to-content ratio is high, the fix lives in framework configuration (what the framework serializes into the page), not in the documentation content itself. Markdown availability gives agents that discover it an escape hatch but does not reduce what HTML-path agents transfer.
+
+This check complements [rendering-strategy](#rendering-strategy), which catches pages that ship too little server-rendered content; this check catches the opposite failure, pages that render content fine but ship many times its weight in serialization overhead. Unlike the other HTML-path checks it is not scaled by the [HTML path coefficient](/agent-score-calculation#html-path-coefficient): an SPA shell's served bytes are still what the agent transfers.
 
 ---
 

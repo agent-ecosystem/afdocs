@@ -28,7 +28,7 @@ The scorecard tells you _what's wrong_. The verbose text output tells you _where
 
 ## Step 3: Work through fixes iteratively
 
-You don't need to run all 24 checks every time you make a change. Target just the check you're fixing for fast feedback:
+You don't need to run all 25 checks every time you make a change. Target just the check you're fixing for fast feedback:
 
 ```bash
 # Iterate on llms.txt

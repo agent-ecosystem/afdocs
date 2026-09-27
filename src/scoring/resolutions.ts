@@ -1,4 +1,6 @@
 import type { CheckResult, CheckStatus } from '../types.js';
+import { DEFAULT_TRANSFER_THRESHOLDS } from '../constants.js';
+import { formatBytes } from '../helpers/format-bytes.js';
 
 interface ResolutionTemplate {
   warn?: (details: Record<string, unknown>) => string;
@@ -191,6 +193,43 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
         'markdown. Break large pages into smaller units, reduce navigation ' +
         'boilerplate, or provide markdown versions that bypass the HTML ' +
         'conversion overhead.'
+      );
+    },
+  },
+
+  'page-size-transfer': {
+    warn: (d) => {
+      const warnCount = (d.warnBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      const t = transferThresholds(d);
+      return (
+        `${warnCount} of ${tested} pages serve ${t.pass}-${t.fail} of HTML. Truncate-first ` +
+        'and raw-ingestion agents consume mostly non-content bytes on these ' +
+        'pages. Identify what the non-content bytes are (usually inline ' +
+        'serialization: framework hydration payloads, embedded duplicate page ' +
+        'source, resolved data objects visible in the page source). Avoid ' +
+        'shipping the same content twice in different formats, load large data ' +
+        'payloads on demand, and confirm markdown variants are available and ' +
+        'discoverable so agents have a cheaper path.' +
+        architectureNote(d)
+      );
+    },
+    fail: (d) => {
+      const failCount = (d.failBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      const t = transferThresholds(d);
+      return (
+        `${failCount} of ${tested} pages serve over ${t.fail} of HTML, past the ` +
+        "transfer cap of at least one major platform (Claude Code's fetch " +
+        'buffer); content beyond the cap is unreachable however the agent ' +
+        'processes it. Identify what the non-content bytes are (usually ' +
+        'inline serialization: framework hydration payloads, embedded ' +
+        'duplicate page source, resolved data objects), avoid shipping the ' +
+        'same content twice, load large data payloads on demand, and confirm ' +
+        'markdown variants are available and discoverable. Markdown gives ' +
+        'agents that find it an escape hatch but does not reduce what ' +
+        'HTML-path agents transfer.' +
+        architectureNote(d)
       );
     },
   },
@@ -410,6 +449,31 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * A high served-to-content ratio on an oversized page is an architecture
+ * signature, not a content problem: the bytes are framework payload.
+ */
+function architectureNote(d: Record<string, unknown>): string {
+  const count = (d.architectureSignaturePages as number) ?? 0;
+  const maxRatio = d.maxRatio as number | undefined;
+  if (count === 0 || maxRatio === undefined) return '';
+  const pages = count === 1 ? 'page ships' : 'pages ship';
+  return (
+    ` ${count} of the oversized ${pages} many times more bytes than content ` +
+    `(up to ~${maxRatio}:1). That ratio is an architecture signature ` +
+    '(hydration payloads, embedded duplicate content), so the fix lives in ' +
+    'framework configuration, not in the docs themselves.'
+  );
+}
+
+function transferThresholds(d: Record<string, unknown>): { pass: string; fail: string } {
+  const t = d.thresholds as { pass?: number; fail?: number } | undefined;
+  return {
+    pass: formatBytes(t?.pass ?? DEFAULT_TRANSFER_THRESHOLDS.pass),
+    fail: formatBytes(t?.fail ?? DEFAULT_TRANSFER_THRESHOLDS.fail),
+  };
+}
 
 function formatSize(d: Record<string, unknown>): string {
   const sizes = d.sizes as Array<{ characters?: number }> | undefined;

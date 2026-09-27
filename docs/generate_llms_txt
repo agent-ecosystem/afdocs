@@ -10,7 +10,7 @@ BASE_URL="https://afdocs.dev"
 cat > "$OUTPUT" << 'HEADER'
 # AFDocs
 
-> Test your documentation site against the Agent-Friendly Documentation Spec. AFDocs runs 24 checks across 7 categories to measure how well AI coding agents can discover, navigate, and consume your docs.
+> Test your documentation site against the Agent-Friendly Documentation Spec. AFDocs runs 25 checks across 7 categories to measure how well AI coding agents can discover, navigate, and consume your docs.
 
 ## The Score
 

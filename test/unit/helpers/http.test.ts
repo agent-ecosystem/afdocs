@@ -880,6 +880,157 @@ describe('createHttpClient', () => {
     });
   });
 
+  describe('served size', () => {
+    const enc = new TextEncoder();
+
+    function streamResponse(
+      stream: ReadableStream<Uint8Array>,
+      headers: Record<string, string> = {},
+    ): Response {
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'text/html', ...headers }),
+        url: 'http://example.com/page',
+        redirected: false,
+        body: stream,
+        text: async () => {
+          throw new Error('text() should not be used when a body stream exists');
+        },
+      } as unknown as Response;
+    }
+
+    function chunked(...parts: string[]): ReadableStream<Uint8Array> {
+      return new ReadableStream({
+        start(c) {
+          for (const part of parts) c.enqueue(enc.encode(part));
+          c.close();
+        },
+      });
+    }
+
+    it('sends an explicit Accept-Encoding typical of agent HTTP clients', async () => {
+      const fetchMock = vi.fn(async () => streamResponse(chunked('<html></html>')));
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      await client.fetch('http://example.com/page');
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect((init.headers as Record<string, string>)['Accept-Encoding']).toBe('gzip, deflate, br');
+    });
+
+    it('lets a caller override Accept-Encoding', async () => {
+      const fetchMock = vi.fn(async () => streamResponse(chunked('<html></html>')));
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      await client.fetch('http://example.com/page', { headers: { 'Accept-Encoding': 'identity' } });
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect((init.headers as Record<string, string>)['Accept-Encoding']).toBe('identity');
+    });
+
+    it('counts decoded bytes across chunks, distinct from character count', async () => {
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(chunked('<html>', 'héllo €', '</html>')),
+      ) as unknown as typeof fetch;
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const response = await client.fetch('http://example.com/page');
+      const body = await response.body!();
+      expect(body.text).toBe('<html>héllo €</html>');
+      expect(body.bytes).toBe(Buffer.byteLength('<html>héllo €</html>', 'utf8'));
+      expect(body.bytes).toBeGreaterThan(body.text.length);
+    });
+
+    it('shares one read between text() and body()', async () => {
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(chunked('<html>once</html>')),
+      ) as unknown as typeof fetch;
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const response = await client.fetch('http://example.com/page');
+      expect(await response.text()).toBe('<html>once</html>');
+      const body = await response.body!();
+      expect(body.text).toBe('<html>once</html>');
+      expect(body.bytes).toBe(17);
+      expect(await response.text()).toBe('<html>once</html>');
+    });
+
+    it('approximates bytes from the text when the response has no stream', async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({ 'content-type': 'text/html' }),
+            url: 'http://example.com/page',
+            redirected: false,
+            text: async () => '<html>héllo</html>',
+          }) as unknown as Response,
+      ) as unknown as typeof fetch;
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const response = await client.fetch('http://example.com/page');
+      const body = await response.body!();
+      expect(body.bytes).toBe(Buffer.byteLength('<html>héllo</html>', 'utf8'));
+    });
+
+    it('keeps the served byte count on the origin-rewrite path', async () => {
+      globalThis.fetch = vi.fn(async () =>
+        streamResponse(chunked('<a href="https://prod.example.com/x">'), {
+          'content-type': 'text/html',
+        }),
+      ) as unknown as typeof fetch;
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+        canonicalOrigin: 'https://prod.example.com',
+        targetOrigin: 'http://preview.example.com:3000',
+      });
+      const response = await client.fetch('http://preview.example.com:3000/page');
+      const body = await response.body!();
+      expect(body.text).toBe('<a href="http://preview.example.com:3000/x">');
+      // The rewrite is a testing convenience; bytes stay what the server served.
+      expect(body.bytes).toBe(Buffer.byteLength('<a href="https://prod.example.com/x">'));
+      expect(await response.text()).toBe(body.text);
+    });
+
+    it('reports the bytes of a denied response read eagerly', async () => {
+      const page = '<html><body>Access denied</body></html>';
+      globalThis.fetch = vi.fn(async () => {
+        const r = streamResponse(chunked(page));
+        return { ...r, ok: false, status: 403, headers: r.headers, body: r.body } as Response;
+      }) as unknown as typeof fetch;
+      const client = createHttpClient({
+        requestDelay: 0,
+        requestTimeout: 5000,
+        maxConcurrency: 10,
+      });
+      const response = await client.fetch('http://example.com/page');
+      const body = await response.body!();
+      expect(body.text).toBe(page);
+      expect(body.bytes).toBe(page.length);
+    });
+  });
+
   describe('review follow-ups', () => {
     const enc = new TextEncoder();
 
