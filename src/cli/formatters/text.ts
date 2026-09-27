@@ -6,6 +6,8 @@ import { isScanDegradedByBotProtection } from '../../scoring/diagnostics.js';
 import { PAGE_LEVEL_CHECKS } from '../../scoring/score.js';
 import { describeNetworkContext } from '../../helpers/network-context.js';
 import { describeTransfer, formatBytes } from '../../helpers/format-bytes.js';
+import { describeBulkElement } from '../../helpers/detect-bulk-data.js';
+import type { BulkElement } from '../../helpers/detect-bulk-data.js';
 
 const STATUS_ICONS: Record<string, string> = {
   pass: chalk.green('✓'),
@@ -303,6 +305,38 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
         if (p.error) return formatDetailLine('fail', p.url, p.error);
         if (!p.found) return formatDetailLine('fail', p.url, 'no directive found');
         return formatDetailLine('warn', p.url, `directive at ${p.positionPercent}% of page`);
+      });
+  },
+
+  'embedded-data-serialization': (details) => {
+    const pages = details.pageResults as
+      | Array<{
+          url: string;
+          status: string;
+          convertedCharacters?: number;
+          bulkShare?: number;
+          proseBeforeBulkPercent?: number;
+          dominantElement?: BulkElement;
+          elementCount?: number;
+          error?: string;
+        }>
+      | undefined;
+    if (!pages) return [];
+    return pages
+      .filter((p) => p.status !== 'pass')
+      .map((p) => {
+        if (p.error) return formatDetailLine('fail', p.url, p.error);
+        const el = p.dominantElement;
+        const what = el ? describeBulkElement(el) : 'bulk data';
+        const others = (p.elementCount ?? 0) > 1 ? ` (+${(p.elementCount ?? 0) - 1} more)` : '';
+        const total = formatSize(p.convertedCharacters ?? 0);
+        const share = el ? el.share : (p.bulkShare ?? 0);
+        const prose = p.proseBeforeBulkPercent ?? 0;
+        return formatDetailLine(
+          p.status,
+          p.url,
+          `${what}${others} is ${share}% of ${total}; ${prose}% of the prose comes before it`,
+        );
       });
   },
 

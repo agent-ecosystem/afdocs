@@ -38,6 +38,12 @@ history alone does not carry the reasoning.
   classified but not scored, how the per-page sample spends the link budget,
   the `html-redirect` addition to the verification vocabulary, and the field
   run that reproduced the spec's grounding case live.
+- `embedded-data-serialization-notes.md`: design notes for the
+  `embedded-data-serialization` check (spec v0.6.0): what counts as bulk
+  and why the thresholds default where they do, how the verdict is coupled
+  to `page-size-html`'s buckets, the twelve-page field run, the
+  "Dynamic Content Rendered Statically" interaction diagnostic, and the
+  item-count extension to `markdown-content-parity`.
 - `parity-sites.txt`: the 20 sites used to validate parity changes, with
   base URLs. Referenced throughout the parity notes.
 - `run-parity-baseline.sh`: runs the parity check against one of those

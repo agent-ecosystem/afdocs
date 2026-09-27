@@ -141,6 +141,15 @@ export function validateRunnerOptions(options: Partial<RunnerOptions>): Validati
       max: 100,
     }),
   );
+  pushError(validateNumber(options.bulkTableRows, 'bulkTableRows', { integer: true, min: 1 }));
+  pushError(validateNumber(options.bulkBlobChars, 'bulkBlobChars', { integer: true, min: 1 }));
+  pushError(
+    validateNumber(options.bulkDominantShare, 'bulkDominantShare', {
+      integer: true,
+      min: 0,
+      max: 100,
+    }),
+  );
 
   // Threshold ordering (only when both in a pair are provided and individually valid)
   if (

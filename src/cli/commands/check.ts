@@ -89,6 +89,18 @@ export function registerCheckCommand(program: Command): void {
       'Comma-separated CSS selectors to strip from HTML before parity comparison',
     )
     .option(
+      '--bulk-table-rows <n>',
+      'Data rows at or above which a uniform table counts as bulk for embedded-data-serialization (default 20)',
+    )
+    .option(
+      '--bulk-blob-chars <n>',
+      'Characters at or above which a JSON blob or base64 run counts as bulk for embedded-data-serialization (default 2000)',
+    )
+    .option(
+      '--bulk-dominant-share <pct>',
+      'Bulk share of converted content at which bulk is the dominant contributor (0-100, default 50)',
+    )
+    .option(
       '--canonical-origin <url>',
       'The production base URL (origin, or origin plus a path prefix) your content links to, rewritten to the target for preview/staging testing',
     )
@@ -320,6 +332,19 @@ export function registerCheckCommand(program: Command): void {
           ? parseInt(String(opts.parityWarnThreshold), 10)
           : (config?.options?.parityWarnThreshold ?? undefined);
 
+      const bulkTableRows =
+        opts.bulkTableRows != null
+          ? parseInt(String(opts.bulkTableRows), 10)
+          : (config?.options?.bulkTableRows ?? undefined);
+      const bulkBlobChars =
+        opts.bulkBlobChars != null
+          ? parseInt(String(opts.bulkBlobChars), 10)
+          : (config?.options?.bulkBlobChars ?? undefined);
+      const bulkDominantShare =
+        opts.bulkDominantShare != null
+          ? parseInt(String(opts.bulkDominantShare), 10)
+          : (config?.options?.bulkDominantShare ?? undefined);
+
       const parityExclusions =
         opts.parityExclusions != null
           ? (opts.parityExclusions as string)
@@ -356,6 +381,9 @@ export function registerCheckCommand(program: Command): void {
         ...(parityPassThreshold != null && { parityPassThreshold }),
         ...(parityWarnThreshold != null && { parityWarnThreshold }),
         ...(parityExclusions && { parityExclusions }),
+        ...(bulkTableRows != null && { bulkTableRows }),
+        ...(bulkBlobChars != null && { bulkBlobChars }),
+        ...(bulkDominantShare != null && { bulkDominantShare }),
         // Progress goes to stderr so it never contaminates parseable stdout
         // formats (json, piped scorecard output).
         ...(!quiet && {

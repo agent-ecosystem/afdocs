@@ -105,6 +105,52 @@ describe('resolutions', () => {
     });
   });
 
+  describe('embedded-data-serialization', () => {
+    it('names the data and gives the structural fix for warn', () => {
+      const text = getResolution(
+        r('embedded-data-serialization', 'warn', {
+          warnBucket: 2,
+          testedPages: 8,
+          reasons: { table: 2, json: 0, base64: 0, proseAfterBulk: 1 },
+          thresholds: {
+            tableRows: 20,
+            blobChars: 2000,
+            dominantShare: 50,
+            size: { pass: 50_000, fail: 100_000 },
+          },
+        }),
+      );
+      expect(text).toContain('2 of 8 pages convert to 50,000–100,000 characters');
+      expect(text).toContain('large tables on 2');
+      expect(text).toContain('most of the prose comes after the data on 1');
+      expect(text).not.toContain('JSON blobs');
+      expect(text).toContain('structure, not removal');
+      expect(text).toContain('single-fetch-completeness');
+      expect(text).toContain('prose before the data');
+    });
+
+    it('mentions the truncation point and the attribution for fail', () => {
+      const text = getResolution(
+        r('embedded-data-serialization', 'fail', {
+          failBucket: 1,
+          testedPages: 5,
+          reasons: { table: 0, json: 1, base64: 0, proseAfterBulk: 0 },
+          thresholds: { size: { pass: 40_000, fail: 80_000 } },
+        }),
+      );
+      expect(text).toContain('1 of 5 pages convert to over 80,000 characters');
+      expect(text).toContain('JSON blobs on 1');
+      expect(text).toContain('beyond the truncation point');
+      expect(text).toContain('property of the generated data');
+    });
+
+    it('falls back to the default thresholds and no reasons', () => {
+      const text = getResolution(r('embedded-data-serialization', 'warn', {}));
+      expect(text).toContain('0 of 0 pages convert to 50,000–100,000 characters');
+      expect(text).toContain('embedded data. Bulk data is usually');
+    });
+  });
+
   describe('markdown-link-portability', () => {
     it('names the root-relative reason for warn and says where absolute URLs come from', () => {
       const text = getResolution(

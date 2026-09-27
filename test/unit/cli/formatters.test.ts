@@ -191,6 +191,48 @@ describe('formatText', () => {
       expect(output).not.toContain('https://example.com/fine.md');
     });
 
+    it('names the dominant element and prose position for embedded-data-serialization', () => {
+      const report = makeReport({
+        results: [
+          {
+            id: 'embedded-data-serialization',
+            category: 'content-structure',
+            status: 'warn',
+            message: '1 of 2 pages convert to 50K–100K chars mainly because of embedded data',
+            details: {
+              pageResults: [
+                {
+                  url: 'https://example.com/compat',
+                  status: 'warn',
+                  convertedCharacters: 83_000,
+                  bulkShare: 79,
+                  proseBeforeBulkPercent: 12,
+                  elementCount: 3,
+                  dominantElement: { kind: 'table', rows: 218, chars: 60_000, share: 72 },
+                },
+                {
+                  url: 'https://example.com/fine',
+                  status: 'pass',
+                  convertedCharacters: 4_000,
+                  bulkShare: 0,
+                  proseBeforeBulkPercent: 100,
+                  elementCount: 0,
+                },
+                { url: 'https://example.com/broken', status: 'fail', error: 'Network error' },
+              ],
+            },
+          },
+        ],
+        summary: { total: 1, pass: 0, warn: 1, fail: 0, skip: 0, error: 0 },
+      });
+      const output = formatText(report, { verbose: true });
+      expect(output).toContain('https://example.com/compat');
+      expect(output).toContain('218-row table (+2 more) is 72% of 83K chars');
+      expect(output).toContain('12% of the prose comes before it');
+      expect(output).not.toContain('https://example.com/fine');
+      expect(output).toContain('Network error');
+    });
+
     it('shows link counts and broken samples for markdown-link-portability', () => {
       const report = makeReport({
         results: [

@@ -24,6 +24,7 @@ export const PAGE_LEVEL_CHECKS: ReadonlySet<string> = new Set([
   'content-start-position',
   'tabbed-content-serialization',
   'section-header-quality',
+  'embedded-data-serialization',
   'http-status-codes',
   'redirect-behavior',
   'rendering-strategy',

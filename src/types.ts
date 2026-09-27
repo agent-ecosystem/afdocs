@@ -230,6 +230,12 @@ export interface CheckOptions {
   parityWarnThreshold?: number;
   /** CSS selectors to strip from HTML before parity comparison (e.g. '[data-markdown-ignore]'). */
   parityExclusions?: string[];
+  /** Data rows at or above which a uniform table counts as bulk for embedded-data-serialization. Default 20. */
+  bulkTableRows?: number;
+  /** Characters at or above which a JSON blob or base64 run counts as bulk for embedded-data-serialization. Default 2000. */
+  bulkBlobChars?: number;
+  /** Bulk share of converted content (0–100) at which bulk is the dominant contributor. Default 50. */
+  bulkDominantShare?: number;
   /**
    * Explicit network vantage point for the scan, overriding environment
    * detection. Reported alongside bot-protection findings so a reader can

@@ -89,6 +89,7 @@ describe('coefficients', () => {
       'content-start-position',
       'tabbed-content-serialization',
       'section-header-quality',
+      'embedded-data-serialization',
     ];
 
     it('returns 1.0 when rendering-strategy is absent', () => {

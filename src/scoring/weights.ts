@@ -50,6 +50,7 @@ export const CHECK_WEIGHTS: Record<string, CheckWeight> = {
   'tabbed-content-serialization': w('medium', 0.5),
   'markdown-code-fence-validity': w('medium'),
   'markdown-link-portability': w('medium', 0.6),
+  'embedded-data-serialization': w('medium', 0.5),
   'llms-txt-coverage': w('medium', 0.75),
   'markdown-content-parity': w('medium', 0.75),
   'auth-alternative-access': w('medium', 0.5),
