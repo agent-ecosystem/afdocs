@@ -17,7 +17,7 @@ hero:
       link: /quick-start
 
 features:
-  - title: 23 Checks, 7 Categories
+  - title: 28 Checks, 7 Categories
     details: From content discoverability to markdown availability, AFDocs tests everything that affects how agents interact with your docs.
   - title: Actionable Fixes
     details: Every failing check comes with a specific fix suggestion, so you know exactly what to change.

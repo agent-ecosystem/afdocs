@@ -69,7 +69,7 @@ Checks not in the list show as skipped in the test output.
 ```yaml
 url: https://docs.example.com
 
-# Optional: run only specific checks (omit to run all 23)
+# Optional: run only specific checks (omit to run all 28)
 # checks:
 #   - llms-txt-exists
 #   - llms-txt-valid
