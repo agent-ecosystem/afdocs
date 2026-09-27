@@ -26,9 +26,9 @@ export function isCrossHostRedirect(originalUrl: string, finalUrl: string): bool
 export function isNonPageUrl(url: string): boolean {
   const parsed = new URL(url);
   const lastSegment = parsed.pathname.split('/').pop() ?? '';
-  // Has a file extension that isn't .html/.htm/.md/.mdx
+  // Has an extension containing a letter, excluding .html/.htm/.md/.mdx
   return (
-    /\.[a-z0-9]+$/i.test(lastSegment) &&
+    /\.[a-z0-9]*[a-z][a-z0-9]*$/i.test(lastSegment) &&
     !/\.html?$/i.test(lastSegment) &&
     !lastSegment.endsWith('.md') &&
     !lastSegment.endsWith('.mdx')

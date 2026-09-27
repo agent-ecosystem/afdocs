@@ -98,6 +98,36 @@ describe('llms-txt-directive-md', () => {
     expect(pages[0].mdUrl).toBe('http://test.local/docs/page1.md');
   });
 
+  it('uses the versioned .md URL without relying on content negotiation (#134)', async () => {
+    const pageUrl = 'http://test.local/migration/v0.22.0';
+    const requested: string[] = [];
+    server.use(
+      http.get(`${pageUrl}.md`, ({ request }) => {
+        requested.push(request.url);
+        return new HttpResponse(
+          '> See [llms.txt](/llms.txt) for the index.\n\n# Migration\n\nUpgrade steps.',
+          {
+            headers: { 'Content-Type': 'text/markdown' },
+          },
+        );
+      }),
+      http.get(pageUrl, ({ request }) => {
+        requested.push(request.url);
+        return new HttpResponse('<html><body>Upgrade steps.</body></html>', {
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }),
+    );
+
+    const result = await check.run(makeCtx(llms('/migration/v0.22.0')));
+    expect(result.status).toBe('pass');
+    expect(result.details?.foundCount).toBe(1);
+    expect(result.details?.pageResults).toEqual([
+      expect.objectContaining({ mdUrl: `${pageUrl}.md` }),
+    ]);
+    expect(requested).toEqual([`${pageUrl}.md`]);
+  });
+
   it('passes when directive found via index.md URL', async () => {
     server.use(
       http.get('http://test.local/docs/page1.md', () => new HttpResponse('', { status: 404 })),

@@ -1604,6 +1604,35 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
     expect(result.urls).toHaveLength(3);
   });
 
+  it.each(['', '.md'])(
+    'keeps versioned pages from a nested index without fetching them (suffix: %j, #134)',
+    async (suffix) => {
+      const origin = 'http://walk-versioned.local';
+      const aggregateUrl = `${origin}/migration/llms.txt`;
+      const pages = [`${origin}/migration/v0.17.0`, `${origin}/migration/v0.22.0`];
+      const ctx = makeCtx(origin, `# Docs\n- [Migrations](${aggregateUrl})\n`);
+      ctx.options.maxLinksToTest = pages.length;
+      const requested: string[] = [];
+      const aggregateContent = `# Migrations\n${pages.map((url) => `- [Upgrade](${url}${suffix})`).join('\n')}\n- [Schema](${origin}/schema.json)\n- [Archive](${origin}/bundle.7z)\n`;
+      server.use(
+        http.get(aggregateUrl, ({ request }) => {
+          requested.push(request.url);
+          return new HttpResponse(aggregateContent, { headers: { 'Content-Type': 'text/plain' } });
+        }),
+        http.get(`${origin}/*`, ({ request }) => {
+          requested.push(request.url);
+          return new HttpResponse('', { status: 404 });
+        }),
+      );
+
+      const result = await getPageUrls(ctx);
+      expect(result.urls).toEqual(pages);
+      expect(result.sources).toEqual(['llms-txt']);
+      expect(result.warnings).toEqual([]);
+      expect(requested).toEqual([aggregateUrl]);
+    },
+  );
+
   it('walks aggregate .txt files with relative URLs (Supabase pattern)', async () => {
     // Root llms.txt links to aggregate content files
     const rootContent = `# Docs\n- [Guides](http://walk-rel.local/llms/guides.txt)\n`;
