@@ -2,7 +2,6 @@ import { registerCheck } from '../registry.js';
 import {
   getUrlsFromCachedLlmsTxtWithOmitted,
   getUrlsFromSitemap,
-  parseSitemapUrls,
 } from '../../helpers/get-page-urls.js';
 import { isSameSite } from '../../helpers/host-equivalence.js';
 import { isNonPageUrl } from '../../helpers/to-md-urls.js';
@@ -259,38 +258,17 @@ const MAX_COVERAGE_SITEMAP_URLS = 50_000;
  * Many docs sites host their own sitemap that isn't referenced from robots.txt
  * (e.g., Loops /docs/sitemap.xml, Supabase /docs/sitemap.xml).
  */
-async function fetchDocsSitemap(ctx: CheckContext): Promise<string[]> {
+async function fetchDocsSitemap(ctx: CheckContext, warnings: string[]): Promise<string[]> {
   const baseUrlPath = new URL(ctx.baseUrl).pathname.replace(/\/$/, '');
   if (!baseUrlPath || baseUrlPath === '/') return [];
 
   const docsSitemapUrl = `${ctx.origin}${baseUrlPath}/sitemap.xml`;
-  try {
-    const response = await ctx.http.fetch(docsSitemapUrl);
-    if (!response.ok) return [];
-    const xml = await response.text();
-    const parsed = parseSitemapUrls(xml);
-
-    // If it's a sitemap index, follow one level
-    if (parsed.sitemapIndexUrls.length > 0) {
-      const urls: string[] = [];
-      for (const subUrl of parsed.sitemapIndexUrls) {
-        try {
-          const subResp = await ctx.http.fetch(subUrl);
-          if (!subResp.ok) continue;
-          const subXml = await subResp.text();
-          const subParsed = parseSitemapUrls(subXml);
-          urls.push(...subParsed.urls);
-        } catch {
-          // Skip failed fetches
-        }
-      }
-      return urls;
-    }
-
-    return parsed.urls;
-  } catch {
-    return [];
-  }
+  return getUrlsFromSitemap(ctx, warnings, {
+    sitemapUrls: [docsSitemapUrl],
+    maxUrls: MAX_COVERAGE_SITEMAP_URLS,
+    originOverride: ctx.effectiveOrigin ?? ctx.origin,
+    skipRefinement: true,
+  });
 }
 
 /**
@@ -358,7 +336,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
 
   // If the main sitemap has no docs URLs, try a docs-specific sitemap
   if (scopedSitemapUrls.length === 0 && baseUrlPath && baseUrlPath !== '/') {
-    const docsSitemapUrls = await fetchDocsSitemap(ctx);
+    const docsSitemapUrls = await fetchDocsSitemap(ctx, sitemapWarnings);
     if (docsSitemapUrls.length > 0) {
       sitemapUrls = docsSitemapUrls;
       scopedSitemapUrls = scopeUrls(docsSitemapUrls, effectiveOrigin, baseUrlPath);

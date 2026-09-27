@@ -247,6 +247,63 @@ Nested-index regressions assert that discovery fetches only the index,
 not its page candidates. Markdown and negotiation regressions also pin
 the requests made for the formerly skipped pages.
 
+### September 2026: bounded sitemap walks and infix locales (issue #120)
+
+A narrow Microsoft Learn base URL (`/en-us/docs`) matched no sitemap
+pages, so the accepted-URL cap never fired. The index contained thousands
+of large shards. The locale filter also missed product filenames such as
+`dotnet_en-us_1.xml` and `previous-versions_fr-fr_3.xml`.
+
+Decisions:
+
+- Recognize a filename locale token delimited by `_` or `-`, optionally
+  followed by a numeric shard. Match the parsed pathname, ignoring query
+  strings. Validate with the existing locale-code helper, require two
+  distinct locales before filtering, preserve non-locale sitemaps, and
+  retain the existing preferred-locale and fallback rules.
+- Each sitemap walk has a shared ceiling of 20 sitemap fetch attempts,
+  including roots, indexes, children, failed responses, and empty responses.
+  This is independent of accepted URLs. Gzipped sitemaps remain unsupported
+  and do not consume fetch slots. Robots discovery is separate; HTTP
+  redirects and retries retain their existing behavior, so 20 fetch calls
+  is not a promise of 20 wire requests.
+- Stop starting additional sitemap fetches after successfully read bodies
+  total 50 MiB of decoded bytes. This leaves room for one of the reported
+  roughly 46 MB shards plus its index, while preventing hundreds of such
+  downloads. Use `HttpResponse.body()` for served-byte accounting, or UTF-8
+  text length for custom clients without that method.
+- The byte budget is checked between responses, not during streaming.
+  The final body can overshoot it, and a failed partial read has no byte
+  count. It is not a per-response memory ceiling or a wall-clock guarantee;
+  the existing HTTP timeouts still apply. A hard streaming cap would require
+  a separate HTTP API change, including canonical-origin rewriting.
+- When a budget prevents another fetch, retain already-collected URLs and
+  warn that discovery is partial. Do not issue a budget warning merely
+  because the last input or the existing accepted-URL cap ended the walk.
+  Normal locale/version refinement and sampling limits remain unchanged.
+- Share the bounded walker with coverage's docs-specific sitemap fallback
+  through an optional explicit sitemap-root list. Coverage and page discovery
+  can run separate walks, each with its own budget; this is not a scan-wide
+  quota. Partial coverage results retain `sitemapWarnings` and should not be
+  treated as exhaustive coverage of the site.
+- Warn when a non-root path prefix matches fewer than 1% of examined
+  same-site URLs, before locale/version refinement. Include the prefix,
+  counts, and a suggestion to use a broader base URL. Apply this to both
+  sitemap and llms.txt discovery. Empty sources and root prefixes do not
+  warn; zero matches from a nonempty source does. Do not broaden the scope
+  automatically.
+
+Rejected alternatives: relying on locale filtering alone (one locale can
+still have hundreds of shards), stopping after a few nonmatching shards
+(later shards may contain the requested product), and counting only
+successful or accepted pages (the original unbounded-walk failure).
+No per-page probes, deeper traversal, or configurable budget API were added.
+
+Regression tests pin locale forms, fetch and byte limits, shared budgets
+across roots and indexes, empty/error responses, raw coverage mode, fallback
+warning propagation, normal termination, and the strict 1% boundary.
+The initial locale and unbounded-walk tests both failed before the fix.
+
 ## Invariants
 
 - Discovery emits page URLs; `.md` candidates are derived per check.

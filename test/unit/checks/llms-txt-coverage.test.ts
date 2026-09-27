@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { getCheck } from '../../../src/checks/registry.js';
 import { createContext } from '../../../src/runner.js';
+import { MAX_SITEMAP_FETCHES } from '../../../src/constants.js';
 import type { DiscoveredFile } from '../../../src/types.js';
 import { mockSitemapNotFound } from '../../helpers/mock-sitemap-not-found.js';
 import {
@@ -556,6 +557,37 @@ describe('llms-txt-coverage', () => {
     expect(result.details?.sitemapDocPages).toBe(2);
     expect(result.details?.sitemapSource).toBe('/docs/sitemap.xml');
     expect(result.details?.coverageRate).toBe(100);
+  });
+
+  test('bounds the docs-specific sitemap fallback and reports partial results (#120)', async () => {
+    const host = 'cov-docs-index-budget.local';
+    const origin = `http://${host}`;
+    const docPage = `${origin}/docs/guide`;
+    const ctx = makeCtx(host, [docPage], '/docs');
+    const requested: string[] = [];
+    server.use(
+      http.get(`${origin}/robots.txt`, () => new HttpResponse(`Sitemap: ${origin}/sitemap.xml`)),
+      http.get(`${origin}/sitemap.xml`, () => new HttpResponse(makeSitemap([`${origin}/about`]))),
+      http.get(`${origin}/docs/*.xml`, ({ request }) => {
+        requested.push(request.url);
+        return new HttpResponse(
+          request.url === `${origin}/docs/sitemap.xml`
+            ? makeSitemapIndex(
+                Array.from({ length: 25 }, (_, index) => `${origin}/docs/shard-${index}.xml`),
+              )
+            : makeSitemap([docPage]),
+        );
+      }),
+    );
+
+    const result = await check.run(ctx);
+
+    expect(requested).toHaveLength(MAX_SITEMAP_FETCHES);
+    expect(result.details?.sitemapDocPages).toBe(1);
+    expect(result.details?.sitemapSource).toBe('/docs/sitemap.xml');
+    expect(result.details?.sitemapWarnings).toEqual([
+      expect.stringMatching(/Sitemap fetch limit.*partial/),
+    ]);
   });
 
   test('follows docs-specific sitemap index one level deep', async () => {

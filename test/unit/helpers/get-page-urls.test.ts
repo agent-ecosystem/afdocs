@@ -16,7 +16,11 @@ import {
   extractVersionFromUrl,
   extractLocaleFromUrl,
 } from '../../../src/helpers/get-page-urls.js';
-import { MAX_SITEMAP_URLS } from '../../../src/constants.js';
+import {
+  MAX_SITEMAP_BYTES,
+  MAX_SITEMAP_FETCHES,
+  MAX_SITEMAP_URLS,
+} from '../../../src/constants.js';
 import { createContext } from '../../../src/runner.js';
 import { fetchPage } from '../../../src/helpers/fetch-page.js';
 import type { DiscoveredFile } from '../../../src/types.js';
@@ -212,6 +216,33 @@ describe('getPathFilterBase', () => {
 });
 
 describe('filterLocaleSitemaps', () => {
+  it.each(['_', '-'])(
+    'recognizes %s-delimited locale shards and query strings (#120)',
+    (separator) => {
+      const urls = [
+        `https://example.com/api${separator}en${separator}1.xml?version=2`,
+        `https://example.com/api${separator}fr${separator}2.xml`,
+        `https://example.com/api${separator}en.xml`,
+        'https://example.com/api-pages.xml',
+        'https://example.com/api-zz-1.xml',
+        'not-a-url',
+      ];
+
+      expect(filterLocaleSitemaps(urls)).toEqual([urls[0], ...urls.slice(2)]);
+    },
+  );
+
+  it('recognizes infix locales in product sitemap filenames (#120)', () => {
+    const urls = [
+      'https://example.com/_sitemaps/dotnet_en-us_1.xml',
+      'https://example.com/_sitemaps/previous-versions_fr-fr_3.xml',
+      'https://example.com/_sitemaps/azure_en-us_2.xml',
+      'https://example.com/_sitemaps/products.xml',
+    ];
+
+    expect(filterLocaleSitemaps(urls, 'en-us')).toEqual([urls[0], urls[2], urls[3]]);
+  });
+
   it('filters to English sub-sitemaps when locale pattern detected in filenames', () => {
     const urls = [
       'https://example.com/sitemap-el.xml',
@@ -2341,6 +2372,213 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
       'http://ver-match.local/docs/v2/intro',
       'http://ver-match.local/docs/v2/guide',
     ]);
+  });
+
+  it.each([100, 101, 637])(
+    'diagnoses a narrow llms.txt prefix against %i pages (#120)',
+    async (count) => {
+      const origin = 'http://narrow-llms-prefix.local';
+      const content = `# Docs\n## Links\n- [Home](${origin}/docs/en/home)\n${Array.from(
+        { length: count - 1 },
+        (_, index) => `- [Page ${index}](${origin}/docs/en/page-${index})`,
+      ).join('\n')}`;
+      const ctx = makeCtx(`${origin}/docs/en/home`, content);
+      ctx.options.maxLinksToTest = 1;
+
+      const result = await getPageUrls(ctx);
+
+      expect(result.urls).toEqual([ctx.baseUrl]);
+      expect(result.sources).toEqual(['llms-txt']);
+      expect(result.warnings).toEqual(
+        count > 100
+          ? [expect.stringContaining(`llms.txt path prefix "/docs/en/home" matched 1 of ${count}`)]
+          : [],
+      );
+    },
+  );
+
+  it('bounds sitemap fetches when the path prefix rejects every URL (#120)', async () => {
+    const origin = 'http://sitemap-budget.local';
+    const requested: string[] = [];
+    server.use(
+      http.get(`${origin}/robots.txt`, () => new HttpResponse(`Sitemap: ${origin}/sitemap.xml`)),
+      http.get(`${origin}/*.xml`, ({ request }) => {
+        requested.push(request.url);
+        if (request.url === `${origin}/sitemap.xml`) {
+          return new HttpResponse(
+            `<sitemapindex>${Array.from(
+              { length: 25 },
+              (_, index) => `<sitemap><loc>${origin}/shard-${index}.xml</loc></sitemap>`,
+            ).join('')}</sitemapindex>`,
+          );
+        }
+        return new HttpResponse(`<urlset><url><loc>${origin}/other/page</loc></url></urlset>`);
+      }),
+    );
+
+    const ctx = createContext(`${origin}/en-us/docs`, { requestDelay: 0 });
+    const warnings: string[] = [];
+    const result = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: ctx.baseUrl });
+
+    expect(result).toEqual([]);
+    expect(requested).toHaveLength(MAX_SITEMAP_FETCHES);
+    expect(warnings).toContainEqual(expect.stringMatching(/sitemap.*limit.*partial/i));
+    expect(warnings).toContainEqual(expect.stringMatching(/\/en-us\/docs.*broader base URL/i));
+  });
+
+  it('stops after the cumulative sitemap body budget without discarding read URLs (#120)', async () => {
+    const origin = 'http://sitemap-byte-budget.local';
+    const requested: string[] = [];
+    server.use(
+      http.get(`${origin}/robots.txt`, () => new HttpResponse(`Sitemap: ${origin}/sitemap.xml`)),
+      http.get(`${origin}/*.xml`, ({ request }) => {
+        requested.push(request.url);
+        if (request.url === `${origin}/sitemap.xml`) {
+          return new HttpResponse(
+            `<sitemapindex>${[1, 2, 3]
+              .map((index) => `<sitemap><loc>${origin}/shard-${index}.xml</loc></sitemap>`)
+              .join('')}</sitemapindex>`,
+          );
+        }
+        return new HttpResponse(
+          `<urlset><url><loc>${origin}/page-${requested.length}</loc></url></urlset>`,
+        );
+      }),
+    );
+
+    const ctx = createContext(origin, { requestDelay: 0 });
+    const originalFetch = ctx.http.fetch;
+    ctx.http.fetch = async (...args) => {
+      const response = await originalFetch(...args);
+      if (!args[0].includes('/shard-')) return response;
+      return {
+        ...response,
+        body: async () => ({ text: await response.text(), bytes: MAX_SITEMAP_BYTES / 2 }),
+      };
+    };
+    const warnings: string[] = [];
+    const result = await getUrlsFromSitemap(ctx, warnings);
+
+    expect(result).toEqual([`${origin}/page-2`, `${origin}/page-3`]);
+    expect(requested).toEqual([
+      `${origin}/sitemap.xml`,
+      `${origin}/shard-1.xml`,
+      `${origin}/shard-2.xml`,
+    ]);
+    expect(warnings).toEqual([expect.stringMatching(/Sitemap body byte limit.*partial/)]);
+  });
+
+  it.each(['empty', 'http-error', 'network-error'])(
+    'counts %s sitemap attempts across all roots in raw coverage mode (#120)',
+    async (responseKind) => {
+      const origin = 'http://sitemap-failed-budget.local';
+      const roots = Array.from({ length: 25 }, (_, index) => `${origin}/map-${index}.xml`);
+      const requested: string[] = [];
+      server.use(
+        http.get(`${origin}/*`, ({ request }) => {
+          requested.push(request.url);
+          if (responseKind === 'network-error') return HttpResponse.error();
+          return new HttpResponse('<urlset/>', {
+            status: responseKind === 'http-error' ? 404 : 200,
+          });
+        }),
+      );
+      const ctx = createContext(origin, { requestDelay: 0 });
+      const warnings: string[] = [];
+
+      const result = await getUrlsFromSitemap(ctx, warnings, {
+        sitemapUrls: roots,
+        skipRefinement: true,
+      });
+
+      expect(result).toEqual([]);
+      expect(requested).toEqual(roots.slice(0, MAX_SITEMAP_FETCHES));
+      expect(warnings).toEqual([expect.stringMatching(/Sitemap fetch limit.*partial/)]);
+    },
+  );
+
+  it('shares the fetch budget across multiple sitemap indexes (#120)', async () => {
+    const origin = 'http://sitemap-shared-budget.local';
+    const roots = [`${origin}/first.xml`, `${origin}/second.xml`];
+    const requested: string[] = [];
+    server.use(
+      http.get(`${origin}/*`, ({ request }) => {
+        requested.push(request.url);
+        if (roots.includes(request.url)) {
+          return new HttpResponse(
+            `<sitemapindex>${Array.from(
+              { length: 10 },
+              (_, index) => `<sitemap><loc>${request.url}/shard-${index}.xml</loc></sitemap>`,
+            ).join('')}</sitemapindex>`,
+          );
+        }
+        return new HttpResponse('<urlset/>');
+      }),
+    );
+    const ctx = createContext(origin, { requestDelay: 0 });
+    const warnings: string[] = [];
+
+    expect(await getUrlsFromSitemap(ctx, warnings, { sitemapUrls: roots })).toEqual([]);
+    expect(requested).toHaveLength(MAX_SITEMAP_FETCHES);
+    expect(requested[0]).toBe(roots[0]);
+    expect(requested[11]).toBe(roots[1]);
+    expect(warnings).toHaveLength(1);
+  });
+
+  it.each([1, MAX_SITEMAP_FETCHES])(
+    'does not warn when the URL cap or end of input stops at %i documents (#120)',
+    async (maxUrls) => {
+      const origin = 'http://sitemap-complete-budget.local';
+      const roots = Array.from(
+        { length: MAX_SITEMAP_FETCHES },
+        (_, index) => `${origin}/map-${index}.xml`,
+      );
+      const requested: string[] = [];
+      server.use(
+        http.get(`${origin}/*`, ({ request }) => {
+          requested.push(request.url);
+          return new HttpResponse(`<urlset><url><loc>${origin}/page</loc></url></urlset>`);
+        }),
+      );
+      const ctx = createContext(origin, { requestDelay: 0 });
+      const warnings: string[] = [];
+
+      const result = await getUrlsFromSitemap(ctx, warnings, {
+        sitemapUrls: roots,
+        maxUrls,
+        skipRefinement: true,
+      });
+
+      expect(result).toHaveLength(maxUrls);
+      expect(requested).toEqual(roots.slice(0, maxUrls));
+      expect(warnings).toEqual([]);
+    },
+  );
+
+  it('uses same-site URLs only for the narrow-prefix ratio (#120)', async () => {
+    const origin = 'http://sitemap-prefix-ratio.local';
+    server.use(
+      http.get(
+        `${origin}/sitemap.xml`,
+        () =>
+          new HttpResponse(
+            `<urlset><url><loc>${origin}/docs/page</loc></url>${Array.from(
+              { length: 200 },
+              (_, index) => `<url><loc>https://other.example.com/other/${index}</loc></url>`,
+            ).join('')}<url><loc>invalid-url</loc></url></urlset>`,
+          ),
+      ),
+    );
+    const ctx = createContext(`${origin}/docs`, { requestDelay: 0 });
+    const warnings: string[] = [];
+
+    const result = await getUrlsFromSitemap(ctx, warnings, {
+      sitemapUrls: [`${origin}/sitemap.xml`],
+      pathFilterBase: ctx.baseUrl,
+    });
+
+    expect(result).toEqual([`${origin}/docs/page`]);
+    expect(warnings).toEqual([]);
   });
 
   it('respects maxUrls cap when following sitemap index sub-sitemaps', async () => {

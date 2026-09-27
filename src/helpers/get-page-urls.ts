@@ -1,5 +1,5 @@
 import { extractMarkdownLinks } from '../checks/content-discoverability/llms-txt-valid.js';
-import { MAX_SITEMAP_URLS } from '../constants.js';
+import { MAX_SITEMAP_BYTES, MAX_SITEMAP_FETCHES, MAX_SITEMAP_URLS } from '../constants.js';
 import { getLlmsTxtFilesForAnalysis, selectCanonicalLlmsTxt } from './llms-txt.js';
 import { isNonPageUrl, isMdUrl, toHtmlUrl } from './to-md-urls.js';
 import { isSameSite, canonicalHost } from './host-equivalence.js';
@@ -460,14 +460,23 @@ export function filterLocaleSitemaps(
   const filenameLocalePattern = /\/sitemap-([a-z]{2}(?:-[a-z]{2})?)\.xml$/i;
   // Pattern 2: locale code in path segment (/{locale}/sitemap.xml)
   const pathLocalePattern = /\/([a-z]{2}(?:-[a-z]{2})?)\/sitemap[^/]*\.xml$/i;
+  const infixLocalePattern = /[_-]([a-z]{2}(?:-[a-z]{2})?)(?:[_-]\d+)?\.xml$/i;
 
   const locales = new Map<string, string[]>();
   const nonLocale: string[] = [];
 
   for (const url of subSitemapUrls) {
-    const filenameMatch = filenameLocalePattern.exec(url);
-    const pathMatch = pathLocalePattern.exec(url);
-    const match = filenameMatch ?? pathMatch;
+    let pathname: string;
+    try {
+      pathname = new URL(url).pathname;
+    } catch {
+      nonLocale.push(url);
+      continue;
+    }
+    const filenameMatch = filenameLocalePattern.exec(pathname);
+    const pathMatch = pathLocalePattern.exec(pathname);
+    const infixMatch = infixLocalePattern.exec(pathname);
+    const match = filenameMatch ?? pathMatch ?? infixMatch;
 
     if (match && isLocaleSegment(match[1])) {
       const locale = match[1].toLowerCase();
@@ -744,10 +753,30 @@ export function deduplicateVersionedUrls(
   return result;
 }
 
+function warnOnNarrowPathPrefix(
+  warnings: string[],
+  source: string,
+  prefixPath: string,
+  matchingUrls: number,
+  examinedUrls: number,
+): void {
+  if (prefixPath && examinedUrls > 0 && matchingUrls / examinedUrls < 0.01) {
+    warnings.push(
+      `${source} path prefix "${prefixPath}" matched ${matchingUrls} of ${examinedUrls} examined same-site URLs (less than 1%); consider a broader base URL.`,
+    );
+  }
+}
+
+interface SitemapBudget {
+  fetches: number;
+  bytes: number;
+}
+
 async function fetchSitemap(
   ctx: CheckContext,
   sitemapUrl: string,
   warnings: string[],
+  budget: SitemapBudget,
 ): Promise<{ urls: string[]; sitemapIndexUrls: string[] }> {
   if (isGzipped(sitemapUrl)) {
     warnings.push(`Skipped gzipped sitemap (not supported): ${sitemapUrl}`);
@@ -757,7 +786,15 @@ async function fetchSitemap(
   try {
     const response = await ctx.http.fetch(sitemapUrl);
     if (!response.ok) return { urls: [], sitemapIndexUrls: [] };
-    const xml = await response.text();
+    let xml: string;
+    if (response.body) {
+      const body = await response.body();
+      budget.bytes += body.bytes;
+      xml = body.text;
+    } else {
+      xml = await response.text();
+      budget.bytes += Buffer.byteLength(xml, 'utf8');
+    }
     return parseSitemapUrls(xml);
   } catch {
     return { urls: [], sitemapIndexUrls: [] };
@@ -766,6 +803,7 @@ async function fetchSitemap(
 
 export interface SitemapOptions {
   maxUrls?: number;
+  sitemapUrls?: string[];
   originOverride?: string;
   pathFilterBase?: string;
   /** Skip URL-level locale/version refinement. Use when the caller needs raw URLs (e.g. coverage check). */
@@ -778,13 +816,33 @@ export async function getUrlsFromSitemap(
   opts: SitemapOptions = {},
 ): Promise<string[]> {
   const { maxUrls = MAX_SITEMAP_URLS, originOverride, pathFilterBase, skipRefinement } = opts;
-  const sitemapUrls = await discoverSitemapUrls(ctx, originOverride);
+  const sitemapUrls = opts.sitemapUrls ?? (await discoverSitemapUrls(ctx, originOverride));
   const urls: string[] = [];
   const matchOrigin = originOverride ?? ctx.origin;
 
   // Pre-compute the path prefix so we can filter before counting against the cap.
   // When pathFilterBase is provided, only URLs under that prefix consume cap slots.
   const prefixPath = pathFilterBase ? new URL(pathFilterBase).pathname.replace(/\/$/, '') : '';
+  let examinedUrls = 0;
+  let matchingUrls = 0;
+  const budget: SitemapBudget = { fetches: 0, bytes: 0 };
+
+  async function fetchWithinBudget(sitemapUrl: string) {
+    if (!isGzipped(sitemapUrl)) {
+      const limit =
+        budget.fetches >= MAX_SITEMAP_FETCHES
+          ? `fetch limit (${MAX_SITEMAP_FETCHES} documents)`
+          : budget.bytes >= MAX_SITEMAP_BYTES
+            ? `body byte limit (${MAX_SITEMAP_BYTES} bytes)`
+            : null;
+      if (limit) {
+        warnings.push(`Sitemap ${limit} reached; discovery results are partial.`);
+        return null;
+      }
+      budget.fetches++;
+    }
+    return fetchSitemap(ctx, sitemapUrl, warnings, budget);
+  }
 
   function shouldInclude(url: string): boolean {
     try {
@@ -793,7 +851,9 @@ export async function getUrlsFromSitemap(
       return false;
     }
     if (!isSameSite(url, matchOrigin)) return false;
-    if (prefixPath) return matchesPathPrefix(url, prefixPath);
+    examinedUrls++;
+    if (prefixPath && !matchesPathPrefix(url, prefixPath)) return false;
+    matchingUrls++;
     return true;
   }
 
@@ -802,10 +862,11 @@ export async function getUrlsFromSitemap(
   // version spectrum rather than an arbitrary prefix of the sitemap.
   const collectLimit = skipRefinement ? maxUrls : maxUrls * 20;
 
-  for (const sitemapUrl of sitemapUrls) {
+  sitemapWalk: for (const sitemapUrl of sitemapUrls) {
     if (urls.length >= collectLimit) break;
 
-    const parsed = await fetchSitemap(ctx, sitemapUrl, warnings);
+    const parsed = await fetchWithinBudget(sitemapUrl);
+    if (!parsed) break;
 
     // Add direct URLs (filtered to same origin and path prefix)
     for (const url of parsed.urls) {
@@ -824,7 +885,8 @@ export async function getUrlsFromSitemap(
       for (const subSitemapUrl of filteredSubSitemaps) {
         if (urls.length >= collectLimit) break;
 
-        const subParsed = await fetchSitemap(ctx, subSitemapUrl, warnings);
+        const subParsed = await fetchWithinBudget(subSitemapUrl);
+        if (!subParsed) break sitemapWalk;
 
         for (const url of subParsed.urls) {
           if (urls.length >= collectLimit) break;
@@ -835,6 +897,8 @@ export async function getUrlsFromSitemap(
       }
     }
   }
+
+  warnOnNarrowPathPrefix(warnings, 'Sitemap', prefixPath, matchingUrls, examinedUrls);
 
   if (skipRefinement) return urls;
 
@@ -1000,6 +1064,18 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
     return deduplicateVersionedUrls(localeFiltered, version);
   }
 
+  function scopeLlmsTxtUrls(urls: string[]): string[] {
+    const scoped = filterByPathPrefix(urls, filterBase);
+    warnOnNarrowPathPrefix(
+      warnings,
+      'llms.txt',
+      new URL(filterBase).pathname.replace(/\/$/, ''),
+      scoped.length,
+      urls.length,
+    );
+    return refineUrls(scoped);
+  }
+
   /** Filter the originalMdUrls map to a subset of URLs. */
   function filterOriginalMdUrls(
     map: Record<string, string>,
@@ -1015,13 +1091,13 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
 
   // 1. Try llms.txt links from cached results (if llms-txt-exists ran)
   const cached = await getUrlsFromCachedLlmsTxtWithOriginals(ctx);
-  let llmsTxtUrls = refineUrls(filterByPathPrefix(cached.pageUrls, filterBase));
+  let llmsTxtUrls = scopeLlmsTxtUrls(cached.pageUrls);
   let originalMdUrls = cached.originalMdUrls;
 
   // 2. Try fetching llms.txt directly (standalone mode, llms-txt-exists didn't run)
   if (llmsTxtUrls.length === 0 && !ctx.previousResults.has('llms-txt-exists')) {
     const fetched = await fetchLlmsTxtUrls(ctx);
-    llmsTxtUrls = refineUrls(filterByPathPrefix(fetched.pageUrls, filterBase));
+    llmsTxtUrls = scopeLlmsTxtUrls(fetched.pageUrls);
     originalMdUrls = fetched.originalMdUrls;
   }
 

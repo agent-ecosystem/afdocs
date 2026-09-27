@@ -127,6 +127,19 @@ afdocs check https://docs.example.com --max-links 100
 
 When `afdocs` discovers pages from a sitemap or `llms.txt`, it automatically filters out duplicate locale and version variants so you get a representative sample of unique content.
 
+Sitemap walks stop after 20 sitemap fetch attempts or after completed sitemap
+bodies total 50 MiB of decoded data, even when no URLs match the base path.
+The byte limit is checked between responses, so the final body can exceed it.
+These limits apply per walk, including coverage's docs-sitemap fallback, not
+to the whole scan. When a limit prevents further fetching, discovery reports
+partial results under `--verbose`; coverage includes `sitemapWarnings` in its
+result details.
+
+A discovery warning also identifies a path prefix that matches fewer than 1%
+of examined same-site URLs. Check for a typo or use a broader base URL, for
+example `afdocs check https://learn.microsoft.com/en-us --verbose` instead of
+scoping discovery to `/en-us/docs`. The warning does not change your scope.
+
 The resolution order for both flags is:
 
 1. **Explicit flag** (`--doc-locale`, `--doc-version`) if provided

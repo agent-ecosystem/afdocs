@@ -67,6 +67,9 @@ export const LINK_RESOLVE_THRESHOLD = 0.9;
 /** Maximum number of URLs to collect from sitemaps before stopping. */
 export const MAX_SITEMAP_URLS = 500;
 
+export const MAX_SITEMAP_FETCHES = 20;
+export const MAX_SITEMAP_BYTES = 50 * 1024 * 1024;
+
 /** Default llms-txt-coverage pass threshold (percentage). */
 export const DEFAULT_COVERAGE_PASS_THRESHOLD = 95;
 
