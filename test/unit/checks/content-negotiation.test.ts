@@ -270,6 +270,58 @@ describe('content-negotiation', () => {
     expect(result.message).toContain('sampled pages');
   });
 
+  it('caches the fetched URL and Link header with the markdown', async () => {
+    server.use(
+      http.get(
+        'http://test.local/docs/page',
+        () =>
+          new HttpResponse('# Page\n\nContent negotiated.', {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/markdown',
+              Link: '</docs/page?page=2>; rel="next"',
+            },
+          }),
+      ),
+    );
+
+    const content = `# Docs\n> Summary\n## Links\n- [Page](http://test.local/docs/page): A page\n`;
+    const ctx = makeCtx(content);
+    await check.run(ctx);
+    const cached = ctx.pageCache.get('http://test.local/docs/page');
+    expect(cached?.markdown).toEqual({
+      content: '# Page\n\nContent negotiated.',
+      source: 'content-negotiation',
+      mdUrl: 'http://test.local/docs/page',
+      linkHeader: '</docs/page?page=2>; rel="next"',
+    });
+  });
+
+  it('records the post-redirect URL as the markdown URL', async () => {
+    server.use(
+      // A distinct target path: msw matches `/docs/page` for `/docs/page/`
+      // too, which would make the redirect answer its own destination.
+      http.get('http://test.local/docs/page', () =>
+        HttpResponse.redirect('http://test.local/docs/page-v2', 301),
+      ),
+      http.get(
+        'http://test.local/docs/page-v2',
+        () =>
+          new HttpResponse('# Page\n\nContent negotiated.', {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown' },
+          }),
+      ),
+    );
+
+    const content = `# Docs\n> Summary\n## Links\n- [Page](http://test.local/docs/page): A page\n`;
+    const ctx = makeCtx(content);
+    await check.run(ctx);
+    expect(ctx.pageCache.get('http://test.local/docs/page')?.markdown?.mdUrl).toBe(
+      'http://test.local/docs/page-v2',
+    );
+  });
+
   it('does not overwrite pageCache when already populated', async () => {
     server.use(
       http.get(

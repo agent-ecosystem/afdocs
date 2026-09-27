@@ -71,6 +71,7 @@ export default defineConfig({
             text: 'Interaction Diagnostics',
             link: '/interaction-diagnostics',
           },
+          { text: 'Glossary', link: '/glossary' },
         ],
       },
       {
@@ -133,7 +134,7 @@ export default defineConfig({
 
     footer: {
       message:
-        'Released under the MIT License. By <a href="https://dacharycarey.com">Dachary Carey</a> · <a href="https://agentdocsspec.com">Agent-Friendly Documentation Spec</a>',
+        'Released under the MIT License. By <a href="https://dacharycarey.com">Dachary Carey</a> · <a href="https://agentdocsspec.com/spec/web/">Agent-Friendly Documentation Spec</a>',
     },
   },
 });

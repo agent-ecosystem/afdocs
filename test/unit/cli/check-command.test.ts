@@ -243,6 +243,40 @@ describe('check command', () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
+  it('reports an explicit --network-context on the run', async () => {
+    server.use(
+      http.get('http://cmd-net.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
+      http.get('http://cmd-net.local/docs/llms.txt', () => new HttpResponse(null, { status: 404 })),
+    );
+
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { run } = await import('../../../src/cli/index.js');
+    await run([
+      'node',
+      'afdocs',
+      'check',
+      'http://cmd-net.local',
+      '--checks',
+      'llms-txt-exists',
+      '--request-delay',
+      '0',
+      '--network-context',
+      'ci',
+      '--format',
+      'json',
+    ]);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const output = writeSpy.mock.calls.map((c) => c[0]).join('');
+    const parsed = JSON.parse(output.trim());
+    expect(parsed.networkContext).toEqual({ classification: 'ci', source: 'option' });
+    expect(parsed.requestSummary.requests).toBeGreaterThan(0);
+
+    writeSpy.mockRestore();
+  });
+
   it('accepts --locale and --version flags without error', async () => {
     server.use(
       http.get('http://cmd-opts.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
@@ -1011,6 +1045,100 @@ describe('check command config integration', () => {
     expect(parsed.results[0].status).toBe('pass');
 
     writeSpy.mockRestore();
+  });
+
+  it('passes --transfer-pass-threshold and --transfer-fail-threshold through as bytes', async () => {
+    server.use(
+      http.get('http://cmd-transfer.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
+      http.get(
+        'http://cmd-transfer.local/docs/llms.txt',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+
+    const spy = vi.spyOn(validationMod, 'validateRunnerOptions');
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { run } = await import('../../../src/cli/index.js');
+    await run([
+      'node',
+      'afdocs',
+      'check',
+      'http://cmd-transfer.local',
+      '--checks',
+      'llms-txt-exists',
+      '--request-delay',
+      '0',
+      '--transfer-pass-threshold',
+      '500000',
+      '--transfer-fail-threshold',
+      '2000000',
+    ]);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const passed = spy.mock.calls.at(-1)?.[0];
+    expect(passed?.transferThresholds).toEqual({ pass: 500_000, fail: 2_000_000 });
+    // The character thresholds are untouched by the byte flags.
+    expect(passed?.thresholds).toEqual({ pass: 50_000, fail: 100_000 });
+
+    spy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it('defaults transfer thresholds to 1MB/10MB and reads them from config', async () => {
+    server.use(
+      http.get('http://cmd-transfer-cfg.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
+      http.get(
+        'http://cmd-transfer-cfg.local/docs/llms.txt',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+
+    const spy = vi.spyOn(validationMod, 'validateRunnerOptions');
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const { run } = await import('../../../src/cli/index.js');
+
+    await run([
+      'node',
+      'afdocs',
+      'check',
+      'http://cmd-transfer-cfg.local',
+      '--checks',
+      'llms-txt-exists',
+      '--request-delay',
+      '0',
+    ]);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(spy.mock.calls.at(-1)?.[0]?.transferThresholds).toEqual({
+      pass: 1_000_000,
+      fail: 10_000_000,
+    });
+
+    const configPath = resolve(CONFIG_TMP, 'agent-docs.config.yml');
+    await mkdir(CONFIG_TMP, { recursive: true });
+    await writeFile(
+      configPath,
+      [
+        'url: http://cmd-transfer-cfg.local',
+        'checks:',
+        '  - llms-txt-exists',
+        'options:',
+        '  requestDelay: 0',
+        '  transferThresholds:',
+        '    pass: 250000',
+        '    fail: 4000000',
+        '',
+      ].join('\n'),
+    );
+    await run(['node', 'afdocs', 'check', '--config', configPath]);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(spy.mock.calls.at(-1)?.[0]?.transferThresholds).toEqual({
+      pass: 250_000,
+      fail: 4_000_000,
+    });
+
+    spy.mockRestore();
+    stdoutSpy.mockRestore();
   });
 
   it('displays validation warnings on stderr', async () => {

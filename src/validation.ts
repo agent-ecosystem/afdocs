@@ -1,5 +1,14 @@
-import type { RunnerOptions, SamplingStrategy, UrlPathPattern } from './types.js';
-import { VALID_SAMPLING_STRATEGIES, VALID_URL_PATH_PATTERNS } from './constants.js';
+import type {
+  NetworkContextClass,
+  RunnerOptions,
+  SamplingStrategy,
+  UrlPathPattern,
+} from './types.js';
+import {
+  VALID_NETWORK_CONTEXTS,
+  VALID_SAMPLING_STRATEGIES,
+  VALID_URL_PATH_PATTERNS,
+} from './constants.js';
 import { getAllChecks } from './checks/registry.js';
 
 export interface ValidationIssue {
@@ -89,6 +98,21 @@ export function validateRunnerOptions(options: Partial<RunnerOptions>): Validati
     );
   }
 
+  if (options.transferThresholds) {
+    pushError(
+      validateNumber(options.transferThresholds.pass, 'transferThresholds.pass', {
+        integer: true,
+        min: 1,
+      }),
+    );
+    pushError(
+      validateNumber(options.transferThresholds.fail, 'transferThresholds.fail', {
+        integer: true,
+        min: 1,
+      }),
+    );
+  }
+
   pushError(
     validateNumber(options.coveragePassThreshold, 'coveragePassThreshold', {
       integer: true,
@@ -117,6 +141,15 @@ export function validateRunnerOptions(options: Partial<RunnerOptions>): Validati
       max: 100,
     }),
   );
+  pushError(validateNumber(options.bulkTableRows, 'bulkTableRows', { integer: true, min: 1 }));
+  pushError(validateNumber(options.bulkBlobChars, 'bulkBlobChars', { integer: true, min: 1 }));
+  pushError(
+    validateNumber(options.bulkDominantShare, 'bulkDominantShare', {
+      integer: true,
+      min: 0,
+      max: 100,
+    }),
+  );
 
   // Threshold ordering (only when both in a pair are provided and individually valid)
   if (
@@ -130,6 +163,20 @@ export function validateRunnerOptions(options: Partial<RunnerOptions>): Validati
     errors.push({
       field: 'thresholds',
       message: `thresholds.pass (${options.thresholds.pass}) must be less than or equal to thresholds.fail (${options.thresholds.fail})`,
+    });
+  }
+
+  if (
+    options.transferThresholds &&
+    typeof options.transferThresholds.pass === 'number' &&
+    typeof options.transferThresholds.fail === 'number' &&
+    !Number.isNaN(options.transferThresholds.pass) &&
+    !Number.isNaN(options.transferThresholds.fail) &&
+    options.transferThresholds.pass > options.transferThresholds.fail
+  ) {
+    errors.push({
+      field: 'transferThresholds',
+      message: `transferThresholds.pass (${options.transferThresholds.pass}) must be less than or equal to transferThresholds.fail (${options.transferThresholds.fail})`,
     });
   }
 
@@ -178,6 +225,17 @@ export function validateRunnerOptions(options: Partial<RunnerOptions>): Validati
     errors.push({
       field: 'urlPathPattern',
       message: `Invalid URL path pattern "${options.urlPathPattern}". Must be one of: ${VALID_URL_PATH_PATTERNS.join(', ')}`,
+    });
+  }
+
+  // Network context enum
+  if (
+    options.networkContext !== undefined &&
+    !VALID_NETWORK_CONTEXTS.includes(options.networkContext as NetworkContextClass)
+  ) {
+    errors.push({
+      field: 'networkContext',
+      message: `Invalid network context "${options.networkContext}". Must be one of: ${VALID_NETWORK_CONTEXTS.join(', ')}`,
     });
   }
 

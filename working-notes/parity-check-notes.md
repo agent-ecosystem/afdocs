@@ -1395,6 +1395,48 @@ redirected base URL should re-anchor discovery; per
 
 Full suite: 1377 tests passing, lint clean, type-check clean.
 
+## Session 13: item counts for generated pages (spec v0.6.0)
+
+Spec v0.6.0 extended the parity notes with guidance for dynamically
+generated pages: compare item counts between representations, and
+distinguish default-filter divergence, pagination windowing, and staleness.
+Landed with `embedded-data-serialization` (#125). Design and field results
+are in `embedded-data-serialization-notes.md`; the parity-side facts:
+
+- **Nothing about the status changed.** Containment, thresholds, and the
+  10-segment gate are untouched. The extension adds an `itemCounts` detail
+  per page and an `itemCountDivergences` count; it is read by the
+  `dynamic-content-rendered-statically` diagnostic.
+- **Why containment needs it.** The spec's case is a catalog whose HTML
+  showed 98 items under a default filter while the markdown listed 102.
+  Nothing is missing from the markdown, so containment passes; the
+  representations still disagree.
+- **What is counted.** `extractHtmlText` now also returns the largest list
+  (direct `li` children of one list) and the largest table (data rows) in
+  the container it selected, after the existing chrome stripping.
+  `countMarkdownItems` measures the top-level items of the largest
+  contiguous list block (nested bullets excluded, mirroring the HTML side)
+  and the largest pipe table outside fences, honouring CommonMark fence
+  lengths, and deduplicates entries within that block with the check's own
+  `normalize()`. Largest structure rather than a sum, so small
+  side lists do not shift the count.
+- **Gates.** Compared once either side reaches 20 items; a cause is named
+  only when both sides have at least 5 (one side at zero is an extraction
+  artifact: a pure-link list removed by the link-density heuristic, or a
+  client-rendered table). Divergence is more than one item and more than
+  2% (the first draft's 10% missed the spec's own 4% example).
+- **Live.** On build.nvidia.com/models the markdown lists 200 entries of
+  which 100 are distinct (the duplication first seen in the
+  single-fetch-completeness field run), against 24 items in the largely
+  client-rendered HTML; reported as a divergence with `default-filter` as
+  the best guess, and as 100 duplicates.
+
+Tests added (10): equal counts, no repeated structure, default filter,
+pagination, staleness, duplicated entries, table rows versus header rows,
+and, from the Copilot round on PR #130, nested bullets counted once, a
+four-backtick fence not closed by a three-backtick line, and duplicates
+scoped to the compared list rather than the document.
+
 ## Files modified
 
 - `src/checks/observability/markdown-content-parity.ts` - main implementation

@@ -63,6 +63,227 @@ describe('resolutions', () => {
     expect(text).toContain('8 of 50');
   });
 
+  describe('single-fetch-completeness', () => {
+    it('names the fragile-declaration reasons for warn', () => {
+      const text = getResolution(
+        r('single-fetch-completeness', 'warn', {
+          warnBucket: 2,
+          testedPages: 8,
+          reasons: { declaredLate: 2, relativeUrl: 1, headerOnly: 0 },
+        }),
+      );
+      expect(text).toContain('2 of 8 markdown pages paginate');
+      expect(text).toContain(
+        'declared only late in the content on 2; linked with a relative URL on 1',
+      );
+      expect(text).not.toContain('Link header');
+      expect(text).toContain('top of the content');
+      expect(text).toContain('absolute');
+    });
+
+    it('asks whether pagination is needed at all for fail, quoting the size threshold', () => {
+      const text = getResolution(
+        r('single-fetch-completeness', 'fail', {
+          failBucket: 1,
+          testedPages: 8,
+          reasons: { missing: 0, broken: 1, unresolvable: 0 },
+          thresholds: { pass: 50_000 },
+        }),
+      );
+      expect(text).toContain('1 of 8 markdown pages are partial');
+      expect(text).toContain('a continuation that returns nothing usable on 1');
+      expect(text).toContain('needs pagination at all');
+      expect(text).toContain('50,000 characters');
+      expect(text).toContain('even when the HTML UI paginates');
+    });
+
+    it('falls back to the default threshold and omits reasons when details are sparse', () => {
+      const text = getResolution(r('single-fetch-completeness', 'fail', {}));
+      expect(text).toContain('0 of 0 markdown pages');
+      expect(text).toContain('50,000 characters');
+      expect(text).not.toContain('(');
+    });
+  });
+
+  describe('embedded-data-serialization', () => {
+    it('names the data and gives the structural fix for warn', () => {
+      const text = getResolution(
+        r('embedded-data-serialization', 'warn', {
+          warnBucket: 2,
+          testedPages: 8,
+          reasons: { table: 2, json: 0, base64: 0, proseAfterBulk: 1 },
+          thresholds: {
+            tableRows: 20,
+            blobChars: 2000,
+            dominantShare: 50,
+            size: { pass: 50_000, fail: 100_000 },
+          },
+        }),
+      );
+      expect(text).toContain('2 of 8 pages convert to 50,000-100,000 characters');
+      expect(text).toContain('large tables on 2');
+      expect(text).toContain('most of the prose comes after the data on 1');
+      expect(text).not.toContain('JSON blobs');
+      expect(text).toContain('structure, not removal');
+      expect(text).toContain('single-fetch-completeness');
+      expect(text).toContain('prose before the data');
+    });
+
+    it('mentions the truncation point and the attribution for fail', () => {
+      const text = getResolution(
+        r('embedded-data-serialization', 'fail', {
+          failBucket: 1,
+          testedPages: 5,
+          reasons: { table: 0, json: 1, base64: 0, proseAfterBulk: 0 },
+          thresholds: { size: { pass: 40_000, fail: 80_000 } },
+        }),
+      );
+      expect(text).toContain('1 of 5 pages convert to over 80,000 characters');
+      expect(text).toContain('JSON blobs on 1');
+      expect(text).toContain('beyond the truncation point');
+      expect(text).toContain('property of the generated data');
+    });
+
+    it('falls back to the default thresholds and no reasons', () => {
+      const text = getResolution(r('embedded-data-serialization', 'warn', {}));
+      expect(text).toContain('0 of 0 pages convert to 50,000-100,000 characters');
+      expect(text).toContain('embedded data. Bulk data is usually');
+    });
+  });
+
+  describe('markdown-link-portability', () => {
+    it('names the root-relative reason for warn and says where absolute URLs come from', () => {
+      const text = getResolution(
+        r('markdown-link-portability', 'warn', {
+          warnBucket: 3,
+          testedPages: 8,
+          reasons: { rootRelative: 3, mismatched: 0 },
+        }),
+      );
+      expect(text).toContain('3 of 8 markdown pages');
+      expect(text).toContain('root-relative links on 3');
+      expect(text).not.toContain('redirects to HTML');
+      expect(text).toContain('known at build time');
+    });
+
+    it('tells fail to fix generation first and verify links in CI', () => {
+      const text = getResolution(
+        r('markdown-link-portability', 'fail', {
+          failBucket: 2,
+          testedPages: 8,
+          reasons: { pathRelative: 1, unresolvable: 1, broken: 2 },
+        }),
+      );
+      expect(text).toContain('2 of 8 markdown pages');
+      expect(text).toContain('path-relative links on 1');
+      expect(text).toContain('a malformed link URL on 1');
+      expect(text).toContain('a sampled link that does not resolve on 2');
+      expect(text).toContain('Fix the link generation first');
+      expect(text).toContain('200 with an HTML shell');
+    });
+
+    it('omits the reason clause when details carry no tallies', () => {
+      const text = getResolution(r('markdown-link-portability', 'warn', {}));
+      expect(text).toContain('0 of 0 markdown pages');
+      expect(text).not.toContain('(');
+    });
+
+    it('adds the representation advice only when a .md link redirected to HTML', () => {
+      const text = getResolution(
+        r('markdown-link-portability', 'warn', {
+          warnBucket: 1,
+          testedPages: 8,
+          reasons: { rootRelative: 0, mismatched: 1 },
+        }),
+      );
+      expect(text).toContain('a .md link that redirects to HTML on 1');
+      expect(text).toContain('serve markdown at the linked URL');
+    });
+  });
+
+  describe('bot-protection-interference', () => {
+    it('warn asks for route exemption and Retry-After on explicit 429s', () => {
+      const text = getResolution(r('bot-protection-interference', 'warn', {}));
+      expect(text).toContain('exempt public documentation routes');
+      expect(text).toContain('Retry-After');
+      expect(text).toContain('sustained blocking');
+    });
+
+    it('fail prefers explicit 429s over tarpits and forbids 200 interstitials', () => {
+      const text = getResolution(r('bot-protection-interference', 'fail', {}));
+      expect(text).toContain('automation-friendly');
+      expect(text).toContain('429 with Retry-After');
+      expect(text).toContain('never serve challenge interstitials with a 200 status');
+    });
+  });
+
+  describe('page-size-transfer', () => {
+    it('interpolates counts and thresholds for warn', () => {
+      const text = getResolution(
+        r('page-size-transfer', 'warn', {
+          warnBucket: 3,
+          testedPages: 20,
+          thresholds: { pass: 1_000_000, fail: 10_000_000 },
+          architectureSignaturePages: 0,
+        }),
+      );
+      expect(text).toContain('3 of 20 pages serve 1MB-10MB');
+      expect(text).toContain('markdown variants');
+      expect(text).not.toContain('architecture signature');
+    });
+
+    it('names the transfer cap for fail', () => {
+      const text = getResolution(
+        r('page-size-transfer', 'fail', {
+          failBucket: 1,
+          testedPages: 20,
+          thresholds: { pass: 1_000_000, fail: 10_000_000 },
+        }),
+      );
+      expect(text).toContain('1 of 20 pages serve over 10MB');
+      expect(text).toContain("Claude Code's fetch buffer");
+    });
+
+    it('points at framework configuration when the ratio is an architecture signature', () => {
+      const text = getResolution(
+        r('page-size-transfer', 'warn', {
+          warnBucket: 2,
+          testedPages: 20,
+          architectureSignaturePages: 2,
+          architectureSignatureMaxRatio: 120,
+          maxRatio: 141,
+        }),
+      );
+      expect(text).toContain('2 of the oversized pages ship');
+      expect(text).toContain('~120:1');
+      expect(text).not.toContain('141');
+      expect(text).toContain('framework configuration');
+    });
+
+    it('omits the architecture note when only passing pages have a high ratio', () => {
+      const text = getResolution(
+        r('page-size-transfer', 'warn', {
+          warnBucket: 1,
+          testedPages: 20,
+          architectureSignaturePages: 0,
+          maxRatio: 141,
+        }),
+      );
+      expect(text).not.toContain('architecture signature');
+    });
+
+    it('reflects configured thresholds', () => {
+      const text = getResolution(
+        r('page-size-transfer', 'warn', {
+          warnBucket: 1,
+          testedPages: 5,
+          thresholds: { pass: 500_000, fail: 2_000_000 },
+        }),
+      );
+      expect(text).toContain('serve 500KB-2MB');
+    });
+  });
+
   it('returns "unknown" when sizes array is empty', () => {
     const text = getResolution(r('llms-txt-size', 'warn', { sizes: [] }));
     expect(text).toContain('unknown');
@@ -239,10 +460,13 @@ describe('resolutions', () => {
       'rendering-strategy',
       'page-size-markdown',
       'page-size-html',
+      'page-size-transfer',
+      'single-fetch-completeness',
       'content-start-position',
       'tabbed-content-serialization',
       'section-header-quality',
       'markdown-code-fence-validity',
+      'markdown-link-portability',
       'http-status-codes',
       'redirect-behavior',
       'llms-txt-coverage',

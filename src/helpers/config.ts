@@ -3,7 +3,11 @@ import { dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { AgentDocsConfig, PageConfigEntry } from '../types.js';
 import { validateNumber } from '../validation.js';
-import { VALID_SAMPLING_STRATEGIES, VALID_URL_PATH_PATTERNS } from '../constants.js';
+import {
+  VALID_SAMPLING_STRATEGIES,
+  VALID_URL_PATH_PATTERNS,
+  VALID_NETWORK_CONTEXTS,
+} from '../constants.js';
 
 const CONFIG_FILENAMES = ['agent-docs.config.yml', 'agent-docs.config.yaml'];
 
@@ -69,6 +73,9 @@ const NUMERIC_OPTION_RULES: [string, { integer?: boolean; min?: number; max?: nu
   ['coverageWarnThreshold', { integer: true, min: 0, max: 100 }],
   ['parityPassThreshold', { integer: true, min: 0, max: 100 }],
   ['parityWarnThreshold', { integer: true, min: 0, max: 100 }],
+  ['bulkTableRows', { integer: true, min: 1 }],
+  ['bulkBlobChars', { integer: true, min: 1 }],
+  ['bulkDominantShare', { integer: true, min: 0, max: 100 }],
 ];
 
 function validateOptions(options: Record<string, unknown>, source: string): void {
@@ -98,6 +105,16 @@ function validateOptions(options: Record<string, unknown>, source: string): void
       `${source}: options.urlPathPattern must be one of: ${VALID_URL_PATH_PATTERNS.join(', ')}`,
     );
   }
+  if (
+    options.networkContext != null &&
+    !VALID_NETWORK_CONTEXTS.includes(
+      options.networkContext as string as (typeof VALID_NETWORK_CONTEXTS)[number],
+    )
+  ) {
+    throw new Error(
+      `${source}: options.networkContext must be one of: ${VALID_NETWORK_CONTEXTS.join(', ')}`,
+    );
+  }
   for (const [field, constraints] of NUMERIC_OPTION_RULES) {
     if (options[field] != null) {
       const issue = validateNumber(options[field], `options.${field}`, constraints);
@@ -106,17 +123,12 @@ function validateOptions(options: Record<string, unknown>, source: string): void
       }
     }
   }
-  if (options.thresholds != null) {
-    const thresholds = options.thresholds as Record<string, unknown>;
-    if (thresholds.pass != null) {
-      const issue = validateNumber(thresholds.pass, 'options.thresholds.pass', {
-        integer: true,
-        min: 1,
-      });
-      if (issue) throw new Error(`${source}: ${issue.message}`);
-    }
-    if (thresholds.fail != null) {
-      const issue = validateNumber(thresholds.fail, 'options.thresholds.fail', {
+  for (const field of ['thresholds', 'transferThresholds'] as const) {
+    if (options[field] == null) continue;
+    const thresholds = options[field] as Record<string, unknown>;
+    for (const bound of ['pass', 'fail'] as const) {
+      if (thresholds[bound] == null) continue;
+      const issue = validateNumber(thresholds[bound], `options.${field}.${bound}`, {
         integer: true,
         min: 1,
       });

@@ -1,6 +1,6 @@
 # What Is the Agent Score?
 
-The Agent Score is a 0–100 rating of how well AI coding agents can discover, navigate, and consume your documentation site. You can get your score with [AFDocs](https://www.npmjs.com/package/afdocs), which runs 23 automated checks based on the [Agent-Friendly Documentation Spec](https://agentdocsspec.com) and maps the results to a letter grade.
+The Agent Score is a 0–100 rating of how well AI coding agents can discover, navigate, and consume your documentation site. You can get your score with [AFDocs](https://www.npmjs.com/package/afdocs), which runs 28 automated checks based on the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/) and maps the results to a letter grade.
 
 The AI coding agents that regularly consume your documentation while helping developers perform tasks include:
 
@@ -25,7 +25,7 @@ For the full business case, including how agents fail on documentation, the conc
 
 ## What the score measures
 
-The 23 checks cover seven categories:
+The 28 checks cover seven categories:
 
 | Category                                                   | What it tests                                                                                      |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -35,7 +35,7 @@ The 23 checks cover seven categories:
 | [Content Structure](/checks/content-structure)             | Do tabbed UI components blow up page size? Are code fences properly closed?                        |
 | [URL Stability](/checks/url-stability)                     | Do error pages return real 404s? Do redirects use standard HTTP methods?                           |
 | [Observability](/checks/observability)                     | Is your `llms.txt` fresh? Do markdown and HTML versions match? Are cache headers reasonable?       |
-| [Authentication](/checks/authentication)                   | Can agents reach your docs at all, or is everything behind a login wall?                           |
+| [Authentication](/checks/authentication)                   | Can agents reach your docs at all, or is everything behind a login wall or bot protection?         |
 
 Not all checks carry equal weight. Authentication failures and missing `llms.txt` are critical, while cache header issues are refinements. The scoring system accounts for this with [weight tiers](/agent-score-calculation#check-weights-by-category) and [score caps](/agent-score-calculation#score-caps) that prevent high scores when fundamental problems exist.
 

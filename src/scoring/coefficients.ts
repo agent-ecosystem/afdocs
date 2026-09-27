@@ -30,6 +30,8 @@ const DISCOVERY_CHECKS = new Set([
   'page-size-markdown',
   'markdown-code-fence-validity',
   'markdown-content-parity',
+  'single-fetch-completeness',
+  'markdown-link-portability',
 ]);
 
 /**
@@ -59,6 +61,7 @@ const HTML_PATH_CHECKS = new Set([
   'content-start-position',
   'tabbed-content-serialization',
   'section-header-quality',
+  'embedded-data-serialization',
 ]);
 
 /**

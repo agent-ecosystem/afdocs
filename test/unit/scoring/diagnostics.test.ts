@@ -778,4 +778,375 @@ describe('diagnostics', () => {
       expect(diag!.message).toContain('3 pages were');
     });
   });
+  describe('dynamic-content-rendered-statically', () => {
+    const url = 'https://example.com/models';
+    const bulk = (status: string) =>
+      r('embedded-data-serialization', 'warn', {
+        pageResults: [
+          {
+            url,
+            status,
+            bulkShare: 80,
+            dominantElement: { kind: 'table', rows: 300, chars: 60_000, share: 78 },
+          },
+        ],
+      });
+    const paginated = (status: string) =>
+      r('single-fetch-completeness', 'warn', {
+        pageResults: [
+          {
+            url,
+            mdUrl: `${url}.md`,
+            status,
+            paginated: true,
+            issues: ['continuation URL is relative'],
+          },
+        ],
+      });
+    const links = (status: string) =>
+      r('markdown-link-portability', 'fail', {
+        pageResults: [
+          {
+            url,
+            status,
+            links: { absolute: 0, rootRelative: 100, pathRelative: 0, total: 100 },
+            samples: [
+              { url: '/a.md', outcome: 'not-markdown' },
+              { url: '/b.md', outcome: 'ok' },
+            ],
+          },
+        ],
+      });
+
+    it('does not trigger on a single symptom per page', () => {
+      const diags = evaluateDiagnostics(resultsMap(bulk('warn')), defaultReport());
+      expect(diags.find((d) => d.id === 'dynamic-content-rendered-statically')).toBeUndefined();
+    });
+
+    it('does not trigger when the symptoms are on different pages', () => {
+      const other = r('markdown-link-portability', 'fail', {
+        pageResults: [
+          {
+            url: 'https://example.com/other',
+            status: 'fail',
+            links: { absolute: 0, rootRelative: 3, pathRelative: 0, total: 3 },
+          },
+        ],
+      });
+      const diags = evaluateDiagnostics(resultsMap(bulk('warn'), other), defaultReport());
+      expect(diags.find((d) => d.id === 'dynamic-content-rendered-statically')).toBeUndefined();
+    });
+
+    it('triggers when two checks flag the same page and names the directions in spec order', () => {
+      const diags = evaluateDiagnostics(resultsMap(links('fail'), bulk('warn')), defaultReport());
+      const d = diags.find((x) => x.id === 'dynamic-content-rendered-statically');
+      expect(d).toBeDefined();
+      expect(d!.severity).toBe('warning');
+      expect(d!.message).toContain('1 generated page shows several symptoms');
+      expect(d!.message).toContain(
+        `${url}: too much (a 300-row table is 78% of the converted content); unnavigable (100 of 100 links are relative and 1 of 2 sampled links do not resolve)`,
+      );
+      expect(d!.message.indexOf('too much')).toBeLessThan(d!.message.indexOf('unnavigable'));
+      expect(d!.resolution).toContain('one pipeline problem');
+    });
+
+    it("reports all four directions on the spec's grounding page", () => {
+      const parity = r('markdown-content-parity', 'pass', {
+        pageResults: [
+          {
+            url: `${url}.md`,
+            status: 'pass',
+            missingPercent: 0,
+            itemCounts: {
+              structure: 'list',
+              html: 98,
+              markdown: 204,
+              markdownUnique: 102,
+              duplicates: 102,
+              diverges: true,
+              likelyCause: 'default-filter',
+            },
+          },
+        ],
+      });
+      const diags = evaluateDiagnostics(
+        resultsMap(bulk('warn'), paginated('warn'), parity, links('fail')),
+        defaultReport(),
+      );
+      const d = diags.find((x) => x.id === 'dynamic-content-rendered-statically')!;
+      expect(d.message).toContain(
+        'too little (markdown is paginated: continuation URL is relative)',
+      );
+      expect(d.message).toContain(
+        'inconsistent (the HTML shows 98 items while the markdown lists 102 (likely default filter))',
+      );
+      expect(d.message).toContain('unnavigable');
+      // The parity page was keyed by its .md URL and still joined the same page.
+      expect(d.message.match(/https:\/\/example\.com\/models/g)).toHaveLength(1);
+    });
+
+    it('counts a parity item-count divergence even when the parity page passed', () => {
+      const parity = r('markdown-content-parity', 'pass', {
+        pageResults: [
+          {
+            url,
+            status: 'pass',
+            missingPercent: 1,
+            itemCounts: {
+              structure: 'list',
+              html: 98,
+              markdown: 102,
+              markdownUnique: 102,
+              duplicates: 0,
+              diverges: true,
+              likelyCause: 'default-filter',
+            },
+          },
+        ],
+      });
+      const diags = evaluateDiagnostics(resultsMap(parity, paginated('fail')), defaultReport());
+      expect(diags.find((x) => x.id === 'dynamic-content-rendered-statically')).toBeDefined();
+    });
+
+    it('does not call an html-redirect sample broken', () => {
+      const redirected = r('markdown-link-portability', 'warn', {
+        pageResults: [
+          {
+            url,
+            status: 'warn',
+            links: { absolute: 10, rootRelative: 0, pathRelative: 0, total: 10 },
+            samples: [
+              { url: 'https://example.com/a.md', outcome: 'html-redirect' },
+              { url: 'https://example.com/b.md', outcome: 'ok' },
+            ],
+          },
+        ],
+      });
+      const diags = evaluateDiagnostics(resultsMap(redirected, paginated('warn')), defaultReport());
+      const d = diags.find((x) => x.id === 'dynamic-content-rendered-statically')!;
+      expect(d.message).toContain('unnavigable (1 of 2 sampled .md links redirect to HTML pages)');
+      expect(d.message).not.toContain('do not resolve');
+    });
+
+    it('counts duplicated markdown entries as the inconsistent direction', () => {
+      const parity = r('markdown-content-parity', 'pass', {
+        pageResults: [
+          {
+            url,
+            status: 'pass',
+            missingPercent: 0,
+            itemCounts: {
+              structure: 'list',
+              html: 100,
+              markdown: 200,
+              markdownUnique: 100,
+              duplicates: 100,
+              diverges: false,
+            },
+          },
+        ],
+      });
+      const diags = evaluateDiagnostics(resultsMap(parity, links('warn')), defaultReport());
+      const d = diags.find((x) => x.id === 'dynamic-content-rendered-statically')!;
+      expect(d.message).toContain('the markdown lists 200 entries of which only 100 are distinct');
+    });
+
+    it('ignores passing page results and pages with fetch errors', () => {
+      const errored = r('embedded-data-serialization', 'fail', {
+        pageResults: [{ url, status: 'fail', error: 'Network error' }],
+      });
+      const diags = evaluateDiagnostics(resultsMap(errored, links('pass')), defaultReport());
+      expect(diags.find((x) => x.id === 'dynamic-content-rendered-statically')).toBeUndefined();
+    });
+
+    it('lists at most three pages and counts the rest', () => {
+      const urls = ['a', 'b', 'c', 'd', 'e'].map((p) => `https://example.com/${p}`);
+      const results = resultsMap(
+        r('embedded-data-serialization', 'warn', {
+          pageResults: urls.map((u) => ({ url: u, status: 'warn', bulkShare: 70 })),
+        }),
+        r('single-fetch-completeness', 'warn', {
+          pageResults: urls.map((u) => ({ url: u, status: 'warn', paginated: true, issues: [] })),
+        }),
+      );
+      const d = evaluateDiagnostics(results, defaultReport()).find(
+        (x) => x.id === 'dynamic-content-rendered-statically',
+      )!;
+      expect(d.message).toContain('5 generated pages show');
+      expect(d.message).toContain('And 2 more.');
+      expect(d.message).toContain('generated data is 70% of the converted content');
+    });
+  });
+
+  describe('bot-protection-scan-reliability', () => {
+    it('triggers when the check warns, regardless of the failure rate', () => {
+      const results = resultsMap(
+        r('bot-protection-interference', 'warn', {
+          requests: 100,
+          failedRequests: 4,
+          stalledBodies: 4,
+          challengePages: 0,
+          fetchErrors: 0,
+        }),
+      );
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 100,
+          stalledBodies: 4,
+          challengePages: 0,
+          fetchErrors: 0,
+          failed: 4,
+          failureRate: 4,
+        },
+      };
+      const diag = evaluateDiagnostics(results, report).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag).toBeDefined();
+      expect(diag!.severity).toBe('warning');
+      expect(diag!.message).toContain(
+        '4% of HTTP requests during this scan failed, timed out, or were denied',
+      );
+      expect(diag!.message).toContain('4 stalled bodies');
+      expect(diag!.message).toContain('only the 96 requests that completed');
+      expect(diag!.message).toContain('intermittent interference');
+    });
+
+    it('reports denial-only interference from the check counts, not the request summary', () => {
+      const results = resultsMap(
+        r('bot-protection-interference', 'warn', {
+          requests: 238,
+          failedRequests: 57,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 0,
+          deniedCounted: 57,
+          affectedChecks: ['redirect-behavior', 'auth-gate-detection'],
+        }),
+      );
+      const report = {
+        ...defaultReport(),
+        // The run-level summary knows nothing about correlated denials.
+        requestSummary: {
+          requests: 238,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 0,
+          failed: 0,
+          failureRate: 0,
+        },
+      };
+      const diag = evaluateDiagnostics(results, report).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag!.message).toContain('24% of HTTP requests');
+      expect(diag!.message).toContain('57 denied responses');
+      expect(diag!.message).toContain('only the 181 requests that completed');
+    });
+
+    it('names the checks that ran during the interference window', () => {
+      const results = resultsMap(
+        r('bot-protection-interference', 'warn', {
+          requests: 200,
+          failedRequests: 2,
+          stalledBodies: 2,
+          challengePages: 0,
+          fetchErrors: 0,
+          affectedChecks: ['auth-gate-detection'],
+        }),
+      );
+      const diag = evaluateDiagnostics(results, defaultReport()).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag!.message).toContain(
+        'Checks that ran during the interference window: auth-gate-detection.',
+      );
+    });
+
+    it('triggers when the check fails', () => {
+      const results = resultsMap(r('bot-protection-interference', 'fail'));
+      const diag = evaluateDiagnostics(results, defaultReport()).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag).toBeDefined();
+      expect(diag!.message).toContain('sustained interference');
+    });
+
+    it('triggers on a high run-level failure rate even when the check passed', () => {
+      const results = resultsMap(r('bot-protection-interference', 'pass'));
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 50,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 12,
+          failed: 12,
+          failureRate: 24,
+        },
+      };
+      const diag = evaluateDiagnostics(results, report).find(
+        (d) => d.id === 'bot-protection-scan-reliability',
+      );
+      expect(diag).toBeDefined();
+      expect(diag!.message).toContain('24% of HTTP requests');
+      expect(diag!.message).toContain('12 connection errors');
+      expect(diag!.message).not.toContain('interference.');
+    });
+
+    it('triggers on a high failure rate when the check did not run', () => {
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 20,
+          stalledBodies: 4,
+          challengePages: 0,
+          fetchErrors: 0,
+          failed: 4,
+          failureRate: 20,
+        },
+      };
+      const diags = evaluateDiagnostics(resultsMap(), report);
+      expect(diags.find((d) => d.id === 'bot-protection-scan-reliability')).toBeDefined();
+    });
+
+    it('needs at least 20 requests before the rate alone can trigger it', () => {
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 10,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 2,
+          failed: 2,
+          failureRate: 20,
+        },
+      };
+      const diags = evaluateDiagnostics(resultsMap(), report);
+      expect(diags.find((d) => d.id === 'bot-protection-scan-reliability')).toBeUndefined();
+    });
+
+    it('does not trigger below the failure-rate threshold when the check passed', () => {
+      const results = resultsMap(r('bot-protection-interference', 'pass'));
+      const report = {
+        ...defaultReport(),
+        requestSummary: {
+          requests: 50,
+          stalledBodies: 0,
+          challengePages: 0,
+          fetchErrors: 5,
+          failed: 5,
+          failureRate: 10,
+        },
+      };
+      const diags = evaluateDiagnostics(results, report);
+      expect(diags.find((d) => d.id === 'bot-protection-scan-reliability')).toBeUndefined();
+    });
+
+    it('does not trigger with no evidence at all', () => {
+      const diags = evaluateDiagnostics(resultsMap(), defaultReport());
+      expect(diags.find((d) => d.id === 'bot-protection-scan-reliability')).toBeUndefined();
+    });
+  });
 });

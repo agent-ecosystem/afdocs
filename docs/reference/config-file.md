@@ -36,6 +36,10 @@ options:
   thresholds:
     pass: 50000
     fail: 100000
+  # page-size-transfer: served (decoded) HTML size in bytes
+  # transferThresholds:
+  #   pass: 1000000
+  #   fail: 10000000
   # Coverage check: thresholds and exclusions
   # coveragePassThreshold: 95
   # coverageWarnThreshold: 80
@@ -49,6 +53,10 @@ options:
   # parityExclusions:
   #   - .human-only-content
   #   - '[data-audience="humans"]'  # quote selectors starting with [ (YAML treats unquoted [] as arrays)
+  # Embedded data: what counts as bulk, and when it is blamed for page size
+  # bulkTableRows: 20
+  # bulkBlobChars: 2000
+  # bulkDominantShare: 50
 
 # Optional: test specific pages instead of discovering via llms.txt/sitemap
 # pages:
@@ -65,7 +73,7 @@ The documentation site URL to check. This is the only required field.
 
 ### `checks` (optional)
 
-A list of check IDs to run. If omitted, all 23 checks run. Use this to focus on checks that are actionable for your platform. See the [Checks Reference](/checks/) for the full list of check IDs.
+A list of check IDs to run. If omitted, all 28 checks run. Use this to focus on checks that are actionable for your platform. See the [Checks Reference](/checks/) for the full list of check IDs.
 
 This is particularly useful when your docs platform doesn't support certain capabilities. For example, if you can't serve markdown, exclude the markdown-related checks so your score reflects what you can control. See [Improve Your Score](/improve-your-score#step-3-work-through-fixes-iteratively) for more on this approach.
 
@@ -84,25 +92,31 @@ skipChecks:
 
 Override default runner options. All fields are optional:
 
-| Field                   | Default     | Description                                                                                              |
-| ----------------------- | ----------- | -------------------------------------------------------------------------------------------------------- |
-| `maxLinksToTest`        | `50`        | Maximum number of pages to sample                                                                        |
-| `samplingStrategy`      | `random`    | `random`, `deterministic`, `curated`, or `none`                                                          |
-| `maxConcurrency`        | `3`         | Maximum concurrent HTTP requests                                                                         |
-| `requestDelay`          | `200`       | Delay between requests in milliseconds                                                                   |
-| `requestTimeout`        | `30000`     | Timeout for individual HTTP requests in milliseconds                                                     |
-| `preferredLocale`       | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)                                               |
-| `preferredVersion`      | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`)                                                   |
-| `canonicalOrigin`       |             | The production base URL (origin, or origin plus a path prefix) your content links to                     |
-| `llmsTxtUrl`            |             | Explicit llms.txt URL to use as canonical (overrides the discovery heuristic; see CLI docs)              |
-| `thresholds.pass`       | `50000`     | Page size pass threshold in characters                                                                   |
-| `thresholds.fail`       | `100000`    | Page size fail threshold in characters                                                                   |
-| `coveragePassThreshold` | `95`        | `llms-txt-coverage` pass threshold: minimum coverage % to pass (higher = stricter)                       |
-| `coverageWarnThreshold` | `80`        | `llms-txt-coverage` warn threshold: minimum coverage % to avoid failure (higher = stricter)              |
-| `coverageExclusions`    |             | Glob patterns to exclude from the sitemap before calculating coverage (quote patterns starting with `*`) |
-| `parityPassThreshold`   | `5`         | `markdown-content-parity` pass threshold: maximum missing % to pass (lower = stricter)                   |
-| `parityWarnThreshold`   | `20`        | `markdown-content-parity` warn threshold: maximum missing % to avoid failure (lower = stricter)          |
-| `parityExclusions`      |             | CSS selectors to strip from HTML before parity comparison                                                |
+| Field                     | Default     | Description                                                                                              |
+| ------------------------- | ----------- | -------------------------------------------------------------------------------------------------------- |
+| `maxLinksToTest`          | `50`        | Maximum number of pages to sample                                                                        |
+| `samplingStrategy`        | `random`    | `random`, `deterministic`, `curated`, or `none`                                                          |
+| `maxConcurrency`          | `3`         | Maximum concurrent HTTP requests                                                                         |
+| `requestDelay`            | `200`       | Delay between requests in milliseconds                                                                   |
+| `requestTimeout`          | `30000`     | Timeout for individual HTTP requests in milliseconds                                                     |
+| `preferredLocale`         | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)                                               |
+| `preferredVersion`        | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`)                                                   |
+| `canonicalOrigin`         |             | The production base URL (origin, or origin plus a path prefix) your content links to                     |
+| `llmsTxtUrl`              |             | Explicit llms.txt URL to use as canonical (overrides the discovery heuristic; see CLI docs)              |
+| `networkContext`          | detected    | Where the scan runs from, reported with bot-protection findings: `developer-machine`, `ci`, or `cloud`   |
+| `thresholds.pass`         | `50000`     | Page size pass threshold in characters                                                                   |
+| `thresholds.fail`         | `100000`    | Page size fail threshold in characters                                                                   |
+| `transferThresholds.pass` | `1000000`   | `page-size-transfer` pass threshold: served (decoded) HTML bytes                                         |
+| `transferThresholds.fail` | `10000000`  | `page-size-transfer` fail threshold: served (decoded) HTML bytes                                         |
+| `coveragePassThreshold`   | `95`        | `llms-txt-coverage` pass threshold: minimum coverage % to pass (higher = stricter)                       |
+| `coverageWarnThreshold`   | `80`        | `llms-txt-coverage` warn threshold: minimum coverage % to avoid failure (higher = stricter)              |
+| `coverageExclusions`      |             | Glob patterns to exclude from the sitemap before calculating coverage (quote patterns starting with `*`) |
+| `parityPassThreshold`     | `5`         | `markdown-content-parity` pass threshold: maximum missing % to pass (lower = stricter)                   |
+| `parityWarnThreshold`     | `20`        | `markdown-content-parity` warn threshold: maximum missing % to avoid failure (lower = stricter)          |
+| `parityExclusions`        |             | CSS selectors to strip from HTML before parity comparison                                                |
+| `bulkTableRows`           | `20`        | `embedded-data-serialization`: data rows at or above which a uniform table counts as bulk                |
+| `bulkBlobChars`           | `2000`      | `embedded-data-serialization`: characters at or above which a JSON blob or base64 run counts as bulk     |
+| `bulkDominantShare`       | `50`        | `embedded-data-serialization`: bulk share of converted content (0-100) at which bulk is blamed for size  |
 
 ### `pages` (optional)
 

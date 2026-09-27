@@ -28,7 +28,7 @@ The scorecard tells you _what's wrong_. The verbose text output tells you _where
 
 ## Step 3: Work through fixes iteratively
 
-You don't need to run all 23 checks every time you make a change. Target just the check you're fixing for fast feedback:
+You don't need to run all 28 checks every time you make a change. Target just the check you're fixing for fast feedback:
 
 ```bash
 # Iterate on llms.txt
@@ -106,15 +106,23 @@ If `llms-txt-links-markdown` warns or fails, your llms.txt links point to HTML p
 
 If `llms-txt-size` warns or fails, agents are seeing a truncated version of your index. Split into a root llms.txt that links to section-level files, each under 50,000 characters.
 
+**Keep bot protection off your docs routes**
+
+If `bot-protection-interference` warns or fails, your CDN or firewall challenged, stalled, or blocked some of the scan's requests, and it will do the same to agents reading several pages in a session. This is owned by whoever runs your CDN, firewall, or hosting platform; hand them the check's output and ask for public documentation routes to be exempted from behavioral enforcement. Where limits are needed, an explicit `429` with `Retry-After` is better than a tarpit or a challenge page.
+
 ### Medium impact (4 points each)
 
 These are worth addressing but won't move the score as dramatically:
 
 - **llms.txt directive in markdown** (`llms-txt-directive-md`): Add a blockquote near the top of each markdown page pointing to your llms.txt.
 - **Content negotiation** (`content-negotiation`): Return markdown when agents send `Accept: text/markdown`. Requires server-side support.
+- **Transfer size** (`page-size-transfer`): If pages ship many times their content's weight in framework payload, the fix is a platform setting, not a content change; hand the served-to-content ratio from the report to whoever runs the docs platform.
 - **Content start position** (`content-start-position`): Reduce navigation, breadcrumb, and sidebar markup that precedes the main content area.
+- **Single-fetch completeness** (`single-fetch-completeness`): Serve complete markdown in one response instead of paginating it. If pagination is unavoidable, declare the continuation at the top with an absolute URL that works.
 - **Tabbed content** (`tabbed-content-serialization`): If tabbed UI components create oversized output, consider restructuring into separate pages or using query params to retrieve only specific tab versions.
 - **Code fence validity** (`markdown-code-fence-validity`): Fix unclosed code fences in your markdown sources.
+- **Markdown link portability** (`markdown-link-portability`): Emit absolute URLs when generating markdown, and verify a sample of the generated links in CI by checking both status and content type.
+- **Embedded data** (`embedded-data-serialization`): If a generated table or data blob is what pushes a page over the size thresholds, split it into per-section pages reached from an index, offer a filtered view, and put the explanatory prose before the data.
 - **Redirect behavior** (`redirect-behavior`): Replace JavaScript and cross-host redirects with standard HTTP redirects.
 - **llms.txt coverage** (`llms-txt-coverage`): Generate llms.txt at build time to keep it in sync with your site.
 - **Content parity** (`markdown-content-parity`): Ensure markdown and HTML versions of pages contain the same content.

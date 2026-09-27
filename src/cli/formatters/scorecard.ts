@@ -3,6 +3,7 @@ import type { ReportResult } from '../../types.js';
 import type { ScoreResult, Diagnostic } from '../../scoring/types.js';
 import { computeScore } from '../../scoring/index.js';
 import { CATEGORIES, SPEC_BASE_URL } from '../../constants.js';
+import { describeNetworkContext } from '../../helpers/network-context.js';
 
 const STATUS_LABELS: Record<string, string> = {
   pass: 'PASS',
@@ -83,6 +84,9 @@ export function formatScorecard(report: ReportResult, scoreResult?: ScoreResult)
   lines.push(chalk.bold('=============================='));
   lines.push('');
   lines.push(chalk.gray(`${report.url} · ${formatLocalTime(report.timestamp)}`));
+  if (report.networkContext) {
+    lines.push(chalk.gray(`Scanned from ${describeNetworkContext(report.networkContext)}`));
+  }
   lines.push('');
 
   // Overall score
@@ -165,7 +169,10 @@ export function formatScorecard(report: ReportResult, scoreResult?: ScoreResult)
     for (const result of results) {
       const label = STATUS_LABELS[result.status] ?? '????';
       const color = STATUS_COLORS[result.status] ?? ((s: string) => s);
-      lines.push(`      ${color(label)}  ${result.id.padEnd(30)} ${result.message}`);
+      const partial = score.checkScores[result.id]?.partialSample
+        ? chalk.dim(' (partial sample)')
+        : '';
+      lines.push(`      ${color(label)}  ${result.id.padEnd(30)} ${result.message}${partial}`);
 
       // Resolution text for warn/fail
       const resolution = score.resolutions[result.id];

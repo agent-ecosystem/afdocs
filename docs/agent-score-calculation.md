@@ -1,8 +1,8 @@
 # Score Calculation
 
-The Agent Score is a weighted average of 23 check results, adjusted for interaction effects between checks. This page covers the mechanics: how checks are weighted, how multi-page results are scored proportionally, and how the system handles cases where checks influence each other.
+The Agent Score is a weighted average of 28 check results, adjusted for interaction effects between checks. This page covers the mechanics: how checks are weighted, how multi-page results are scored proportionally, and how the system handles cases where checks influence each other.
 
-Each check corresponds to a section of the [Agent-Friendly Documentation Spec](https://agentdocsspec.com), which documents what the check measures and the observed agent behaviors that motivated it. For what each check measures, see the [Checks Reference](/checks/).
+Each check corresponds to a section of the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/), which documents what the check measures and the observed agent behaviors that motivated it. For what each check measures, see the [Checks Reference](/checks/).
 
 ## The formula
 
@@ -50,12 +50,14 @@ Every check is assigned a weight tier based on its observed impact on agent work
 
 ### Page Size and Truncation Risk
 
-| Check                    | Weight        |
-| ------------------------ | ------------- |
-| `rendering-strategy`     | Critical (10) |
-| `page-size-markdown`     | High (7)      |
-| `page-size-html`         | High (7)      |
-| `content-start-position` | Medium (4)    |
+| Check                       | Weight        |
+| --------------------------- | ------------- |
+| `rendering-strategy`        | Critical (10) |
+| `page-size-markdown`        | High (7)      |
+| `page-size-html`            | High (7)      |
+| `page-size-transfer`        | Medium (4)    |
+| `content-start-position`    | Medium (4)    |
+| `single-fetch-completeness` | Medium (4)    |
 
 ### Content Structure
 
@@ -64,6 +66,8 @@ Every check is assigned a weight tier based on its observed impact on agent work
 | `tabbed-content-serialization` | Medium (4) |
 | `section-header-quality`       | Low (2)    |
 | `markdown-code-fence-validity` | Medium (4) |
+| `markdown-link-portability`    | Medium (4) |
+| `embedded-data-serialization`  | Medium (4) |
 
 ### URL Stability and Redirects
 
@@ -82,10 +86,11 @@ Every check is assigned a weight tier based on its observed impact on agent work
 
 ### Authentication and Access
 
-| Check                     | Weight        |
-| ------------------------- | ------------- |
-| `auth-gate-detection`     | Critical (10) |
-| `auth-alternative-access` | Medium (4)    |
+| Check                         | Weight        |
+| ----------------------------- | ------------- |
+| `auth-gate-detection`         | Critical (10) |
+| `auth-alternative-access`     | Medium (4)    |
+| `bot-protection-interference` | High (7)      |
 
 ## Proportional scoring
 
@@ -95,38 +100,43 @@ Checks that test multiple pages use proportional scoring. If `page-size-html` te
 
 These checks sample pages from your site and score based on the pass rate across those pages:
 
-| Check                          | What's measured per page                                                                     |
-| ------------------------------ | -------------------------------------------------------------------------------------------- |
-| `rendering-strategy`           | Whether the page is fully server-rendered, server-rendered but sparse, or an empty SPA shell |
-| `page-size-html`               | Whether the HTML-to-text conversion fits within size limits                                  |
-| `page-size-markdown`           | Whether the markdown version fits within size limits                                         |
-| `content-start-position`       | How far into the response actual content begins                                              |
-| `content-negotiation`          | Whether the server returns markdown for this page                                            |
-| `markdown-url-support`         | Whether the `.md` URL variant returns markdown                                               |
-| `http-status-codes`            | Whether a fabricated bad URL returns a proper 404                                            |
-| `redirect-behavior`            | Whether redirects use standard HTTP methods                                                  |
-| `auth-gate-detection`          | Whether the page is publicly accessible                                                      |
-| `llms-txt-directive-html`      | Whether the HTML page includes a directive pointing to llms.txt                              |
-| `llms-txt-directive-md`        | Whether the markdown page includes a directive pointing to llms.txt                          |
-| `tabbed-content-serialization` | Whether tabbed content creates oversized output                                              |
-| `section-header-quality`       | Whether tab section headers include variant context                                          |
-| `markdown-code-fence-validity` | Whether code fences are properly closed                                                      |
-| `markdown-content-parity`      | Whether markdown and HTML versions match                                                     |
-| `cache-header-hygiene`         | Whether cache headers allow timely updates                                                   |
-| `auth-alternative-access`      | Whether auth-gated pages have alternative access paths                                       |
+| Check                          | What's measured per page                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `rendering-strategy`           | Whether the page is fully server-rendered, server-rendered but sparse, or an empty SPA shell                              |
+| `page-size-html`               | Whether the HTML-to-text conversion fits within size limits                                                               |
+| `page-size-transfer`           | Whether the served (decoded) HTML document fits within transfer byte limits                                               |
+| `page-size-markdown`           | Whether the markdown version fits within size limits                                                                      |
+| `content-start-position`       | How far into the response actual content begins                                                                           |
+| `single-fetch-completeness`    | Whether the markdown response is complete in one fetch, or its continuation is declared at the top, absolute, and working |
+| `content-negotiation`          | Whether the server returns markdown for this page                                                                         |
+| `markdown-url-support`         | Whether the `.md` URL variant returns markdown                                                                            |
+| `http-status-codes`            | Whether a fabricated bad URL returns a proper 404                                                                         |
+| `redirect-behavior`            | Whether redirects use standard HTTP methods                                                                               |
+| `auth-gate-detection`          | Whether the page is publicly accessible                                                                                   |
+| `llms-txt-directive-html`      | Whether the HTML page includes a directive pointing to llms.txt                                                           |
+| `llms-txt-directive-md`        | Whether the markdown page includes a directive pointing to llms.txt                                                       |
+| `tabbed-content-serialization` | Whether tabbed content creates oversized output                                                                           |
+| `section-header-quality`       | Whether tab section headers include variant context                                                                       |
+| `markdown-code-fence-validity` | Whether code fences are properly closed                                                                                   |
+| `markdown-link-portability`    | Whether the page's links are absolute, and whether a sampled link resolves to the representation it promises              |
+| `embedded-data-serialization`  | Whether machine-generated bulk data is the dominant contributor to a page that is oversized on the HTML path              |
+| `markdown-content-parity`      | Whether markdown and HTML versions match                                                                                  |
+| `cache-header-hygiene`         | Whether cache headers allow timely updates                                                                                |
+| `auth-alternative-access`      | Whether auth-gated pages have alternative access paths                                                                    |
 
 ### Single-resource checks (all-or-nothing)
 
 These checks test a single site-wide resource and produce one pass, warn, or fail result:
 
-| Check                     | What's tested                                          |
-| ------------------------- | ------------------------------------------------------ |
-| `llms-txt-exists`         | Whether an llms.txt file exists at candidate locations |
-| `llms-txt-valid`          | Whether the llms.txt follows the standard structure    |
-| `llms-txt-size`           | Whether the llms.txt fits within agent context limits  |
-| `llms-txt-links-resolve`  | Whether links in the llms.txt return 200               |
-| `llms-txt-links-markdown` | Whether llms.txt links point to markdown content       |
-| `llms-txt-coverage`       | Whether the llms.txt reflects the current site state   |
+| Check                         | What's tested                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `llms-txt-exists`             | Whether an llms.txt file exists at candidate locations                                     |
+| `llms-txt-valid`              | Whether the llms.txt follows the standard structure                                        |
+| `llms-txt-size`               | Whether the llms.txt fits within agent context limits                                      |
+| `llms-txt-links-resolve`      | Whether links in the llms.txt return 200                                                   |
+| `llms-txt-links-markdown`     | Whether llms.txt links point to markdown content                                           |
+| `llms-txt-coverage`           | Whether the llms.txt reflects the current site state                                       |
+| `bot-protection-interference` | Whether bot protection interfered with the run, evaluated from every request the scan made |
 
 Note that the llms.txt link checks (`llms-txt-links-resolve`, `llms-txt-links-markdown`) do test multiple URLs, but they test the links _within_ the llms.txt file rather than sampling pages from the site. Their result is a single pass/warn/fail based on the overall resolution or markdown rate.
 
@@ -134,14 +144,14 @@ Note that the llms.txt link checks (`llms-txt-links-resolve`, `llms-txt-links-ma
 
 A warning is not a binary "half credit." Different warnings represent different degrees of degradation, and the score reflects this.
 
-| Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                 |
-| ----------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                      |
-| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`                                                                                                                                                                                                                |
-| **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access` |
-| **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML)                                                                                                                                                                                                                 |
+| Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                                                                                          |
+| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`, `single-fetch-completeness`, `markdown-link-portability`                                                                                                                                                                                                                                          |
+| **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `page-size-transfer`, `content-start-position`, `tabbed-content-serialization`, `embedded-data-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `bot-protection-interference` |
+| **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML)                                                                                                                                                                                                                                                                                                     |
 
-`markdown-code-fence-validity` is strictly pass/fail. `http-status-codes` is normally pass/fail but emits a warn when every sampled response is indeterminate (HTTP 202 during CDN cache-miss/build, or 5xx) so we couldn't measure bad-URL handling.
+`markdown-code-fence-validity` is strictly pass/fail. `http-status-codes` is normally pass/fail but emits a warn when every sampled response is indeterminate (HTTP 202 during CDN cache-miss/build, or 5xx) so we couldn't measure bad-URL handling. `bot-protection-interference` scores a warn in proportion to the run's failure rate rather than at the flat coefficient: full weight at 0% of requests failed, the 0.5 coefficient at 50% (the rate at which the verdict becomes fail), linear between, so a run with two challenged requests out of two hundred keeps almost all of its weight. Fail is still zero.
 
 ## Score caps
 
@@ -182,7 +192,7 @@ Some checks only matter if agents can actually reach the content they measure. I
 
 ### Discovery coefficient
 
-**Affects**: `page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`
+**Affects**: `page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`, `single-fetch-completeness`, `markdown-link-portability`
 
 These checks measure markdown path quality. But if agents can't discover that path, the quality is irrelevant.
 
@@ -199,7 +209,7 @@ Note that `markdown-url-support` is intentionally excluded from this coefficient
 
 ### HTML path coefficient
 
-**Affects**: `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`
+**Affects**: `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `embedded-data-serialization`
 
 If pages are SPA shells, measuring HTML quality is meaningless; if pages are sparse, HTML quality counts for less because agents have less content to work with. This coefficient equals the same proportion that drives the score caps above: `(serverRendered + sparseContent × 0.5) / total`. Fully server-rendered pages count for full weight, sparse pages count for half, and SPA shells count for nothing.
 

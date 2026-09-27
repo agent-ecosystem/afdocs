@@ -39,13 +39,18 @@ export const CHECK_WEIGHTS: Record<string, CheckWeight> = {
   'http-status-codes': w('high'),
   'llms-txt-directive-html': w('high', 0.6),
   'llms-txt-directive-md': w('medium', 0.6),
+  'bot-protection-interference': w('high', 0.5),
 
   // Medium
   'llms-txt-valid': w('medium', 0.75),
   'content-negotiation': w('medium', 0.75),
+  'page-size-transfer': w('medium', 0.5),
+  'single-fetch-completeness': w('medium', 0.6),
   'content-start-position': w('medium', 0.5),
   'tabbed-content-serialization': w('medium', 0.5),
   'markdown-code-fence-validity': w('medium'),
+  'markdown-link-portability': w('medium', 0.6),
+  'embedded-data-serialization': w('medium', 0.5),
   'llms-txt-coverage': w('medium', 0.75),
   'markdown-content-parity': w('medium', 0.75),
   'auth-alternative-access': w('medium', 0.5),

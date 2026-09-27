@@ -142,6 +142,36 @@ describe('validateRunnerOptions', () => {
     });
   });
 
+  describe('numeric range: transfer thresholds', () => {
+    it('accepts the defaults', () => {
+      const result = validateRunnerOptions({
+        transferThresholds: { pass: 1_000_000, fail: 10_000_000 },
+      });
+      expect(result.valid).toBe(true);
+    });
+
+    it('rejects transferThresholds.pass < 1', () => {
+      const result = validateRunnerOptions({ transferThresholds: { pass: 0, fail: 10 } });
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.field === 'transferThresholds.pass')).toBe(true);
+    });
+
+    it('rejects a non-integer transferThresholds.fail', () => {
+      const result = validateRunnerOptions({ transferThresholds: { pass: 1, fail: 1.5 } });
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.field === 'transferThresholds.fail')).toBe(true);
+    });
+
+    it('rejects pass above fail', () => {
+      const result = validateRunnerOptions({
+        transferThresholds: { pass: 20_000_000, fail: 10_000_000 },
+      });
+      expect(result.valid).toBe(false);
+      const err = result.errors.find((e) => e.field === 'transferThresholds');
+      expect(err?.message).toContain('must be less than or equal to');
+    });
+  });
+
   describe('numeric range: coverage thresholds', () => {
     it('rejects coveragePassThreshold > 100', () => {
       const result = validateRunnerOptions({ coveragePassThreshold: 101 });
@@ -285,6 +315,23 @@ describe('validateRunnerOptions', () => {
     for (const pattern of ['clean', 'html', 'md'] as const) {
       it(`accepts "${pattern}"`, () => {
         expect(validateRunnerOptions({ urlPathPattern: pattern }).valid).toBe(true);
+      });
+    }
+  });
+
+  describe('enum: networkContext', () => {
+    it('rejects an unknown network context', () => {
+      const result = validateRunnerOptions({
+        networkContext: 'datacenter' as RunnerOptions['networkContext'],
+      });
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].field).toBe('networkContext');
+      expect(result.errors[0].message).toContain('developer-machine');
+    });
+
+    for (const ctx of ['developer-machine', 'ci', 'cloud'] as const) {
+      it(`accepts "${ctx}"`, () => {
+        expect(validateRunnerOptions({ networkContext: ctx }).valid).toBe(true);
       });
     }
   });

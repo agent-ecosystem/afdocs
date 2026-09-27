@@ -2,6 +2,261 @@ import type { CheckResult, ReportResult } from '../types.js';
 import type { Diagnostic, DiagnosticSeverity } from './types.js';
 import { MIN_PAGES_FOR_SCORING } from '../constants.js';
 
+/**
+ * Run-level fetch failure rate at which the scan is flagged as degraded even
+ * when `bot-protection-interference` did not itself warn or fail (the spec's
+ * "for example, above 20% of page fetches").
+ */
+export const PARTIAL_SAMPLE_FAILURE_RATE = 0.2;
+
+/**
+ * The failure-rate trigger needs a sample worth a percentage. Two failed
+ * discovery probes in a ten-request subset run are not a degraded scan.
+ */
+export const MIN_REQUESTS_FOR_RATE_TRIGGER = 20;
+
+/**
+ * The spec's "Bot Protection Degrading Scan Reliability" effect has two
+ * triggers, and both are honored: the check returning warn or fail (its
+ * inverted dependency on every multi-page check), or the run-level fetch
+ * failure rate crossing the threshold regardless of what the check said.
+ */
+export function isScanDegradedByBotProtection(
+  results: Map<string, CheckResult>,
+  report: ReportResult,
+): boolean {
+  const check = results.get('bot-protection-interference');
+  if (check?.status === 'warn' || check?.status === 'fail') return true;
+
+  const s = report.requestSummary;
+  return (
+    !!s &&
+    s.requests >= MIN_REQUESTS_FOR_RATE_TRIGGER &&
+    s.failed / s.requests >= PARTIAL_SAMPLE_FAILURE_RATE
+  );
+}
+
+interface FailureCounts {
+  requests: number;
+  failed: number;
+  stalledBodies: number;
+  challengePages: number;
+  fetchErrors: number;
+  /** Denied responses the check counted as failures (only when the denial rate climbed). */
+  denied: number;
+}
+
+/**
+ * When the check warned or failed, its own counts are authoritative: they
+ * include denied responses that a climbing block rate turned into failures,
+ * which the run-level request summary does not know about. The summary is
+ * the fallback for runs where the check did not run.
+ */
+function failureCounts(
+  results: Map<string, CheckResult>,
+  report: ReportResult,
+): FailureCounts | undefined {
+  const check = results.get('bot-protection-interference');
+  const d = check?.details;
+  if (d && (check?.status === 'warn' || check?.status === 'fail')) {
+    return {
+      requests: (d.requests as number) ?? 0,
+      failed: (d.failedRequests as number) ?? 0,
+      stalledBodies: (d.stalledBodies as number) ?? 0,
+      challengePages: (d.challengePages as number) ?? 0,
+      fetchErrors: (d.fetchErrors as number) ?? 0,
+      denied: (d.deniedCounted as number) ?? 0,
+    };
+  }
+  if (report.requestSummary) return { ...report.requestSummary, denied: 0 };
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Content Rendered Statically
+// ---------------------------------------------------------------------------
+
+/**
+ * The spec's four failure directions for a dynamic page flattened into
+ * static content, each owned by one check.
+ */
+export type FlatteningDirection = 'too much' | 'too little' | 'inconsistent' | 'unnavigable';
+
+export interface FlatteningFinding {
+  url: string;
+  /** Evidence per direction, in the order the spec lists them. */
+  symptoms: Array<{ direction: FlatteningDirection; evidence: string }>;
+}
+
+/**
+ * Pages are keyed by their published URL in every check involved, but the
+ * parity check keys by the cached URL (which may be the `.md` variant when
+ * llms.txt links to markdown directly). Normalize so one page is one key.
+ */
+function pageKey(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = '';
+    let path = u.pathname.replace(/\.(md|mdx)$/i, '');
+    if (path.length > 1) path = path.replace(/\/$/, '');
+    if (path === '') path = '/';
+    return `${u.protocol}//${u.host.toLowerCase()}${path}${u.search}`;
+  } catch {
+    return url;
+  }
+}
+
+const DIRECTION_ORDER: FlatteningDirection[] = [
+  'too much',
+  'too little',
+  'inconsistent',
+  'unnavigable',
+];
+
+/**
+ * Collect, per page, which of the four flattening directions the checks
+ * observed. Only warn/fail page results count as symptoms, with one
+ * exception: a parity item-count divergence counts as "inconsistent" even
+ * when the page passed, because a markdown variant that lists more than the
+ * HTML shows is never "missing" anything by the containment measure.
+ */
+export function collectFlatteningFindings(results: Map<string, CheckResult>): FlatteningFinding[] {
+  const byPage = new Map<string, { url: string; symptoms: Map<FlatteningDirection, string> }>();
+  const add = (url: string, direction: FlatteningDirection, evidence: string) => {
+    const key = pageKey(url);
+    let entry = byPage.get(key);
+    if (!entry) {
+      entry = { url, symptoms: new Map() };
+      byPage.set(key, entry);
+    }
+    if (!entry.symptoms.has(direction)) entry.symptoms.set(direction, evidence);
+  };
+  const flagged = (status?: string) => status === 'warn' || status === 'fail';
+
+  // Too much: embedded-data-serialization
+  const bulk = results.get('embedded-data-serialization')?.details?.pageResults as
+    | Array<{
+        url: string;
+        status: string;
+        error?: string;
+        bulkShare?: number;
+        dominantElement?: { kind: string; rows?: number; chars: number; share: number };
+      }>
+    | undefined;
+  for (const p of bulk ?? []) {
+    if (p.error || !flagged(p.status)) continue;
+    const el = p.dominantElement;
+    const what =
+      el?.kind === 'table'
+        ? `a ${el.rows ?? 0}-row table`
+        : el
+          ? `a ${el.kind} blob`
+          : 'generated data';
+    add(p.url, 'too much', `${what} is ${el?.share ?? p.bulkShare ?? 0}% of the converted content`);
+  }
+
+  // Too little: single-fetch-completeness
+  const completeness = results.get('single-fetch-completeness')?.details?.pageResults as
+    | Array<{ url: string; status: string; paginated?: boolean; issues?: string[] }>
+    | undefined;
+  for (const p of completeness ?? []) {
+    if (!flagged(p.status)) continue;
+    const issue = p.issues?.[0];
+    add(p.url, 'too little', issue ? `markdown is paginated: ${issue}` : 'markdown is paginated');
+  }
+
+  // Inconsistent: markdown-content-parity (status, or item counts)
+  const parity = results.get('markdown-content-parity')?.details?.pageResults as
+    | Array<{
+        url: string;
+        status: string;
+        error?: string;
+        missingPercent?: number;
+        itemCounts?: {
+          html: number;
+          markdown: number;
+          markdownUnique: number;
+          duplicates: number;
+          diverges: boolean;
+          likelyCause?: string;
+        };
+      }>
+    | undefined;
+  for (const p of parity ?? []) {
+    if (p.error) continue;
+    const ic = p.itemCounts;
+    if (ic?.diverges) {
+      const cause = ic.likelyCause ? ` (likely ${ic.likelyCause.replace('-', ' ')})` : '';
+      add(
+        p.url,
+        'inconsistent',
+        `the HTML shows ${ic.html} items while the markdown lists ${ic.markdownUnique}${cause}`,
+      );
+    } else if (ic && ic.duplicates > 0) {
+      add(
+        p.url,
+        'inconsistent',
+        `the markdown lists ${ic.markdown} entries of which only ${ic.markdownUnique} are distinct`,
+      );
+    } else if (flagged(p.status)) {
+      add(
+        p.url,
+        'inconsistent',
+        `${p.missingPercent ?? 0}% of the HTML content is missing from the markdown`,
+      );
+    }
+  }
+
+  // Unnavigable: markdown-link-portability
+  const portability = results.get('markdown-link-portability')?.details?.pageResults as
+    | Array<{
+        url: string;
+        status: string;
+        links?: {
+          rootRelative: number;
+          protocolRelative?: number;
+          pathRelative: number;
+          total: number;
+        };
+        samples?: Array<{ outcome: string }>;
+      }>
+    | undefined;
+  for (const p of portability ?? []) {
+    if (!flagged(p.status)) continue;
+    const parts: string[] = [];
+    const l = p.links;
+    if (l) {
+      const relative = l.rootRelative + (l.protocolRelative ?? 0) + l.pathRelative;
+      if (relative > 0) parts.push(`${relative} of ${l.total} links are relative`);
+    }
+    const samples = p.samples ?? [];
+    // `html-redirect` resolved, to the wrong representation; the portability
+    // check keeps it out of its broken set, and so does this evidence line.
+    const broken = samples.filter(
+      (s) => s.outcome !== 'ok' && s.outcome !== 'html-redirect',
+    ).length;
+    const redirected = samples.filter((s) => s.outcome === 'html-redirect').length;
+    if (broken > 0) parts.push(`${broken} of ${samples.length} sampled links do not resolve`);
+    if (redirected > 0) {
+      parts.push(`${redirected} of ${samples.length} sampled .md links redirect to HTML pages`);
+    }
+    add(p.url, 'unnavigable', parts.join(' and ') || 'links depend on a browser context');
+  }
+
+  const findings: FlatteningFinding[] = [];
+  for (const entry of byPage.values()) {
+    if (entry.symptoms.size < 2) continue;
+    findings.push({
+      url: entry.url,
+      symptoms: DIRECTION_ORDER.filter((d) => entry.symptoms.has(d)).map((direction) => ({
+        direction,
+        evidence: entry.symptoms.get(direction)!,
+      })),
+    });
+  }
+  return findings;
+}
+
 interface DiagnosticDefinition {
   id: string;
   severity: DiagnosticSeverity;
@@ -309,6 +564,93 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       'Either reduce HTML page sizes (break large pages, reduce inline ' +
       'CSS/JS), or provide markdown versions and ensure agents can discover ' +
       'them via content negotiation or an llms.txt directive.',
+  },
+
+  {
+    id: 'dynamic-content-rendered-statically',
+    severity: 'warning',
+    triggers: (results) => collectFlatteningFindings(results).length > 0,
+    message: (results) => {
+      const findings = collectFlatteningFindings(results);
+      const shown = findings.slice(0, 3);
+      const pages = shown
+        .map(
+          (f) => `${f.url}: ${f.symptoms.map((s) => `${s.direction} (${s.evidence})`).join('; ')}`,
+        )
+        .join('. ');
+      const more =
+        findings.length > shown.length ? ` And ${findings.length - shown.length} more.` : '';
+      const noun = findings.length === 1 ? 'page shows' : 'pages show';
+      return (
+        `${findings.length} generated ${noun} several symptoms of the same ` +
+        `flattening problem. ${pages}.${more} Each check flags one symptom, ` +
+        'but the cause is shared: the markdown variant is a second rendering ' +
+        'pipeline, and it needs the same QA the HTML pipeline gets.'
+      );
+    },
+    resolution:
+      'Treat these as one pipeline problem rather than separate findings. ' +
+      'Review the generator that produces the agent-facing representation of ' +
+      'the affected pages for how it dumps widget data, whether it inherits UI ' +
+      'pagination or a default filter, and how it writes links, then re-run ' +
+      'embedded-data-serialization, single-fetch-completeness, ' +
+      'markdown-content-parity, and markdown-link-portability together on ' +
+      'those pages.',
+  },
+
+  {
+    id: 'bot-protection-scan-reliability',
+    severity: 'warning',
+    triggers: (results, _triggered, report) => isScanDegradedByBotProtection(results, report),
+    message: (results, _triggered, report) => {
+      const counts = failureCounts(results, report);
+      const check = results.get('bot-protection-interference');
+      const verdict =
+        check?.status === 'fail'
+          ? ' The bot-protection-interference check found sustained interference.'
+          : check?.status === 'warn'
+            ? ' The bot-protection-interference check found intermittent interference.'
+            : '';
+
+      if (!counts || counts.requests === 0) {
+        return (
+          'Bot protection interfered with this scan, so multi-page checks ' +
+          'were computed from whatever sample of pages survived.' +
+          verdict
+        );
+      }
+
+      const pct = Math.round((counts.failed / counts.requests) * 100);
+      const responded = counts.requests - counts.failed;
+      const kinds: string[] = [];
+      if (counts.stalledBodies > 0) kinds.push(`${counts.stalledBodies} stalled bodies`);
+      if (counts.challengePages > 0) kinds.push(`${counts.challengePages} challenge pages`);
+      if (counts.fetchErrors > 0) kinds.push(`${counts.fetchErrors} connection errors`);
+      if (counts.denied > 0) kinds.push(`${counts.denied} denied responses`);
+      const breakdown = kinds.length > 0 ? ` (${kinds.join(', ')})` : '';
+
+      const affected = check?.details?.affectedChecks;
+      const affectedNote =
+        Array.isArray(affected) && affected.length > 0
+          ? ` Checks that ran during the interference window: ${(affected as string[]).join(', ')}.`
+          : '';
+
+      return (
+        `${pct}% of HTTP requests during this scan failed, timed out, or were denied${breakdown}. ` +
+        'The site may be rate-limiting or tarpitting automated clients; ' +
+        `multi-page check scores reflect only the ${responded} requests that completed, ` +
+        'not the full site.' +
+        verdict +
+        affectedNote
+      );
+    },
+    resolution:
+      'Treat the scores as measuring a smaller sample than they appear to. ' +
+      'Behavioral enforcement is stateful and decays, so re-run after a ' +
+      'cooldown or from a different network vantage point, and raise ' +
+      '--request-delay if the cadence is yours to control. For the site-side ' +
+      'fix, see the bot-protection-interference check: exempt public ' +
+      'documentation routes from behavioral bot enforcement.',
   },
 
   // --- run-level diagnostics (don't depend on other diagnostics) ---

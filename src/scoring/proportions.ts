@@ -64,6 +64,10 @@ const PROPORTION_EXTRACTORS: Record<string, ProportionExtractor> = {
   // --- Bucket-based checks (passBucket / warnBucket / failBucket) ---
   'page-size-markdown': bucketExtractor,
   'page-size-html': bucketExtractor,
+  'page-size-transfer': bucketExtractor,
+  'single-fetch-completeness': bucketExtractor,
+  'markdown-link-portability': bucketExtractor,
+  'embedded-data-serialization': bucketExtractor,
   'content-start-position': bucketExtractor,
   'cache-header-hygiene': bucketExtractor,
   'markdown-content-parity': bucketExtractor,
@@ -93,6 +97,7 @@ const PROPORTION_EXTRACTORS: Record<string, ProportionExtractor> = {
 
   // --- Percentage-based single-value checks ---
   'llms-txt-coverage': llmsTxtCoverageExtractor,
+  'bot-protection-interference': botProtectionExtractor,
 };
 
 // ---------------------------------------------------------------------------
@@ -464,6 +469,41 @@ function llmsTxtCoverageExtractor(result: CheckResult): ProportionResult | undef
 
   return {
     proportion: coverageRate / 100,
+    tested: 1,
+  };
+}
+
+/**
+ * bot-protection-interference: a warn means interference was observed but
+ * did not sustain. A flat warn coefficient would score two challenges in two
+ * hundred requests the same as a quarter of the run failing, so inside the
+ * warn band the credit slides with the failure rate, the partial credit every
+ * multi-page check already gets. Full credit at a 0% failure rate, the warn
+ * coefficient at the check's own sustained-failure threshold (the rate at
+ * which the verdict would have been fail), linear between. Fail stays zero,
+ * the same step every bucketed check has at its fail boundary. The rate is
+ * partly a property of the scanner's cadence and vantage point, which is an
+ * argument for sliding credit rather than a flat penalty for the scanner's
+ * bad luck. Pass and fail use the status mapping.
+ */
+function botProtectionExtractor(
+  result: CheckResult,
+  weight: CheckWeight,
+): ProportionResult | undefined {
+  if (result.status !== 'warn') return undefined;
+  const d = result.details;
+  if (!d) return undefined;
+
+  const requests = d.requests as number | undefined;
+  const failed = d.failedRequests as number | undefined;
+  if (!requests || failed === undefined) return undefined;
+
+  const thresholds = d.thresholds as { sustainedFailureRate?: number } | undefined;
+  const sustained = thresholds?.sustainedFailureRate ?? 0.5;
+  const warnCoeff = weight.warnCoefficient ?? 0.5;
+  const severity = Math.min(1, failed / requests / sustained);
+  return {
+    proportion: warnCoeff + (1 - warnCoeff) * (1 - severity),
     tested: 1,
   };
 }

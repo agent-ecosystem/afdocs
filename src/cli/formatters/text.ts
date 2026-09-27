@@ -2,6 +2,12 @@ import chalk from 'chalk';
 import type { ReportResult, CheckResult } from '../../types.js';
 import { SPEC_BASE_URL, specCheckUrl } from '../../constants.js';
 import { getResolution } from '../../scoring/resolutions.js';
+import { isScanDegradedByBotProtection } from '../../scoring/diagnostics.js';
+import { PAGE_LEVEL_CHECKS } from '../../scoring/score.js';
+import { describeNetworkContext } from '../../helpers/network-context.js';
+import { describeTransfer, formatBytes } from '../../helpers/format-bytes.js';
+import { describeBulkElement } from '../../helpers/detect-bulk-data.js';
+import type { BulkElement } from '../../helpers/detect-bulk-data.js';
 
 const STATUS_ICONS: Record<string, string> = {
   pass: chalk.green('✓'),
@@ -44,6 +50,25 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
       });
   },
 
+  'page-size-transfer': (details) => {
+    const pages = details.pageResults as PageResult[] | undefined;
+    if (!pages) return [];
+    return pages
+      .filter((p) => p.status !== 'pass' && !p.error)
+      .map((p) => {
+        const info = describeTransfer(
+          p.servedBytes as number,
+          p.contentCharacters as number,
+          p.ratio as number | undefined,
+        );
+        const wire =
+          typeof p.wireBytes === 'number'
+            ? `, ${formatBytes(p.wireBytes)} on the wire (${p.contentEncoding})`
+            : '';
+        return formatDetailLine(p.status, p.url, `${info}${wire}`);
+      });
+  },
+
   'page-size-markdown': (details) => {
     const pages = details.pageResults as PageResult[] | undefined;
     if (!pages) return [];
@@ -53,6 +78,67 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
         const size = formatSize(p.characters as number);
         const displayUrl = (p.mdUrl as string) ?? p.url;
         return formatDetailLine(p.status, displayUrl, size);
+      });
+  },
+
+  'single-fetch-completeness': (details) => {
+    const pages = details.pageResults as
+      | Array<{
+          url: string;
+          mdUrl?: string;
+          status: string;
+          signals?: Array<{ type: string; text: string }>;
+          continuation?: { url: string };
+          issues?: string[];
+        }>
+      | undefined;
+    if (!pages) return [];
+    return pages
+      .filter((p) => p.status !== 'pass')
+      .map((p) => {
+        const signal = p.signals?.[0];
+        const evidence = signal ? `paginated ("${signal.text}")` : 'paginated';
+        const continuation = p.continuation ? `; continuation ${p.continuation.url}` : '';
+        const issues = p.issues && p.issues.length > 0 ? `: ${p.issues.join(', ')}` : '';
+        return formatDetailLine(p.status, p.mdUrl ?? p.url, `${evidence}${continuation}${issues}`);
+      });
+  },
+
+  'markdown-link-portability': (details) => {
+    const pages = details.pageResults as
+      | Array<{
+          url: string;
+          mdUrl?: string;
+          status: string;
+          links?: {
+            absolute: number;
+            rootRelative: number;
+            protocolRelative?: number;
+            pathRelative: number;
+            unresolvable?: number;
+            total: number;
+          };
+          samples?: Array<{ url: string; outcome: string; status?: number }>;
+        }>
+      | undefined;
+    if (!pages) return [];
+    return pages
+      .filter((p) => p.status !== 'pass')
+      .map((p) => {
+        const l = p.links;
+        // Protocol-relative links warn alongside root-relative ones, so they
+        // are reported together; a page whose only fragile links are `//host`
+        // would otherwise show zeroes next to a warning.
+        const rootish = l ? l.rootRelative + (l.protocolRelative ?? 0) : 0;
+        const malformed = l?.unresolvable ? `, ${l.unresolvable} malformed` : '';
+        const counts = l
+          ? `${l.total} links: ${l.absolute} absolute, ${rootish} root-relative, ${l.pathRelative} path-relative${malformed}`
+          : 'links';
+        const broken = (p.samples ?? [])
+          .filter((s) => s.outcome !== 'ok')
+          .map((s) => `${s.url} (${s.outcome}${s.status ? ` ${s.status}` : ''})`);
+        const brokenNote = broken.length > 0 ? `; sampled: ${broken.join(', ')}` : '';
+        return formatDetailLine(p.status, p.mdUrl ?? p.url, `${counts}${brokenNote}`);
       });
   },
 
@@ -222,6 +308,38 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
       });
   },
 
+  'embedded-data-serialization': (details) => {
+    const pages = details.pageResults as
+      | Array<{
+          url: string;
+          status: string;
+          convertedCharacters?: number;
+          bulkShare?: number;
+          proseBeforeBulkPercent?: number;
+          dominantElement?: BulkElement;
+          elementCount?: number;
+          error?: string;
+        }>
+      | undefined;
+    if (!pages) return [];
+    return pages
+      .filter((p) => p.status !== 'pass')
+      .map((p) => {
+        if (p.error) return formatDetailLine('fail', p.url, p.error);
+        const el = p.dominantElement;
+        const what = el ? describeBulkElement(el) : 'bulk data';
+        const others = (p.elementCount ?? 0) > 1 ? ` (+${(p.elementCount ?? 0) - 1} more)` : '';
+        const total = formatSize(p.convertedCharacters ?? 0);
+        const share = el ? el.share : (p.bulkShare ?? 0);
+        const prose = p.proseBeforeBulkPercent ?? 0;
+        return formatDetailLine(
+          p.status,
+          p.url,
+          `${what}${others} is ${share}% of ${total}; ${prose}% of the prose comes before it`,
+        );
+      });
+  },
+
   'tabbed-content-serialization': (details) => {
     const pages = details.tabbedPages as
       | Array<{
@@ -320,6 +438,29 @@ const DETAIL_FORMATTERS: Record<string, DetailFormatter> = {
       });
   },
 
+  'bot-protection-interference': (details) => {
+    const samples = details.samples as
+      | {
+          stalled?: string[];
+          challenged?: Array<{ url: string; status: number | null; challenge?: string }>;
+          errored?: Array<{ url: string; error?: string }>;
+        }
+      | undefined;
+    if (!samples) return [];
+    const lines: string[] = [];
+    for (const url of samples.stalled ?? []) {
+      lines.push(formatDetailLine('fail', url, 'body stalled past request timeout'));
+    }
+    for (const c of samples.challenged ?? []) {
+      const status = c.status != null ? `HTTP ${c.status}, ` : '';
+      lines.push(formatDetailLine('fail', c.url, `${status}${c.challenge ?? 'challenge page'}`));
+    }
+    for (const e of samples.errored ?? []) {
+      lines.push(formatDetailLine('warn', e.url, e.error ?? 'fetch error'));
+    }
+    return lines;
+  },
+
   'section-header-quality': (details) => {
     const analyses = details.analyses as
       | Array<{
@@ -349,10 +490,20 @@ function formatDetailLine(status: string, url: string, metric: string): string {
 /** Check IDs whose results may be unreliable when rendering-strategy fails. */
 const RENDERING_SENSITIVE_CHECKS = new Set(['page-size-html', 'content-start-position']);
 
-function formatResult(result: CheckResult, allResults?: CheckResult[]): string {
+function formatResult(
+  result: CheckResult,
+  allResults?: CheckResult[],
+  partialSample = false,
+): string {
   const icon = STATUS_ICONS[result.status] ?? '?';
   const color = STATUS_COLORS[result.status] ?? ((s: string) => s);
   let line = `  ${icon} ${color(result.id)}: ${result.message}`;
+
+  // Flag multi-page checks computed from a partial sample when bot protection
+  // degraded the scan (the spec's inverted dependency on every multi-page check).
+  if (partialSample && PAGE_LEVEL_CHECKS.has(result.id)) {
+    line += `\n      ${chalk.dim('Note: bot protection interfered with the scan; this result was computed from the pages that responded')}`;
+  }
 
   // Add caveat when rendering-strategy failed and this check measures HTML content
   if (RENDERING_SENSITIVE_CHECKS.has(result.id) && allResults) {
@@ -407,7 +558,13 @@ export function formatText(report: ReportResult, options?: FormatTextOptions): s
     return isNaN(d.getTime()) ? report.timestamp : d.toLocaleString();
   })();
   lines.push(chalk.gray(`Timestamp: ${localTime}`));
+  if (report.networkContext) {
+    lines.push(chalk.gray(`Scanned from ${describeNetworkContext(report.networkContext)}`));
+  }
   lines.push('');
+
+  const resultMap = new Map(report.results.map((r) => [r.id, r]));
+  const partialSample = isScanDegradedByBotProtection(resultMap, report);
 
   // Group by category
   const byCategory = new Map<string, CheckResult[]>();
@@ -420,7 +577,7 @@ export function formatText(report: ReportResult, options?: FormatTextOptions): s
   for (const [category, results] of byCategory) {
     lines.push(chalk.bold.underline(category));
     for (const result of results) {
-      lines.push(formatResult(result, report.results));
+      lines.push(formatResult(result, report.results, partialSample));
       if (verbose) {
         lines.push(...formatVerboseDetails(result));
       }

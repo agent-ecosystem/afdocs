@@ -10,8 +10,10 @@ import type {
   RunnerOptions,
   SamplingStrategy,
   UrlPathPattern,
+  NetworkContextClass,
 } from '../../types.js';
 import { findConfig, validatePages } from '../../helpers/config.js';
+import { DEFAULT_TRANSFER_THRESHOLDS } from '../../constants.js';
 import { validateRunnerOptions } from '../../validation.js';
 
 // Ensure all checks are registered
@@ -42,10 +44,22 @@ export function registerCheckCommand(program: Command): void {
       '--url-path-pattern <pattern>',
       'How llms.txt .md links map to page URLs: clean (strip extension, default), html (replace with .html), or md (keep .md)',
     )
+    .option(
+      '--network-context <class>',
+      'Where the scan runs from, for bot-protection findings: developer-machine, ci, or cloud (default: detected from environment)',
+    )
     .option('--doc-locale <code>', 'Preferred locale for URL discovery (e.g. en, fr, ja)')
     .option('--doc-version <version>', 'Preferred version for URL discovery (e.g. v3, 2.x, latest)')
     .option('--pass-threshold <n>', 'Pass threshold in characters')
     .option('--fail-threshold <n>', 'Fail threshold in characters')
+    .option(
+      '--transfer-pass-threshold <bytes>',
+      'Served-size pass threshold in bytes for page-size-transfer (default 1000000)',
+    )
+    .option(
+      '--transfer-fail-threshold <bytes>',
+      'Served-size fail threshold in bytes for page-size-transfer (default 10000000)',
+    )
     .option('-v, --verbose', 'Show per-page details for checks with issues')
     .option('-q, --quiet', 'Suppress progress output on stderr')
     .option('--fixes', 'Show fix suggestions for warn/fail checks')
@@ -73,6 +87,18 @@ export function registerCheckCommand(program: Command): void {
     .option(
       '--parity-exclusions <selectors>',
       'Comma-separated CSS selectors to strip from HTML before parity comparison',
+    )
+    .option(
+      '--bulk-table-rows <n>',
+      'Data rows at or above which a uniform table counts as bulk for embedded-data-serialization (default 20)',
+    )
+    .option(
+      '--bulk-blob-chars <n>',
+      'Characters at or above which a JSON blob or base64 run counts as bulk for embedded-data-serialization (default 2000)',
+    )
+    .option(
+      '--bulk-dominant-share <pct>',
+      'Bulk share of converted content at which bulk is the dominant contributor (0-100, default 50)',
     )
     .option(
       '--canonical-origin <url>',
@@ -189,6 +215,22 @@ export function registerCheckCommand(program: Command): void {
         ),
         10,
       );
+      const transferPassThreshold = parseInt(
+        String(
+          (opts.transferPassThreshold as string | undefined) ??
+            config?.options?.transferThresholds?.pass ??
+            DEFAULT_TRANSFER_THRESHOLDS.pass,
+        ),
+        10,
+      );
+      const transferFailThreshold = parseInt(
+        String(
+          (opts.transferFailThreshold as string | undefined) ??
+            config?.options?.transferThresholds?.fail ??
+            DEFAULT_TRANSFER_THRESHOLDS.fail,
+        ),
+        10,
+      );
 
       const quiet = !!opts.quiet;
 
@@ -207,6 +249,8 @@ export function registerCheckCommand(program: Command): void {
         (opts.docLocale as string | undefined) ?? config?.options?.preferredLocale;
       const preferredVersion =
         (opts.docVersion as string | undefined) ?? config?.options?.preferredVersion;
+      const networkContext =
+        (opts.networkContext as string | undefined) ?? config?.options?.networkContext;
 
       let canonicalOrigin: string | undefined;
       const rawCanonical =
@@ -288,6 +332,19 @@ export function registerCheckCommand(program: Command): void {
           ? parseInt(String(opts.parityWarnThreshold), 10)
           : (config?.options?.parityWarnThreshold ?? undefined);
 
+      const bulkTableRows =
+        opts.bulkTableRows != null
+          ? parseInt(String(opts.bulkTableRows), 10)
+          : (config?.options?.bulkTableRows ?? undefined);
+      const bulkBlobChars =
+        opts.bulkBlobChars != null
+          ? parseInt(String(opts.bulkBlobChars), 10)
+          : (config?.options?.bulkBlobChars ?? undefined);
+      const bulkDominantShare =
+        opts.bulkDominantShare != null
+          ? parseInt(String(opts.bulkDominantShare), 10)
+          : (config?.options?.bulkDominantShare ?? undefined);
+
       const parityExclusions =
         opts.parityExclusions != null
           ? (opts.parityExclusions as string)
@@ -308,9 +365,14 @@ export function registerCheckCommand(program: Command): void {
           pass: passThreshold,
           fail: failThreshold,
         },
+        transferThresholds: {
+          pass: transferPassThreshold,
+          fail: transferFailThreshold,
+        },
         ...(urlPathPattern && { urlPathPattern: urlPathPattern as UrlPathPattern }),
         ...(preferredLocale && { preferredLocale }),
         ...(preferredVersion && { preferredVersion }),
+        ...(networkContext && { networkContext: networkContext as NetworkContextClass }),
         ...(canonicalOrigin && { canonicalOrigin }),
         ...(llmsTxtUrl && { llmsTxtUrl }),
         ...(coveragePassThreshold != null && { coveragePassThreshold }),
@@ -319,6 +381,9 @@ export function registerCheckCommand(program: Command): void {
         ...(parityPassThreshold != null && { parityPassThreshold }),
         ...(parityWarnThreshold != null && { parityWarnThreshold }),
         ...(parityExclusions && { parityExclusions }),
+        ...(bulkTableRows != null && { bulkTableRows }),
+        ...(bulkBlobChars != null && { bulkBlobChars }),
+        ...(bulkDominantShare != null && { bulkDominantShare }),
         // Progress goes to stderr so it never contaminates parseable stdout
         // formats (json, piped scorecard output).
         ...(!quiet && {

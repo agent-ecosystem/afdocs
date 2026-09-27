@@ -63,4 +63,25 @@ describe('htmlToMarkdown', () => {
     expect(md).toContain('foo');
     expect(md).toContain('|');
   });
+
+  it('drops a table skeleton with no rows instead of crashing the GFM plugin', () => {
+    // A <thead>/<tbody> pair that a script fills in client-side (seen on a
+    // model-comparison widget) made turndown-plugin-gfm read rows[0].parentNode
+    // and throw, failing every HTML-path check for the page.
+    const html =
+      '<p>Compare models.</p><table class="w-full"><thead data-head></thead><tbody data-body></tbody></table><p>After.</p>';
+    const md = htmlToMarkdown(html);
+    expect(md).toContain('Compare models.');
+    expect(md).toContain('After.');
+    expect(md).not.toContain('<table');
+  });
+
+  it('keeps the caption of a rowless table as a paragraph', () => {
+    const html =
+      '<table><caption>Supported <em>models</em></caption><thead></thead><tbody></tbody></table><p>After.</p>';
+    const md = htmlToMarkdown(html);
+    expect(md).toContain('Supported _models_');
+    expect(md).toContain('After.');
+    expect(md).not.toContain('<table');
+  });
 });

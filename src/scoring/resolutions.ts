@@ -1,4 +1,6 @@
 import type { CheckResult, CheckStatus } from '../types.js';
+import { DEFAULT_THRESHOLDS, DEFAULT_TRANSFER_THRESHOLDS } from '../constants.js';
+import { formatBytes } from '../helpers/format-bytes.js';
 
 interface ResolutionTemplate {
   warn?: (details: Record<string, unknown>) => string;
@@ -195,6 +197,105 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
     },
   },
 
+  'page-size-transfer': {
+    warn: (d) => {
+      const warnCount = (d.warnBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      const t = transferThresholds(d);
+      return (
+        `${warnCount} of ${tested} pages serve ${t.pass}-${t.fail} of HTML. Truncate-first ` +
+        'and raw-ingestion agents consume mostly non-content bytes on these ' +
+        'pages. Identify what the non-content bytes are (usually inline ' +
+        'serialization: framework hydration payloads, embedded duplicate page ' +
+        'source, resolved data objects visible in the page source). Avoid ' +
+        'shipping the same content twice in different formats, load large data ' +
+        'payloads on demand, and confirm markdown variants are available and ' +
+        'discoverable so agents have a cheaper path.' +
+        architectureNote(d)
+      );
+    },
+    fail: (d) => {
+      const failCount = (d.failBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      const t = transferThresholds(d);
+      return (
+        `${failCount} of ${tested} pages serve over ${t.fail} of HTML, past the ` +
+        "transfer cap of at least one major platform (Claude Code's fetch " +
+        'buffer); content beyond the cap is unreachable however the agent ' +
+        'processes it. Identify what the non-content bytes are (usually ' +
+        'inline serialization: framework hydration payloads, embedded ' +
+        'duplicate page source, resolved data objects), avoid shipping the ' +
+        'same content twice, load large data payloads on demand, and confirm ' +
+        'markdown variants are available and discoverable. Markdown gives ' +
+        'agents that find it an escape hatch but does not reduce what ' +
+        'HTML-path agents transfer.' +
+        architectureNote(d)
+      );
+    },
+  },
+
+  'single-fetch-completeness': {
+    warn: (d) => {
+      const warnCount = (d.warnBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      return (
+        `${warnCount} of ${tested} markdown pages paginate with a continuation ` +
+        `that works but is fragile${completenessReasons(d, 'warn')}. Move the ` +
+        'pagination declaration to the top of the content, before anything ' +
+        'truncation could remove, and link the continuation with an absolute ' +
+        'URL. A trailing note is the first thing platform truncation removes, ' +
+        'summarization pipelines may drop it, and a relative URL loses its ' +
+        'base once the content leaves the fetch.'
+      );
+    },
+    fail: (d) => {
+      const failCount = (d.failBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      const threshold = completenessThreshold(d);
+      return (
+        `${failCount} of ${tested} markdown pages are partial and the ` +
+        `continuation is missing or broken${completenessReasons(d, 'fail')}. ` +
+        'Agents get most of the content and no working way to learn what is ' +
+        'missing. First ask whether the markdown variant needs pagination at ' +
+        `all: complete content that fits under ${threshold} characters should ` +
+        'be served in one response, even when the HTML UI paginates. If ' +
+        'pagination is genuinely necessary, declare it at the top of the ' +
+        'content with absolute links, and verify the continuation URLs ' +
+        'actually serve content.'
+      );
+    },
+  },
+
+  'markdown-link-portability': {
+    warn: (d) => {
+      const warnCount = (d.warnBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      return (
+        `${warnCount} of ${tested} markdown pages link in a way that depends on ` +
+        `the base URL${portabilityReasons(d, 'warn')}. Emit absolute URLs when ` +
+        'generating markdown: the canonical host is known at build time, so ' +
+        'absolute links cost nothing to produce. Root-relative links resolve ' +
+        'only while the fetch URL is still around, and agent pipelines lose ' +
+        'it routinely, to summarization, to RAG chunking, or to content being ' +
+        'pasted somewhere else.' +
+        redirectNote(d)
+      );
+    },
+    fail: (d) => {
+      const failCount = (d.failBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      return (
+        `${failCount} of ${tested} markdown pages carry links an agent cannot ` +
+        `follow${portabilityReasons(d, 'fail')}. Fix the link generation first, ` +
+        'then make the links absolute. Verify generated links in CI by ' +
+        'fetching a sample and checking both status and content type: a link ' +
+        'set that is generated is a link set that can break wholesale, and a ' +
+        'status code alone will not catch it, because a broken `.md` link ' +
+        'commonly returns 200 with an HTML shell.'
+      );
+    },
+  },
+
   'content-start-position': {
     warn: (d) => {
       const warnCount = (d.warnBucket as number) ?? 0;
@@ -213,6 +314,35 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
         'the converted output. Agents may never see the documentation ' +
         'content. Reduce navigation, breadcrumb, and sidebar markup that ' +
         'precedes the content area.'
+      );
+    },
+  },
+
+  'embedded-data-serialization': {
+    warn: (d) => {
+      const warnCount = (d.warnBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      const t = sizeThresholds(d);
+      return (
+        `${warnCount} of ${tested} pages convert to ${t.pass}-${t.fail} characters ` +
+        `mainly because of embedded data${bulkReasons(d)}. ` +
+        BULK_STRUCTURE_ADVICE +
+        ' Report the attribution to the page owners: a page an author ' +
+        'experiences as two paragraphs and a widget should not ship as tens ' +
+        'of thousands of characters without them knowing.'
+      );
+    },
+    fail: (d) => {
+      const failCount = (d.failBucket as number) ?? 0;
+      const tested = (d.testedPages as number) ?? 0;
+      const t = sizeThresholds(d);
+      return (
+        `${failCount} of ${tested} pages convert to over ${t.fail} characters ` +
+        `mainly because of embedded data${bulkReasons(d)}. Content after the ` +
+        'bulk element is beyond the truncation point for most platforms. ' +
+        BULK_STRUCTURE_ADVICE +
+        ' Report the attribution to the page owners: the size is a property ' +
+        'of the generated data, not of anything they wrote.'
       );
     },
   },
@@ -373,6 +503,27 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
       'alternative access paths (see auth-alternative-access check).',
   },
 
+  'bot-protection-interference': {
+    warn: () =>
+      'Some requests during a sustained scan were challenged, stalled, or ' +
+      'blocked while others succeeded. Identify which bot-management layer ' +
+      '(CDN bot management, WAF, behavioral rate enforcement) is doing this ' +
+      'and exempt public documentation routes from behavioral enforcement. ' +
+      'Intermittent interference means enforcement thresholds sit close to ' +
+      'normal agent reading cadence, so small configuration changes or ' +
+      'ordinary traffic growth can tip it into sustained blocking. If the ' +
+      'enforcement is explicit rate limiting, add a Retry-After header to ' +
+      'the 429 so agents know how long to back off.',
+    fail: () =>
+      'Sustained automated fetching is effectively blocked. Treat public ' +
+      'documentation paths as automation-friendly in your bot-management ' +
+      'configuration: exempt docs routes from behavioral enforcement, or ' +
+      'scope enforcement to interactive product surfaces. Where limits are ' +
+      'genuinely needed, prefer an explicit 429 with Retry-After over ' +
+      'tarpits or silent blocks, and never serve challenge interstitials ' +
+      'with a 200 status.',
+  },
+
   'auth-alternative-access': {
     warn: () =>
       'Partial alternative access detected for auth-gated content (e.g., ' +
@@ -389,6 +540,128 @@ const RESOLUTION_TEMPLATES: Record<string, ResolutionTemplate> = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * A high served-to-content ratio on an oversized page is an architecture
+ * signature, not a content problem: the bytes are framework payload.
+ */
+function architectureNote(d: Record<string, unknown>): string {
+  const count = (d.architectureSignaturePages as number) ?? 0;
+  const maxRatio = d.architectureSignatureMaxRatio as number | undefined;
+  if (count === 0 || maxRatio === undefined) return '';
+  const pages = count === 1 ? 'page ships' : 'pages ship';
+  return (
+    ` ${count} of the oversized ${pages} many times more bytes than content ` +
+    `(up to ~${maxRatio}:1). That ratio is an architecture signature ` +
+    '(hydration payloads, embedded duplicate content), so the fix lives in ' +
+    'framework configuration, not in the docs themselves.'
+  );
+}
+
+/**
+ * Name the dominant reasons behind a single-fetch-completeness warn or fail,
+ * from the tallies the check records in `details.reasons`.
+ */
+function completenessReasons(d: Record<string, unknown>, kind: 'warn' | 'fail'): string {
+  const r = d.reasons as Partial<Record<string, number>> | undefined;
+  if (!r) return '';
+  const parts: string[] = [];
+  if (kind === 'warn') {
+    if (r.declaredLate) parts.push(`declared only late in the content on ${r.declaredLate}`);
+    if (r.relativeUrl) parts.push(`linked with a relative URL on ${r.relativeUrl}`);
+    if (r.headerOnly) parts.push(`discoverable only from the Link header on ${r.headerOnly}`);
+  } else {
+    if (r.missing) parts.push(`no continuation link on ${r.missing}`);
+    if (r.broken) parts.push(`a continuation that returns nothing usable on ${r.broken}`);
+    if (r.unresolvable) parts.push(`an unresolvable continuation URL on ${r.unresolvable}`);
+  }
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
+
+/**
+ * Name the dominant reasons behind a markdown-link-portability warn or fail,
+ * from the per-page tallies the check records in `details.reasons`.
+ */
+function portabilityReasons(d: Record<string, unknown>, kind: 'warn' | 'fail'): string {
+  const r = d.reasons as Partial<Record<string, number>> | undefined;
+  if (!r) return '';
+  const parts: string[] = [];
+  if (kind === 'warn') {
+    if (r.rootRelative) parts.push(`root-relative links on ${r.rootRelative}`);
+    if (r.mismatched) parts.push(`a .md link that redirects to HTML on ${r.mismatched}`);
+  } else {
+    if (r.pathRelative) parts.push(`path-relative links on ${r.pathRelative}`);
+    if (r.unresolvable) parts.push(`a malformed link URL on ${r.unresolvable}`);
+    if (r.broken) parts.push(`a sampled link that does not resolve on ${r.broken}`);
+  }
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
+
+/**
+ * A `.md` link that redirects to an HTML page is the spec's minor mismatch,
+ * and making the link absolute does not fix it: the linked URL has to serve
+ * markdown. Only added when that reason was tallied.
+ */
+function redirectNote(d: Record<string, unknown>): string {
+  const r = d.reasons as Partial<Record<string, number>> | undefined;
+  if (!r?.mismatched) return '';
+  return (
+    ' Where a `.md` link redirects to an HTML page, serve markdown at the ' +
+    'linked URL, or link to the URL that serves it: the content arrived, but ' +
+    'not in the representation the link promised.'
+  );
+}
+
+/**
+ * The spec's recommended action for embedded data: structure, not removal.
+ * Shared by the warn and fail texts.
+ */
+const BULK_STRUCTURE_ADVICE =
+  'Bulk data is usually legitimate content (a support matrix is the point ' +
+  'of a support-matrix page), so the fix is structure, not removal: split ' +
+  'large generated tables into per-section pages reached from an index, ' +
+  'each complete for its scope (paginating one table into windows trades ' +
+  'this problem for the one single-fetch-completeness describes); offer ' +
+  'filtered or queryable views; load embedded data blobs on demand; and put ' +
+  'the explanatory prose before the data so truncation removes rows rather ' +
+  'than explanation.';
+
+/**
+ * Name what the bulk was on the flagged pages, from the tallies the check
+ * records in `details.reasons`.
+ */
+function bulkReasons(d: Record<string, unknown>): string {
+  const r = d.reasons as Partial<Record<string, number>> | undefined;
+  if (!r) return '';
+  const parts: string[] = [];
+  if (r.table) parts.push(`large tables on ${r.table}`);
+  if (r.json) parts.push(`JSON blobs on ${r.json}`);
+  if (r.base64) parts.push(`base64 payloads on ${r.base64}`);
+  if (r.proseAfterBulk) parts.push(`most of the prose comes after the data on ${r.proseAfterBulk}`);
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
+
+/** Character thresholds the check recorded (its `thresholds.size`), formatted like "50,000". */
+function sizeThresholds(d: Record<string, unknown>): { pass: string; fail: string } {
+  const t = (d.thresholds as { size?: { pass?: number; fail?: number } } | undefined)?.size;
+  return {
+    pass: (t?.pass ?? DEFAULT_THRESHOLDS.pass).toLocaleString(),
+    fail: (t?.fail ?? DEFAULT_THRESHOLDS.fail).toLocaleString(),
+  };
+}
+
+function completenessThreshold(d: Record<string, unknown>): string {
+  const t = d.thresholds as { pass?: number } | undefined;
+  return (t?.pass ?? DEFAULT_THRESHOLDS.pass).toLocaleString();
+}
+
+function transferThresholds(d: Record<string, unknown>): { pass: string; fail: string } {
+  const t = d.thresholds as { pass?: number; fail?: number } | undefined;
+  return {
+    pass: formatBytes(t?.pass ?? DEFAULT_TRANSFER_THRESHOLDS.pass),
+    fail: formatBytes(t?.fail ?? DEFAULT_TRANSFER_THRESHOLDS.fail),
+  };
+}
 
 function formatSize(d: Record<string, unknown>): string {
   const sizes = d.sizes as Array<{ characters?: number }> | undefined;

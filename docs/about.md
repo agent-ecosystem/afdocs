@@ -3,7 +3,7 @@
 <div class="about-intro">
 <div class="about-text">
 
-AFDocs is an open-source tool that tests documentation sites against the [Agent-Friendly Documentation Spec](https://agentdocsspec.com). The spec defines what makes documentation accessible to AI coding agents, based on observed behavior across real agent platforms. AFDocs automates those observations into 23 checks that produce a score and actionable fix suggestions.
+AFDocs is an open-source tool that tests documentation sites against the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/). The spec defines what makes documentation accessible to AI coding agents, based on observed behavior across real agent platforms. AFDocs automates those observations into 28 checks that produce a score and actionable fix suggestions.
 
 </div>
 <div class="about-logo">
@@ -14,7 +14,7 @@ AFDocs is an open-source tool that tests documentation sites against the [Agent-
 
 ## The Agent-Friendly Documentation Spec
 
-The [Agent-Friendly Documentation Spec](https://agentdocsspec.com) is the foundation for everything AFDocs checks. It documents:
+The [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/) is the foundation for everything AFDocs checks. It documents:
 
 - How agents actually discover, fetch, and consume documentation
 - What fails in practice (truncation, empty SPA shells, auth gates, broken redirects)
@@ -23,7 +23,7 @@ The [Agent-Friendly Documentation Spec](https://agentdocsspec.com) is the founda
 
 The spec is maintained at [github.com/agent-ecosystem/agent-docs-spec](https://github.com/agent-ecosystem/agent-docs-spec) and is open for contributions.
 
-AFDocs implements spec v0.5.0 (2026-04-25).
+AFDocs implements spec v0.6.0 (2026-09-13).
 
 ## Status
 

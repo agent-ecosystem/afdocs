@@ -20,6 +20,8 @@ describe('coefficients', () => {
       'page-size-markdown',
       'markdown-code-fence-validity',
       'markdown-content-parity',
+      'single-fetch-completeness',
+      'markdown-link-portability',
     ];
 
     it('returns 1.0 when content-negotiation passes', () => {
@@ -87,6 +89,7 @@ describe('coefficients', () => {
       'content-start-position',
       'tabbed-content-serialization',
       'section-header-quality',
+      'embedded-data-serialization',
     ];
 
     it('returns 1.0 when rendering-strategy is absent', () => {

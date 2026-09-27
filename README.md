@@ -9,13 +9,13 @@
   <a href="https://www.npmjs.com/package/afdocs"><img src="https://img.shields.io/npm/v/afdocs" alt="npm"></a>
 </p>
 
-Test your documentation site against the [Agent-Friendly Documentation Spec](https://agentdocsspec.com). AFDocs runs checks across 7 categories to measure how well AI coding agents can discover, navigate, and consume your docs.
+Test your documentation site against the [Agent-Friendly Documentation Spec](https://agentdocsspec.com/spec/web/). AFDocs runs checks across 7 categories to measure how well AI coding agents can discover, navigate, and consume your docs.
 
 Powering [Agent Score](https://buildwithfern.com/agent-score) by Fern.
 
 > **Status: Early development (0.x)**
 > Check IDs, CLI flags, and output formats may change between minor versions.
-> Implements [spec v0.6.0](https://agentdocsspec.com/spec/web/) (2026-08-24). The `bot-protection-interference` check is not yet scored; stalled responses currently surface as body-timeout fetch errors, with the run-level diagnostic tracked in [#104](https://github.com/agent-ecosystem/afdocs/issues/104).
+> Implements [spec v0.6.0](https://agentdocsspec.com/spec/web/) (2026-09-13).
 
 ## Quick start
 
@@ -69,7 +69,7 @@ Full documentation is available at **[afdocs.dev](https://afdocs.dev)**:
 
 - [Understand Your Score](https://afdocs.dev/what-is-agent-score) — what the score means and how it's calculated
 - [Improve Your Score](https://afdocs.dev/improve-your-score) — prioritized fix guide
-- [Checks Reference](https://afdocs.dev/checks/) — all 23 checks with fix suggestions
+- [Checks Reference](https://afdocs.dev/checks/) — all 28 checks with fix suggestions
 - [CLI Reference](https://afdocs.dev/reference/cli) — flags, output formats, sampling strategies
 - [CI Integration](https://afdocs.dev/ci-integration) — vitest helpers for your pipeline
 - [Programmatic API](https://afdocs.dev/reference/programmatic-api) — TypeScript API for custom tooling

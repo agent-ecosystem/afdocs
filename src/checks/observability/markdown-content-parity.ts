@@ -73,6 +73,57 @@ const NOISE_PATTERNS = [
   /^for ai agents:/, // llms.txt directive banner text
 ];
 
+/**
+ * Item-count comparison for pages with repeated structure (catalogs, model
+ * listings, compatibility matrices). Informational: it never changes the
+ * page's status. The spec's parity notes ask implementations to compare item
+ * counts between representations and to name the likely cause when they
+ * differ, because each cause has a different owner and fix.
+ */
+export interface ItemCounts {
+  /** Which repeated structure was compared: the one with more items. */
+  structure: 'list' | 'table';
+  /** Items in the HTML content container (list items or table data rows). */
+  html: number;
+  /** Items in the markdown (list-item lines or pipe-table data rows). */
+  markdown: number;
+  /** Distinct markdown items; the comparison uses this when entries repeat. */
+  markdownUnique: number;
+  /** Entries in that markdown structure that repeat an earlier entry verbatim. */
+  duplicates: number;
+  /** True when the counts differ by more than the tolerance. */
+  diverges: boolean;
+  /**
+   * Best guess at why the counts differ, when they do:
+   * - `default-filter`: the markdown lists more than the HTML shows, the
+   *   signature of a dynamic view applying a default filter that the dump
+   *   does not (the spec's observed case: 98 shown, 102 listed).
+   * - `pagination`: the markdown lists fewer and `single-fetch-completeness`
+   *   found the page paginated (windowing).
+   * - `staleness`: the markdown lists fewer with no pagination in sight,
+   *   most often one representation generated from older data.
+   */
+  likelyCause?: 'default-filter' | 'pagination' | 'staleness';
+}
+
+/** Items in the larger structure before an item-count comparison is meaningful. */
+const MIN_REPEATED_ITEMS = 20;
+
+/**
+ * Items the smaller side must have for the comparison to be trusted. One
+ * side at zero while the other lists a catalog is an extraction artifact
+ * (a pure-link list stripped as navigation, a table rendered client-side),
+ * not a filter, and is reported without a cause.
+ */
+const MIN_ITEMS_EACH_SIDE = 5;
+
+/**
+ * Difference that counts as divergence: more than one item, and more than
+ * 2% of the larger count. The spec's observed case (98 shown, 102 listed)
+ * is a 4% difference of real items; a one-item difference is noise.
+ */
+const ITEM_COUNT_TOLERANCE = 0.02;
+
 interface PageParityResult {
   url: string;
   markdownSource: string;
@@ -85,6 +136,8 @@ interface PageParityResult {
   missingSegments: number;
   /** Sample of missing segments for diagnostics. */
   sampleDiffs: string[];
+  /** Present when the page has repeated structure on either side. */
+  itemCounts?: ItemCounts;
   error?: string;
 }
 
@@ -149,9 +202,171 @@ const CONTENT_SELECTORS = [
   '.prose',
 ];
 
+interface HtmlItemCounts {
+  listItems: number;
+  tableRows: number;
+}
+
 interface HtmlExtractionResult {
   text: string;
   segmentationStripped: number;
+  items: HtmlItemCounts;
+}
+
+/**
+ * Size of the largest repeated structure in the content container after
+ * chrome is stripped: the list with the most direct items, and the table
+ * with the most data rows (header rows excluded). The largest structure,
+ * not the sum, so a "Related" list or a small options table next to a
+ * catalog does not shift the count.
+ */
+function countHtmlItems(content: HTMLElement): HtmlItemCounts {
+  let listItems = 0;
+  for (const list of content.querySelectorAll('ul, ol')) {
+    const direct = list.childNodes.filter(
+      (n) =>
+        n.nodeType === NodeType.ELEMENT_NODE && (n as HTMLElement).tagName?.toLowerCase() === 'li',
+    ).length;
+    if (direct > listItems) listItems = direct;
+  }
+  let tableRows = 0;
+  for (const table of content.querySelectorAll('table')) {
+    let rows = 0;
+    for (const tr of table.querySelectorAll('tr')) {
+      if (tr.closest('thead')) continue;
+      const cells = tr.querySelectorAll('td, th');
+      if (cells.length > 0 && cells.every((c) => c.tagName?.toLowerCase() === 'th')) continue;
+      rows++;
+    }
+    if (rows > tableRows) tableRows = rows;
+  }
+  return { listItems, tableRows };
+}
+
+interface MarkdownItemCounts {
+  /** Top-level items in the largest contiguous list (nested bullets excluded). */
+  listItems: number;
+  /** Distinct top-level items in that list. */
+  uniqueListItems: number;
+  /** Data rows in the largest pipe table. */
+  tableRows: number;
+}
+
+const MD_FENCE = /^\s*(`{3,}|~{3,})/;
+const MD_LIST_ITEM = /^(\s*)(?:[-*+]|\d+[.)])\s+(.*)$/;
+const MD_TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/**
+ * Measure the largest contiguous list (blank lines between items allowed,
+ * any other line ends it) and the largest pipe table in markdown, outside
+ * fenced code. Only the block's top-level items count, mirroring the HTML
+ * side's direct `li` children, so a catalog whose entries carry nested
+ * bullets is not counted three times over. Items are deduplicated by
+ * normalized text within the block, so a generator that emits every entry
+ * twice shows up as duplicates rather than as twice the catalog.
+ */
+function countMarkdownItems(markdown: string): MarkdownItemCounts {
+  const lines = markdown.split('\n');
+  let inFence: { char: string; length: number } | null = null;
+  let listItems = 0;
+  let uniqueListItems = 0;
+  let tableRows = 0;
+  let block: Array<{ indent: number; key: string }> = [];
+
+  const closeBlock = () => {
+    if (block.length > 0) {
+      const base = Math.min(...block.map((b) => b.indent));
+      const top = block.filter((b) => b.indent === base).map((b) => b.key);
+      if (top.length > listItems) {
+        listItems = top.length;
+        uniqueListItems = new Set(top).size;
+      }
+    }
+    block = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fence = MD_FENCE.exec(line);
+    if (fence) {
+      if (inFence === null) {
+        closeBlock();
+        inFence = { char: fence[1][0], length: fence[1].length };
+        continue;
+      }
+      // CommonMark: the closer uses the same character, is at least as long
+      // as the opener, and carries nothing else on the line.
+      if (
+        fence[1][0] === inFence.char &&
+        fence[1].length >= inFence.length &&
+        line.trim() === fence[1]
+      ) {
+        inFence = null;
+      }
+      continue;
+    }
+    if (inFence !== null) continue;
+    const item = MD_LIST_ITEM.exec(line);
+    if (item) {
+      block.push({ indent: item[1].replace(/\t/g, '    ').length, key: normalize(item[2]) });
+      continue;
+    }
+    if (line.trim() === '') continue;
+    closeBlock();
+    if (line.includes('|') && i + 1 < lines.length && MD_TABLE_DELIMITER.test(lines[i + 1])) {
+      let j = i + 2;
+      while (j < lines.length && lines[j].trim() !== '' && lines[j].includes('|')) j++;
+      const rows = j - (i + 2);
+      if (rows > tableRows) tableRows = rows;
+      i = j - 1;
+    }
+  }
+  closeBlock();
+  return { listItems, uniqueListItems, tableRows };
+}
+
+/**
+ * Compare item counts between representations when either side has enough
+ * repeated structure to make the comparison meaningful.
+ */
+function compareItemCounts(
+  html: HtmlItemCounts,
+  md: MarkdownItemCounts,
+  paginated: boolean,
+): ItemCounts | undefined {
+  const listMax = Math.max(html.listItems, md.listItems);
+  const tableMax = Math.max(html.tableRows, md.tableRows);
+  if (listMax < MIN_REPEATED_ITEMS && tableMax < MIN_REPEATED_ITEMS) return undefined;
+
+  const structure: ItemCounts['structure'] = listMax >= tableMax ? 'list' : 'table';
+  const htmlCount = structure === 'list' ? html.listItems : html.tableRows;
+  const mdCount = structure === 'list' ? md.listItems : md.tableRows;
+  const mdUnique = structure === 'list' ? md.uniqueListItems : md.tableRows;
+  const duplicates = mdCount - mdUnique;
+
+  // Compare against distinct entries: a duplicated catalog is not a bigger one.
+  const compared = mdUnique;
+  const larger = Math.max(htmlCount, compared);
+  const trusted = Math.min(htmlCount, compared) >= MIN_ITEMS_EACH_SIDE;
+  const diverges =
+    trusted && Math.abs(htmlCount - compared) > Math.max(1, larger * ITEM_COUNT_TOLERANCE);
+
+  let likelyCause: ItemCounts['likelyCause'];
+  if (diverges) {
+    if (compared > htmlCount) likelyCause = 'default-filter';
+    else if (paginated) likelyCause = 'pagination';
+    else likelyCause = 'staleness';
+  }
+
+  return {
+    structure,
+    html: htmlCount,
+    markdown: mdCount,
+    markdownUnique: mdUnique,
+    duplicates,
+    diverges,
+    ...(likelyCause && { likelyCause }),
+  };
 }
 
 function extractHtmlText(html: string, parityExclusions?: string[]): HtmlExtractionResult {
@@ -184,7 +399,9 @@ function extractHtmlText(html: string, parityExclusions?: string[]): HtmlExtract
   }
 
   if (!content) content = root.querySelector('body');
-  if (!content) return { text: root.text, segmentationStripped: 0 };
+  if (!content) {
+    return { text: root.text, segmentationStripped: 0, items: { listItems: 0, tableRows: 0 } };
+  }
 
   // Strip audience-segmentation elements before comparison.
   // data-markdown-ignore marks content intended only for human readers;
@@ -256,7 +473,7 @@ function extractHtmlText(html: string, parityExclusions?: string[]): HtmlExtract
   //    brackets so it matches the markdown side. Previously the text-level
   //    tag-stripping regex deleted these as if they were tags.
   const text = walkContent(content);
-  return { text, segmentationStripped };
+  return { text, segmentationStripped, items: countHtmlItems(content) };
 }
 
 /**
@@ -725,6 +942,13 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
   const concurrency = ctx.options.maxConcurrency;
   let totalSegmentationStripped = 0;
 
+  // Pages single-fetch-completeness found paginated: a markdown variant that
+  // lists fewer items than the HTML because it is windowed, not stale.
+  const paginatedPages = new Set<string>();
+  const completeness = ctx.previousResults.get('single-fetch-completeness')?.details
+    ?.pageResults as Array<{ url: string; paginated?: boolean }> | undefined;
+  for (const r of completeness ?? []) if (r.paginated) paginatedPages.add(r.url);
+
   for (let i = 0; i < pagesToCompare.length; i += concurrency) {
     const batch = pagesToCompare.slice(i, i + concurrency);
     const batchResults = await Promise.all(
@@ -761,14 +985,20 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
             };
           }
 
-          const { text: htmlText, segmentationStripped } = extractHtmlText(
-            page.body,
-            parityExclusions,
-          );
+          const {
+            text: htmlText,
+            segmentationStripped,
+            items,
+          } = extractHtmlText(page.body, parityExclusions);
           totalSegmentationStripped += segmentationStripped;
           const parity = computeParity(htmlText, markdownContent, warnThreshold, failThreshold);
+          const itemCounts = compareItemCounts(
+            items,
+            countMarkdownItems(markdownContent),
+            paginatedPages.has(url),
+          );
 
-          return { url, markdownSource, ...parity };
+          return { url, markdownSource, ...parity, ...(itemCounts && { itemCounts }) };
         } catch (err) {
           return {
             url,
@@ -811,6 +1041,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     successful.length > 0
       ? Math.round(successful.reduce((sum, r) => sum + r.missingPercent, 0) / successful.length)
       : 0;
+  const itemCountDivergences = successful.filter((r) => r.itemCounts?.diverges).length;
   const suffix = fetchErrors > 0 ? `; ${fetchErrors} failed to fetch` : '';
 
   let message: string;
@@ -834,6 +1065,7 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       failBucket,
       fetchErrors,
       avgMissingPercent,
+      ...(itemCountDivergences > 0 && { itemCountDivergences }),
       ...(totalSegmentationStripped > 0 && {
         segmentationElementsStripped: totalSegmentationStripped,
       }),

@@ -1,12 +1,17 @@
 # How the Agent-Friendly Docs Score Works
 
-Scoring Version: 0.1.0 · [Agent-Friendly Docs Spec v0.5.0](https://agentdocsspec.com) · April 2026
+Scoring Version: 0.2.0 · [Agent-Friendly Docs Spec v0.6.0](https://agentdocsspec.com/spec/web/) · September 2026
+
+Scores from different scoring versions are not comparable. Version history:
+
+- **0.2.0** (September 2026, spec v0.6.0): five checks added (`bot-protection-interference`, `page-size-transfer`, `single-fetch-completeness`, `markdown-link-portability`, `embedded-data-serialization`), raising the maximum raw score from 130 to 153; `single-fetch-completeness` and `markdown-link-portability` join the discovery coefficient and `embedded-data-serialization` joins the HTML path coefficient; the partial-sample flag added; a warn on `bot-protection-interference` scores in proportion to the run's failure rate instead of at the flat coefficient; the size checks' pass band is now strictly under the threshold, as the result tables have always said (a page of exactly 50,000 characters or exactly 1MB is a warn). No existing weight, coefficient, cap, or formula changed. Most sites score a few points higher than under 0.1.0 because four of the new checks pass on ordinary prose sites.
+- **0.1.0** (April 2026, spec v0.3.0): initial version.
 
 ## What is this score?
 
-The Agent-Friendly Docs Scorecard measures how effectively AI coding agents can discover, navigate, and consume a documentation site. It runs 23 automated checks against your site and produces a 0–100 score with a letter grade.
+The Agent-Friendly Docs Scorecard measures how effectively AI coding agents can discover, navigate, and consume a documentation site. It runs 28 automated checks against your site and produces a 0–100 score with a letter grade.
 
-Each check corresponds to a section of the [Agent-Friendly Docs Spec](https://agentdocsspec.com), which documents what the check measures, why it matters for real agent workflows, and the observed behaviors that motivated it. This document covers how checks are **scored**, not what they **measure**. If you want to understand a specific check in depth, follow the spec links in the table below.
+Each check corresponds to a section of the [Agent-Friendly Docs Spec](https://agentdocsspec.com/spec/web/), which documents what the check measures, why it matters for real agent workflows, and the observed behaviors that motivated it. This document covers how checks are **scored**, not what they **measure**. If you want to understand a specific check in depth, follow the spec links in the table below.
 
 The score reflects how well agents can _actually use_ your documentation, not just how many boxes are ticked. A site with perfect markdown support that no agent can discover scores lower than a site with imperfect markdown that agents are directed to.
 
@@ -23,7 +28,7 @@ The score reflects how well agents can _actually use_ your documentation, not ju
 
 ## What we check
 
-The 23 checks are grouped into seven categories. Each check is assigned a **weight tier** based on its observed impact on agent workflows (3 critical, 8 high, 10 medium, 2 low; max raw score 130):
+The 28 checks are grouped into seven categories. Each check is assigned a **weight tier** based on its observed impact on agent workflows (3 critical, 9 high, 14 medium, 2 low; max raw score 153):
 
 - **Critical (10 pts)**: Agents cannot function without this. Failure means zero content, zero navigation, or zero access.
 - **High (7 pts)**: Directly limits agent effectiveness. Failure means truncation, dead ends, or agents stuck on a worse path.
@@ -57,12 +62,14 @@ Whether agents can get documentation in their preferred format.
 
 Whether agents can process your pages without losing content.
 
-| Check                                                                                          | Weight        | What it measures                                                                                      |
-| ---------------------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------- |
-| [rendering-strategy](https://agentdocsspec.com/spec/web/page-size/#rendering-strategy)         | Critical (10) | Whether pages are fully server-rendered, server-rendered but sparse, or empty SPA shells.             |
-| [page-size-markdown](https://agentdocsspec.com/spec/web/page-size/#page-size-markdown)         | High (7)      | Whether markdown pages fit within agent processing limits (~100K characters).                         |
-| [page-size-html](https://agentdocsspec.com/spec/web/page-size/#page-size-html)                 | High (7)      | Whether HTML pages, once converted to text, fit within agent processing limits.                       |
-| [content-start-position](https://agentdocsspec.com/spec/web/page-size/#content-start-position) | Medium (4)    | Whether documentation content starts near the top of the page, or is buried under boilerplate CSS/JS. |
+| Check                                                                                                | Weight        | What it measures                                                                                                  |
+| ---------------------------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------- |
+| [rendering-strategy](https://agentdocsspec.com/spec/web/page-size/#rendering-strategy)               | Critical (10) | Whether pages are fully server-rendered, server-rendered but sparse, or empty SPA shells.                         |
+| [page-size-markdown](https://agentdocsspec.com/spec/web/page-size/#page-size-markdown)               | High (7)      | Whether markdown pages fit within agent processing limits (~100K characters).                                     |
+| [page-size-html](https://agentdocsspec.com/spec/web/page-size/#page-size-html)                       | High (7)      | Whether HTML pages, once converted to text, fit within agent processing limits.                                   |
+| [page-size-transfer](https://agentdocsspec.com/spec/web/page-size/#page-size-transfer)               | Medium (4)    | Whether the served HTML document, after transfer decoding, stays under agent fetch byte caps (~10MB).             |
+| [content-start-position](https://agentdocsspec.com/spec/web/page-size/#content-start-position)       | Medium (4)    | Whether documentation content starts near the top of the page, or is buried under boilerplate CSS/JS.             |
+| [single-fetch-completeness](https://agentdocsspec.com/spec/web/page-size/#single-fetch-completeness) | Medium (4)    | Whether markdown responses are complete in one fetch, or declare a working continuation where agents will see it. |
 
 ### Content Structure
 
@@ -73,6 +80,8 @@ Whether page content is structured in ways agents can consume.
 | [tabbed-content-serialization](https://agentdocsspec.com/spec/web/content-structure/#tabbed-content-serialization) | Medium (4) | Whether tabbed UI components serialize to a reasonable size. Tabs can multiply page size dramatically.  |
 | [section-header-quality](https://agentdocsspec.com/spec/web/content-structure/#section-header-quality)             | Low (2)    | Whether headers in tabbed sections include variant context (e.g., "Step 1 (Python)" vs. just "Step 1"). |
 | [markdown-code-fence-validity](https://agentdocsspec.com/spec/web/content-structure/#markdown-code-fence-validity) | Medium (4) | Whether code fences are properly closed. An unclosed fence corrupts all content after the break point.  |
+| [markdown-link-portability](https://agentdocsspec.com/spec/web/content-structure/#markdown-link-portability)       | Medium (4) | Whether links in served markdown are absolute, and whether a sample resolves to what the link promises. |
+| [embedded-data-serialization](https://agentdocsspec.com/spec/web/content-structure/#embedded-data-serialization)   | Medium (4) | Whether machine-generated bulk data (large tables, data blobs) is what makes a page oversized.          |
 
 ### URL Stability and Redirects
 
@@ -97,10 +106,11 @@ Whether agent-facing resources stay accurate over time.
 
 Whether agents can reach your documentation at all.
 
-| Check                                                                                                 | Weight        | What it measures                                                                                     |
-| ----------------------------------------------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------- |
-| [auth-gate-detection](https://agentdocsspec.com/spec/web/authentication/#auth-gate-detection)         | Critical (10) | Whether documentation requires authentication. Auth-gated docs are invisible to agents.              |
-| [auth-alternative-access](https://agentdocsspec.com/spec/web/authentication/#auth-alternative-access) | Medium (4)    | Whether auth-gated sites provide alternative access paths (public llms.txt, SDK-bundled docs, etc.). |
+| Check                                                                                                         | Weight        | What it measures                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| [auth-gate-detection](https://agentdocsspec.com/spec/web/authentication/#auth-gate-detection)                 | Critical (10) | Whether documentation requires authentication. Auth-gated docs are invisible to agents.                                         |
+| [auth-alternative-access](https://agentdocsspec.com/spec/web/authentication/#auth-alternative-access)         | Medium (4)    | Whether auth-gated sites provide alternative access paths (public llms.txt, SDK-bundled docs, etc.).                            |
+| [bot-protection-interference](https://agentdocsspec.com/spec/web/authentication/#bot-protection-interference) | High (7)      | Whether bot protection (challenge pages, tarpits, volume-triggered blocking) interfered with automated fetching during the run. |
 
 ## How the score is calculated
 
@@ -115,6 +125,8 @@ Each check earns a proportion of its weight based on its result:
 
 For checks that test multiple pages (like `page-size-html` or `rendering-strategy`), the score is proportional. If 3 out of 50 pages fail, the check scores ~94% of its weight, not zero. This design choice provides partial credit for partial success/failure: a site where a few pages exceed size limits is very different from one where nearly all do.
 
+One check deliberately overlaps another. `embedded-data-serialization` only warns or fails on a page that `page-size-html` already placed in its warn or fail band, so an oversized page whose size comes mostly from generated tables or data blobs loses points under both. That is intentional: the size check measures the symptom, and the data check names the cause and the owner who can fix it, which is a separate finding with its own spec section. An oversized page that is mostly prose is penalized once.
+
 ### Overall score
 
 ```
@@ -128,7 +140,7 @@ Rounded to the nearest integer. Checks marked as `notApplicable` (see below) are
 When automatic discovery (`random` or `deterministic` sampling) finds fewer than 5 pages, page-level check scores are unreliable because they represent a handful of pages out of potentially thousands. In this case:
 
 - **Page-level checks** get `scoreDisplayMode: "notApplicable"` and are excluded from the overall score calculation.
-- **Site-level checks** (llms.txt checks, coverage, auth-alternative-access) remain `scoreDisplayMode: "numeric"` and are scored normally.
+- **Site-level checks** (llms.txt checks, coverage, auth-alternative-access, bot-protection-interference) remain `scoreDisplayMode: "numeric"` and are scored normally.
 - **Category scores** where all checks are `notApplicable` become `null` and render as a dash in the scorecard.
 - **Categories with a mix** of page-level and site-level checks score based on the site-level checks only.
 
@@ -139,20 +151,26 @@ This behavior does **not** apply when:
 - `--sampling curated` or `--urls`: the user explicitly chose pages to test.
 - `--sampling none`: the user opted out of sampling entirely.
 
+### Partial-sample flag
+
+When the [bot protection degrading scan reliability](#bot-protection-degrading-scan-reliability) diagnostic fires, every page-level check keeps its earned score but carries `partialSample: true` in the scoring API, `(partial sample)` in the scorecard, and a note in text output. The flag does not change any number. It records that the check was computed from whatever sample of pages survived the interference, so the reader knows what the number measures.
+
 ### Warn coefficients
 
 Not all warnings represent the same degree of degradation. A warning on `llms-txt-valid` (structure is non-standard but links are parseable) is less severe than a warning on `rendering-strategy` (sparse content that might need JavaScript). Most checks have a specific warn coefficient:
 
-| Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                       |
-| ----------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                            |
-| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`                                                                                                                                                                                                                                      |
-| **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `http-status-codes`† |
-| **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML; agents don't discover .md variants on their own)                                                                                                                                                                                      |
+| Coefficient | Meaning                                  | Checks                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0.75**    | Content substantively intact             | `llms-txt-valid`, `content-negotiation`, `llms-txt-links-resolve`, `llms-txt-coverage`, `markdown-content-parity`                                                                                                                                                                                                                                                                                 |
+| **0.60**    | Partial coverage or platform-dependent   | `llms-txt-directive-html`, `llms-txt-directive-md`, `redirect-behavior`, `single-fetch-completeness`, `markdown-link-portability`                                                                                                                                                                                                                                                                 |
+| **0.50**    | Genuine functional degradation           | `llms-txt-exists`, `llms-txt-size`, `rendering-strategy`, `markdown-url-support`, `page-size-markdown`, `page-size-html`, `page-size-transfer`, `content-start-position`, `tabbed-content-serialization`, `embedded-data-serialization`, `section-header-quality`, `cache-header-hygiene`, `auth-gate-detection`, `auth-alternative-access`, `bot-protection-interference`‡, `http-status-codes`† |
+| **0.25**    | Actively steering agents to a worse path | `llms-txt-links-markdown` (markdown exists but llms.txt links to HTML; agents don't discover .md variants on their own)                                                                                                                                                                                                                                                                           |
 
 `markdown-code-fence-validity` only has pass/fail (no warn state).
 
 † `http-status-codes` is normally pass/fail. It warns only when every sampled response is indeterminate (HTTP 202 from CDN cache-miss/build, or 5xx), meaning bad-URL handling couldn't be measured. In that case the check applies the default 0.5 warn coefficient rather than scoring zero. Mixed responses (e.g., some `correct-error`, some `indeterminate`) are scored from the determinate subset only.
+
+‡ `bot-protection-interference` scores a warn proportionally rather than at the flat coefficient. A warn means interference was observed but did not sustain, and a flat 0.5 would score two challenges in two hundred requests the same as a quarter of the run failing. Inside the warn band the credit slides with the run's failure rate: full weight at 0%, the 0.5 coefficient at the check's sustained-failure threshold (50%, the rate at which the verdict becomes fail), linear between. Fail is still zero. In the field run this scores docs.val.town (1% of requests challenged) at 99% of weight, docs.gitlab.com (15%) at 85%, and docs.github.com (24%) at 76%, where all three previously scored 50%. The failure rate is partly a property of the scanner's cadence and vantage point, which is an argument for sliding credit rather than a flat penalty for the scanner's bad luck.
 
 ## Score caps
 
@@ -230,7 +248,7 @@ Some problems only become visible when you look at multiple checks together. The
 
 **What it means**: Agents that encounter your docs will fall back on training data or secondary sources that may be inaccurate.
 
-**What to do**: Consider providing a public llms.txt, ungating API references and integration guides, or shipping docs with your SDK. The [spec's "Making Private Docs Agent-Accessible" section](https://agentdocsspec.com) covers options ordered by implementation effort.
+**What to do**: Consider providing a public llms.txt, ungating API references and integration guides, or shipping docs with your SDK. The [spec's "Making Private Docs Agent-Accessible" section](https://agentdocsspec.com/spec/web/authentication/#making-private-docs-agent-accessible) covers options ordered by implementation effort.
 
 ### Pages exceed size limits with no markdown escape
 
@@ -239,6 +257,26 @@ Some problems only become visible when you look at multiple checks together. The
 **What it means**: Agents will silently receive truncated content on oversized pages, with no alternative path to the full content.
 
 **What to do**: Either reduce HTML page sizes (break large pages, reduce inline CSS/JS) or provide markdown versions and make them discoverable.
+
+### Dynamic content rendered statically
+
+**Triggers when** at least two of `embedded-data-serialization` (too much: widget data dumped wholesale), `single-fetch-completeness` (too little: UI pagination inherited by a format that did not need it), `markdown-content-parity` (inconsistent: the two representations list different items), and `markdown-link-portability` (unnavigable: relative or broken generated links) flag the same page.
+
+**What it means**: A catalog, matrix, or widget-rendered listing was flattened for agents, and the flattening failed in several ways at once. Each check flags one symptom, but the cause is shared: the agent-facing representation comes from a second rendering pipeline that has not had the QA the HTML pipeline gets.
+
+**What to do**: Treat the findings as one pipeline problem. Review the generator for how it dumps widget data, whether it inherits UI pagination or a default filter, and how it writes links, then re-run the four checks together on the affected pages.
+
+**Score impact**: None beyond the four checks' own scores. The diagnostic exists so the report presents them as one finding.
+
+### Bot protection degrading scan reliability
+
+**Triggers when** `bot-protection-interference` warns or fails, or when at least 20% of the HTTP requests made during the run failed, stalled, or were denied. The rate trigger needs at least 20 requests.
+
+**What it means**: Behavioral bot enforcement engaged partway through the scan. Every check still running scored whatever sample of pages survived, so the site's scores can look reasonable while being computed from a fraction of the intended pages. The same enforcement interrupts agents doing multi-page reading sessions, which is the site-side problem the check itself scores.
+
+**What to do**: Treat the scores as measuring a smaller sample. Enforcement is stateful and decays, so re-run after a cooldown or from a different network vantage point (the report says whether the scan ran from a developer machine, CI, or cloud infrastructure), and raise `--request-delay` if the cadence is yours to control. The site-side fix is to exempt public documentation routes from behavioral enforcement.
+
+**Score impact**: No coefficient or cap. Page-level checks keep their scores and carry the [partial-sample flag](#partial-sample-flag). The diagnostic message names the checks that made requests during the interference window.
 
 ### Single-page sample
 
@@ -280,7 +318,7 @@ Some checks have **conditional value**: their contribution depends on whether th
 
 ### Discovery coefficient
 
-**Affects**: `page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`
+**Affects**: `page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`, `single-fetch-completeness`, `markdown-link-portability`
 
 These checks measure the quality of the markdown path. But if agents can't _discover_ that path, the quality is irrelevant. The coefficient reflects how discoverable your markdown is:
 
@@ -297,9 +335,11 @@ If multiple conditions are met, the highest coefficient applies.
 
 ### HTML path coefficient
 
-**Affects**: `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`
+**Affects**: `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `section-header-quality`, `embedded-data-serialization`
 
 If pages are SPA shells, measuring HTML quality is meaningless; if pages are sparse, HTML quality counts for less because agents have less content to work with. This coefficient equals the same weighted proportion that drives the score caps above: `(serverRendered + sparseContent × 0.5) / total`. Fully server-rendered pages count for full weight, sparse pages count for half, and SPA shells count for nothing.
+
+`page-size-transfer` measures the HTML path too but is intentionally excluded. The other HTML checks measure content quality, which is meaningless on a shell. Served bytes are what the agent transfers whether or not the shell renders, so the measurement stays valid and the check keeps full weight. A consequence worth knowing: an SPA site passes this check easily, because an empty shell is small, while `rendering-strategy` carries the penalty for the shell itself.
 
 ### Index truncation coefficient
 
@@ -321,4 +361,4 @@ In the current scoring version, the three coefficient groups apply to disjoint s
 
 ---
 
-_Weights, coefficients, and thresholds in this document reflect observed agent behavior as of early 2026 and will evolve as agent tooling changes. The [Agent-Friendly Docs Spec](https://agentdocsspec.com) is the authoritative reference for what each check measures and why._
+_Weights, coefficients, and thresholds in this document reflect observed agent behavior as of September 2026 and will evolve as agent tooling changes. The [Agent-Friendly Docs Spec](https://agentdocsspec.com/spec/web/) is the authoritative reference for what each check measures and why._

@@ -140,9 +140,17 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
             const supported = response.ok && (isMarkdownType || isMarkdownBody);
 
             if (supported) {
+              const linkHeader = response.headers.get('link');
               ctx.pageCache.set(url, {
                 url,
-                markdown: { content: body, source: 'md-url' },
+                markdown: {
+                  content: body,
+                  source: 'md-url',
+                  // The URL that served the body, after any redirect: what
+                  // relative links inside the markdown resolve against.
+                  mdUrl: response.url || mdUrl,
+                  ...(linkHeader && { linkHeader }),
+                },
               });
               return {
                 url,

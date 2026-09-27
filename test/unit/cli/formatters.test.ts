@@ -140,6 +140,211 @@ describe('formatText', () => {
       expect(output).not.toContain('https://example.com/page2');
     });
 
+    it('shows the pagination evidence, continuation, and issues for single-fetch-completeness', () => {
+      const report = makeReport({
+        results: [
+          {
+            id: 'single-fetch-completeness',
+            category: 'page-size',
+            status: 'fail',
+            message: '1 of 3 markdown pages are partial',
+            details: {
+              pageResults: [
+                {
+                  url: 'https://example.com/models',
+                  mdUrl: 'https://example.com/models.md',
+                  status: 'fail',
+                  paginated: true,
+                  signals: [{ type: 'n-of-m', text: 'Showing 100 of 102', offset: 2400 }],
+                  continuation: { url: '/models?page=2', outcome: 'empty' },
+                  issues: ['continuation returned an empty body'],
+                },
+                {
+                  url: 'https://example.com/list',
+                  mdUrl: 'https://example.com/list.md',
+                  status: 'warn',
+                  paginated: true,
+                  signals: [{ type: 'next-link', text: 'Next page', offset: 9000 }],
+                  continuation: { url: '/list?page=2', outcome: 'ok' },
+                  issues: ['relative URL', 'declared at 97% of content'],
+                },
+                {
+                  url: 'https://example.com/fine',
+                  mdUrl: 'https://example.com/fine.md',
+                  status: 'pass',
+                  paginated: false,
+                  signals: [],
+                  issues: [],
+                },
+              ],
+            },
+          },
+        ],
+      });
+      const output = formatText(report, { verbose: true });
+      expect(output).toContain(
+        'https://example.com/models.md paginated ("Showing 100 of 102"); continuation /models?page=2: continuation returned an empty body',
+      );
+      expect(output).toContain(
+        'https://example.com/list.md paginated ("Next page"); continuation /list?page=2: relative URL, declared at 97% of content',
+      );
+      expect(output).not.toContain('https://example.com/fine.md');
+    });
+
+    it('names the dominant element and prose position for embedded-data-serialization', () => {
+      const report = makeReport({
+        results: [
+          {
+            id: 'embedded-data-serialization',
+            category: 'content-structure',
+            status: 'warn',
+            message: '1 of 2 pages convert to 50K–100K chars mainly because of embedded data',
+            details: {
+              pageResults: [
+                {
+                  url: 'https://example.com/compat',
+                  status: 'warn',
+                  convertedCharacters: 83_000,
+                  bulkShare: 79,
+                  proseBeforeBulkPercent: 12,
+                  elementCount: 3,
+                  dominantElement: { kind: 'table', rows: 218, chars: 60_000, share: 72 },
+                },
+                {
+                  url: 'https://example.com/fine',
+                  status: 'pass',
+                  convertedCharacters: 4_000,
+                  bulkShare: 0,
+                  proseBeforeBulkPercent: 100,
+                  elementCount: 0,
+                },
+                { url: 'https://example.com/broken', status: 'fail', error: 'Network error' },
+              ],
+            },
+          },
+        ],
+        summary: { total: 1, pass: 0, warn: 1, fail: 0, skip: 0, error: 0 },
+      });
+      const output = formatText(report, { verbose: true });
+      expect(output).toContain('https://example.com/compat');
+      expect(output).toContain('218-row table (+2 more) is 72% of 83K chars');
+      expect(output).toContain('12% of the prose comes before it');
+      expect(output).not.toContain('https://example.com/fine');
+      expect(output).toContain('Network error');
+    });
+
+    it('shows link counts and broken samples for markdown-link-portability', () => {
+      const report = makeReport({
+        results: [
+          {
+            id: 'markdown-link-portability',
+            category: 'content-structure',
+            status: 'fail',
+            message: '1 of 3 markdown pages carry links that do not resolve',
+            details: {
+              pageResults: [
+                {
+                  url: 'https://example.com/models',
+                  mdUrl: 'https://example.com/models.md',
+                  status: 'fail',
+                  links: { absolute: 0, rootRelative: 2, pathRelative: 0, total: 102 },
+                  samples: [
+                    { url: '/wrong/a.md', outcome: 'not-markdown', status: 200 },
+                    { url: '/wrong/b.md', outcome: 'ok', status: 200 },
+                  ],
+                },
+                {
+                  url: 'https://example.com/list',
+                  mdUrl: 'https://example.com/list.md',
+                  status: 'warn',
+                  links: {
+                    absolute: 4,
+                    rootRelative: 1,
+                    protocolRelative: 2,
+                    pathRelative: 0,
+                    total: 7,
+                  },
+                  samples: [{ url: '/list/a.md', outcome: 'ok', status: 200 }],
+                },
+                {
+                  url: 'https://example.com/fine',
+                  mdUrl: 'https://example.com/fine.md',
+                  status: 'pass',
+                  links: { absolute: 5, rootRelative: 0, pathRelative: 0, total: 5 },
+                  samples: [],
+                },
+              ],
+            },
+          },
+        ],
+      });
+      const output = formatText(report, { verbose: true });
+      expect(output).toContain(
+        'https://example.com/models.md 102 links: 0 absolute, 2 root-relative, 0 path-relative; sampled: /wrong/a.md (not-markdown 200)',
+      );
+      // Protocol-relative links warn like root-relative ones, so they are
+      // reported with them; otherwise this line shows zeroes next to a warning.
+      expect(output).toContain(
+        'https://example.com/list.md 7 links: 4 absolute, 3 root-relative, 0 path-relative',
+      );
+      expect(output).not.toContain('https://example.com/fine.md');
+    });
+
+    it('shows served bytes, content size, ratio, and wire size for page-size-transfer', () => {
+      const report = makeReport({
+        results: [
+          {
+            id: 'page-size-transfer',
+            category: 'page-size',
+            status: 'warn',
+            message: '1 of 3 pages serve 1MB–10MB',
+            details: {
+              pageResults: [
+                {
+                  url: 'https://example.com/heavy',
+                  servedBytes: 3_400_000,
+                  wireBytes: 410_000,
+                  contentEncoding: 'br',
+                  contentCharacters: 29_000,
+                  ratio: 117,
+                  status: 'warn',
+                },
+                {
+                  url: 'https://example.com/plain',
+                  servedBytes: 1_200_000,
+                  contentCharacters: 40_000,
+                  ratio: 30,
+                  status: 'warn',
+                },
+                {
+                  url: 'https://example.com/light',
+                  servedBytes: 90_000,
+                  contentCharacters: 20_000,
+                  ratio: 5,
+                  status: 'pass',
+                },
+                {
+                  url: 'https://example.com/broken',
+                  servedBytes: 0,
+                  contentCharacters: 0,
+                  status: 'fail',
+                  error: 'fetch failed',
+                },
+              ],
+            },
+          },
+        ],
+        summary: { total: 1, pass: 0, warn: 1, fail: 0, skip: 0, error: 0 },
+      });
+      const output = formatText(report, { verbose: true });
+      expect(output).toContain('https://example.com/heavy');
+      expect(output).toContain('3.4MB served → 29KB content (~117:1), 410KB on the wire (br)');
+      expect(output).toContain('https://example.com/plain');
+      expect(output).toContain('1.2MB served → 40KB content (~30:1)');
+      expect(output).not.toContain('https://example.com/light');
+      expect(output).not.toContain('https://example.com/broken');
+    });
+
     it('shows per-page details for page-size-html', () => {
       const report = makeReport({
         results: [
@@ -1775,5 +1980,62 @@ describe('formatJson', () => {
     expect(parsed.url).toBe('http://example.com');
     expect(parsed.results).toHaveLength(1);
     expect(parsed.scoring).toBeDefined();
+  });
+});
+
+describe('formatText bot protection', () => {
+  it('notes partial-sample results and the network context when the check warns', () => {
+    const report = makeReport({
+      results: [
+        {
+          id: 'page-size-html',
+          category: 'page-size',
+          status: 'pass',
+          message: 'All 6 pages within limits',
+        },
+        {
+          id: 'bot-protection-interference',
+          category: 'authentication',
+          status: 'warn',
+          message: 'Intermittent interference',
+          details: {
+            samples: {
+              stalled: ['http://example.com/slow'],
+              challenged: [
+                {
+                  url: 'http://example.com/verify',
+                  status: 200,
+                  challenge: 'Cloudflare challenge',
+                },
+              ],
+              errored: [],
+            },
+          },
+        },
+      ],
+      summary: { total: 2, pass: 1, warn: 1, fail: 0, skip: 0, error: 0 },
+      networkContext: { classification: 'cloud', indicator: 'K_SERVICE' },
+    });
+    const output = formatText(report, { verbose: true });
+    expect(output).toContain('Scanned from cloud infrastructure');
+    expect(output).toContain('bot protection interfered with the scan');
+    expect(output).toContain('http://example.com/slow');
+    expect(output).toContain('HTTP 200, Cloudflare challenge');
+  });
+
+  it('adds no note on a clean run', () => {
+    const report = makeReport({
+      results: [
+        { id: 'page-size-html', category: 'page-size', status: 'pass', message: 'ok' },
+        {
+          id: 'bot-protection-interference',
+          category: 'authentication',
+          status: 'pass',
+          message: 'clean',
+        },
+      ],
+      summary: { total: 2, pass: 2, warn: 0, fail: 0, skip: 0, error: 0 },
+    });
+    expect(formatText(report)).not.toContain('bot protection interfered');
   });
 });

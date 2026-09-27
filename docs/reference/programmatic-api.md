@@ -25,6 +25,8 @@ for (const result of report.results) {
 - `summary` — counts by status (pass, warn, fail, skip, error)
 - `testedPages` — number of pages tested by page-level checks (present when page discovery ran)
 - `samplingStrategy` — the sampling strategy used (`random`, `deterministic`, `curated`, or `none`)
+- `requestSummary` — aggregate of every HTTP request the run made: `requests`, `stalledBodies`, `challengePages`, `fetchErrors`, `failed`, and `failureRate` (0–100). Feeds the [bot protection scan-reliability diagnostic](/interaction-diagnostics#bot-protection-degrading-scan-reliability)
+- `networkContext` — where the scan ran from: `developer-machine`, `ci`, or `cloud`, with `source` set to `environment` (classified from environment variables, with the `indicator` variable that matched) or `option` (the `networkContext` runner option). Never includes an IP address
 
 ## Run with options
 
@@ -44,6 +46,17 @@ const report = await runChecks('https://docs.example.com', {
     pass: 50000,
     fail: 100000,
   },
+  // page-size-transfer: served (decoded) HTML bytes
+  transferThresholds: {
+    pass: 1_000_000,
+    fail: 10_000_000,
+  },
+  // embedded-data-serialization: what counts as bulk, and when it is blamed
+  bulkTableRows: 20,
+  bulkBlobChars: 2000,
+  bulkDominantShare: 50,
+  // bot-protection-interference: where the scan runs from, if detection is wrong
+  networkContext: 'ci',
 });
 
 // Or run all checks except a few (exclude-list)

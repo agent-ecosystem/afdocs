@@ -12,7 +12,7 @@ These diagnostics appear in the "Interaction Diagnostics" section of the `--form
 
 **What to do**: Add a [directive](/checks/content-discoverability#llms-txt-directive-html) on your docs pages pointing to llms.txt, and implement [content negotiation](/checks/markdown-availability#content-negotiation) for `Accept: text/markdown`. The directive is the primary discovery mechanism because it reaches all agents; content negotiation provides a fast path for agents that request markdown by default. Both are recommended.
 
-**Score impact**: Markdown quality checks (`page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`) are excluded from the score entirely when this diagnostic fires, because their results don't reflect real agent experience.
+**Score impact**: Markdown quality checks (`page-size-markdown`, `markdown-code-fence-validity`, `markdown-content-parity`, `single-fetch-completeness`, `markdown-link-portability`) are excluded from the score entirely when this diagnostic fires, because their results don't reflect real agent experience.
 
 ## Markdown support is only partially discoverable
 
@@ -42,7 +42,7 @@ These diagnostics appear in the "Interaction Diagnostics" section of the `--form
 
 **What to do**: Enable server-side rendering or static generation for documentation pages. If only specific page templates use client-side content loading, target those templates. The [rendering-strategy check](/checks/page-size#rendering-strategy) explains how AFDocs detects SPA shells.
 
-**Score impact**: The HTML path coefficient scales `page-size-html`, `content-start-position`, `tabbed-content-serialization`, and `section-header-quality` in proportion to the fraction of pages that render correctly. If 60% of pages are SPA shells, these checks count for 40% of their weight. At 50%+ SPA shells, the overall score is also [capped at D or F](/agent-score-calculation#score-caps).
+**Score impact**: The HTML path coefficient scales `page-size-html`, `content-start-position`, `tabbed-content-serialization`, `embedded-data-serialization`, and `section-header-quality` in proportion to the fraction of pages that render correctly. If 60% of pages are SPA shells, these checks count for 40% of their weight. At 50%+ SPA shells, the overall score is also [capped at D or F](/agent-score-calculation#score-caps).
 
 ## Sparse content on the HTML path
 
@@ -83,6 +83,28 @@ These diagnostics appear in the "Interaction Diagnostics" section of the `--form
 **What to do**: Either reduce HTML page sizes (break large pages into smaller ones, reduce navigation boilerplate) or provide markdown versions and make them discoverable via content negotiation or llms.txt links. See [Page Size checks](/checks/page-size) for the specific thresholds.
 
 **Score impact**: No direct score cap, but the combination of failing page-size checks with no markdown alternative typically results in low category scores for both Page Size and Markdown Availability.
+
+## Dynamic content rendered statically
+
+**Triggers when** at least two of the four checks that measure how a dynamic page flattens into static content flag the same page: [`embedded-data-serialization`](/checks/content-structure#embedded-data-serialization) (too much: widget data dumped wholesale), [`single-fetch-completeness`](/checks/page-size#single-fetch-completeness) (too little: UI pagination inherited by a format that didn't need it), [`markdown-content-parity`](/checks/observability#markdown-content-parity) (inconsistent: default filters, duplicated entries, or staleness making the representations disagree), and [`markdown-link-portability`](/checks/content-structure#markdown-link-portability) (unnavigable: generated links that assume a browser context or are broken wholesale). A parity item-count divergence counts as the inconsistent direction even when the parity check itself passed, because a markdown page that lists more than the HTML shows is never "missing" anything by the parity check's own measure.
+
+**What it means**: A catalog, matrix, or widget-rendered listing was flattened for agents, and the flattening failed in several ways at once. Each check flags one symptom, but the cause is shared: the markdown that agents read is produced by a separate build step from the HTML that people read, and that step has not had the review the HTML gets. The spec's grounding case is a single production catalog page that showed 98 items in HTML under a default filter and 102 in markdown, paginated the markdown with a continuation URL that returned an empty body, and emitted every entry link into a wrong generated path prefix.
+
+**What to do**: Treat the findings as one problem with the markdown build rather than four separate ones. Whoever maintains that build should review how it dumps widget data, whether it inherits the UI's pagination or default filter, and how it writes links, then re-run the four checks together on the affected pages. The diagnostic message names each page with its symptoms and the evidence behind each.
+
+**Score impact**: None beyond the four checks' own scores. The diagnostic exists so the report presents them as one finding.
+
+## Bot protection degrading scan reliability
+
+**Triggers when** the [`bot-protection-interference`](/checks/authentication#bot-protection-interference) check warns or fails, or when at least 20% of the HTTP requests made during the run failed or timed out (stalled bodies, challenge pages, or connection errors). The rate trigger needs at least 20 requests, so two failed discovery probes in a short subset run do not count as a degraded scan.
+
+**What it means**: Behavioral bot enforcement engaged partway through the scan. Requests that would have succeeded in isolation began to stall, get challenged, or fail, and every check still running scored whatever sample survived. The site's scores can look reasonable while being computed from a fraction of the intended pages. Per-check "failed to fetch" counts are scattered and easy to miss, so this diagnostic aggregates them at run level.
+
+This pattern has two victims. Agents doing multi-page reading sessions lose access mid-session, which is the site-side problem the check exists to surface. And the assessment itself degrades: a flagged run is still useful evidence; it just measures a smaller sample than it appears to.
+
+**What to do**: Treat the scores as measuring a smaller sample. Behavioral enforcement is stateful and decays, so re-run after a cooldown or from a different network vantage point (the scorecard reports whether the scan ran from a developer machine, CI, or cloud infrastructure), and raise `--request-delay` if the cadence is yours to control. For the site-side fix, see the check: exempt public documentation routes from behavioral bot enforcement.
+
+**Score impact**: No coefficient or cap. Multi-page checks keep their earned scores but are flagged as computed from a partial sample: `(partial sample)` after each affected check in the scorecard, a note under each in `--format text`, and `partialSample: true` on the check's entry in the scoring API's `checkScores`. The diagnostic message names the checks that made requests during the interference window (the ledger attributes every request to its check), so a reader can tell which results the enforcement actually touched; the flag itself applies to every multi-page check, as the spec's inverted dependency requires.
 
 ## Single-page sample
 

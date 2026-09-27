@@ -427,6 +427,16 @@ describe('findConfig', () => {
     expect(config?.options?.samplingStrategy).toBe('deterministic');
   });
 
+  it('throws on invalid networkContext in config', async () => {
+    await mkdir(TMP_DIR, { recursive: true });
+    await writeFile(
+      resolve(TMP_DIR, 'agent-docs.config.yml'),
+      ['url: https://example.com', 'options:', '  networkContext: datacenter', ''].join('\n'),
+    );
+
+    await expect(findConfig(undefined, TMP_DIR)).rejects.toThrow('networkContext');
+  });
+
   it('throws on invalid urlPathPattern in config', async () => {
     await mkdir(TMP_DIR, { recursive: true });
     await writeFile(
@@ -512,6 +522,41 @@ describe('findConfig', () => {
     );
 
     await expect(findConfig(undefined, TMP_DIR)).rejects.toThrow('options.thresholds.fail');
+  });
+
+  it('loads transferThresholds from config', async () => {
+    await mkdir(TMP_DIR, { recursive: true });
+    await writeFile(
+      resolve(TMP_DIR, 'agent-docs.config.yml'),
+      [
+        'url: https://example.com',
+        'options:',
+        '  transferThresholds:',
+        '    pass: 500000',
+        '    fail: 2000000',
+        '',
+      ].join('\n'),
+    );
+
+    const config = await findConfig(undefined, TMP_DIR);
+    expect(config?.options?.transferThresholds).toEqual({ pass: 500_000, fail: 2_000_000 });
+  });
+
+  it('throws on invalid transferThresholds.fail in config', async () => {
+    await mkdir(TMP_DIR, { recursive: true });
+    await writeFile(
+      resolve(TMP_DIR, 'agent-docs.config.yml'),
+      [
+        'url: https://example.com',
+        'options:',
+        '  transferThresholds:',
+        '    pass: 1000000',
+        '    fail: 0',
+        '',
+      ].join('\n'),
+    );
+
+    await expect(findConfig(undefined, TMP_DIR)).rejects.toThrow('options.transferThresholds.fail');
   });
 
   it('validates skipChecks in loadConfig', async () => {

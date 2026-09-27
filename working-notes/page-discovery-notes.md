@@ -159,3 +159,11 @@ Alternatives considered and rejected for #112:
 - The walker goes one level deep and never re-fetches an index it has
   already seen. (ce698fc, #111)
 - New discovery fetches get mocked in the affected tests. (e4696b7, #112)
+
+## Open observations
+
+- 2026-09-26, `markdown-link-portability` field run (PR #129): one MongoDB
+  page was sampled as
+  `https://www.mongodb.com/docs/manual/reference/command/stopsharddraining.md/`,
+  a trailing slash after the `.md` extension. Discovery produced the URL,
+  not the check. Not yet investigated; it did not change a verdict.
