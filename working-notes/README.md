@@ -22,28 +22,15 @@ history alone does not carry the reasoning.
   normalization, `urlPathPattern`, and sample verification, with the
   request-budget reasoning behind each and the alternatives rejected.
   Read "Invariants" before changing how URLs are discovered or sampled.
-- `page-size-transfer-notes.md`: design notes for the `page-size-transfer`
-  check (spec v0.6.0): why served bytes come from the decoded stream, the
-  `Accept-Encoding` choice, how the fetch is shared with `page-size-html`,
-  the architecture-signature ratio, and the field run that checked the
-  thresholds against real sites.
-- `single-fetch-completeness-notes.md`: design notes for the
-  `single-fetch-completeness` check (spec v0.6.0): which pagination signals
-  count and which navigation patterns deliberately don't, how the
-  continuation is chosen and verified, what "at the top" means, the
-  llms.txt-only prerequisite path, and the field run against real sites.
-- `markdown-link-portability-notes.md`: design notes for the
-  `markdown-link-portability` check (spec v0.6.0): the link classes and what
-  each one needs from the base URL, why images and cross-origin links are
-  classified but not scored, how the per-page sample spends the link budget,
-  the `html-redirect` addition to the verification vocabulary, and the field
-  run that reproduced the spec's grounding case live.
-- `embedded-data-serialization-notes.md`: design notes for the
-  `embedded-data-serialization` check (spec v0.6.0): what counts as bulk
-  and why the thresholds default where they do, how the verdict is coupled
-  to `page-size-html`'s buckets, the twelve-page field run, the
-  "Dynamic Content Rendered Statically" interaction diagnostic, and the
-  item-count extension to `markdown-content-parity`.
+- `bot-protection-notes.md`: design notes for the `bot-protection-interference`
+  check (spec v0.6.0): the fetch-ledger invariants, the threshold table with
+  the reasoning behind each constant, the partial-sample attribution that was
+  tried and reverted, and the 33-site field run. Read "Invariants" before
+  changing what counts as interference.
+- `bot-protection-sites.txt` and `bot-protection-field-run.mjs`: the sites
+  and harness for that field run. The harness saves each site's full fetch
+  ledger to `bot-results/` (gitignored) so thresholds can be re-scored
+  offline with `rescore` instead of re-running the sites.
 - `parity-sites.txt`: the 20 sites used to validate parity changes, with
   base URLs. Referenced throughout the parity notes.
 - `run-parity-baseline.sh`: runs the parity check against one of those

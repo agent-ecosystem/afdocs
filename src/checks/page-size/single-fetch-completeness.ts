@@ -102,6 +102,12 @@ interface Verification {
 /**
  * Fetch the continuation the way an agent would (with `Accept: text/markdown`)
  * and confirm it delivers substantive content of the expected representation.
+ *
+ * The header is a known risk: `markdown-link-portability` dropped it after
+ * MongoDB's docs answered a `.md` URL with 404 under `Accept: text/markdown`
+ * and 200 without it, so a site that treats the header as a filter rather
+ * than a preference would report a working continuation as broken here.
+ * No paginated continuation has hit that yet; revisit if one does.
  */
 async function verifyContinuation(
   ctx: CheckContext,

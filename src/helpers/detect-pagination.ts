@@ -114,6 +114,14 @@ const NOTE_LEAD = /^[\s>*_\-+|#\d.)]*(?:\*\*|__)?(?:[A-Za-z][\w ]{0,24}:\s*)?(?:
  * Replace fenced code blocks and inline code spans with spaces of the same
  * length, so offsets into the original content survive and API examples
  * (`GET /v1/items?page=2`) never register as pagination.
+ *
+ * Known gap, deliberately kept: the fence regex requires the closer at
+ * column 1 and exactly as long as the opener, while CommonMark allows a
+ * longer closer and an indented fence inside a list item. The link
+ * classifier (`classify-markdown-links.ts`, `blankCode`) fixed both with a
+ * line scanner after field evidence; this one has produced no fence-related
+ * false positive yet, and moving it without evidence would shift
+ * `single-fetch-completeness` results. Port the scanner when it does.
  */
 function blankCode(text: string): string {
   const blank = (m: string) => m.replace(/[^\n]/g, ' ');

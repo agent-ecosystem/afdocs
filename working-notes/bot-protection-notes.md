@@ -1,8 +1,7 @@
 # bot-protection-interference: design notes
 
 Implements spec v0.6.0 `bot-protection-interference` and the "Bot Protection
-Degrading Scan Reliability" interaction effect. Issue #104. First of the five
-v0.6.0 checks merging into `spec-v0.6.0`.
+Degrading Scan Reliability" interaction effect. Issue #104, PR #119.
 
 ## Invariants
 
@@ -153,9 +152,3 @@ in `src/scoring/diagnostics.ts` honors both and is the single source of truth
 for the diagnostic, the `partialSample` flag on `CheckScore`, and the
 formatters' notes. `report.requestSummary` exists so the rate trigger works
 even when the check was skipped or filtered out.
-
-## Not done in this PR
-
-- `SPEC_VERSION` stays at v0.5.0 until all five v0.6.0 checks land on the
-  integration branch.
-- No score cap for a failing check. Spec weight is High, not Critical.
