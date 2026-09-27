@@ -3330,6 +3330,60 @@ See the API reference for the full list of built-in plugins and options.`;
       expect(page.itemCounts).toMatchObject({ diverges: true, likelyCause: 'staleness' });
     });
 
+    it('counts only top-level items on both sides when entries carry nested bullets', async () => {
+      const html = `<html><body><main><h1>Model catalog</h1>
+        <p>Browse the models available on the platform and pick one for your use case.</p>
+        <ul>${Array.from({ length: 24 }, (_, i) => `<li>model-${i}: a model that does useful things number ${i}<ul><li>context window ${i}k</li><li>license ${i}</li></ul></li>`).join('')}</ul>
+      </main></body></html>`;
+      const md =
+        `# Model catalog\n\nBrowse the models available on the platform and pick one for your use case.\n\n` +
+        Array.from(
+          { length: 24 },
+          (_, i) =>
+            `- model-${i}: a model that does useful things number ${i}\n  - context window ${i}k\n  - license ${i}`,
+        ).join('\n') +
+        '\n';
+      const ctx = catalogCtx(html, md, 'cat-nested.local');
+      const result = await check.run(ctx);
+      const page = (
+        result.details?.pageResults as Array<{ itemCounts?: Record<string, unknown> }>
+      )[0];
+      expect(page.itemCounts).toMatchObject({ html: 24, markdown: 24, diverges: false });
+    });
+
+    it('does not read list lines inside a longer fence closed by a shorter marker', async () => {
+      const inner = Array.from({ length: 40 }, (_, i) => `- fenced item ${i}`).join('\n');
+      const md =
+        `# Guide\n\nAn example of a nested fence in documentation follows below.\n\n` +
+        `\`\`\`\`markdown\n\`\`\`\n${inner}\n\`\`\`\n\`\`\`\`\n\n- one real item\n- two real items\n`;
+      const html = `<html><body><main><h1>Guide</h1><p>An example of a nested fence in documentation follows below.</p><pre><code>x</code></pre><ul><li>one real item</li><li>two real items</li></ul></main></body></html>`;
+      const ctx = catalogCtx(html, md, 'cat-fence.local');
+      const result = await check.run(ctx);
+      const page = (result.details?.pageResults as Array<{ itemCounts?: unknown }>)[0];
+      expect(page.itemCounts).toBeUndefined();
+    });
+
+    it('scopes duplicates to the compared list, not the whole document', async () => {
+      const md =
+        catalogMd(24) +
+        `\n## See also\n\n- Pricing\n- Support\n\n## Also\n\n- Pricing\n- Changelog\n`;
+      const html = catalogHtml(24).replace(
+        '</main>',
+        '<h2>See also</h2><ul><li>Pricing</li><li>Support</li></ul><h2>Also</h2><ul><li>Pricing</li><li>Changelog</li></ul></main>',
+      );
+      const ctx = catalogCtx(html, md, 'cat-scoped.local');
+      const result = await check.run(ctx);
+      const page = (
+        result.details?.pageResults as Array<{ itemCounts?: Record<string, unknown> }>
+      )[0];
+      expect(page.itemCounts).toMatchObject({
+        markdown: 24,
+        markdownUnique: 24,
+        duplicates: 0,
+        diverges: false,
+      });
+    });
+
     it('compares distinct entries when the markdown repeats every entry', async () => {
       // A generator emitting the catalog twice is not a catalog twice the size.
       const ctx = catalogCtx(catalogHtml(100), catalogMd(100, 2), 'cat-dupes.local');

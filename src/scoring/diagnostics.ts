@@ -230,8 +230,16 @@ export function collectFlatteningFindings(results: Map<string, CheckResult>): Fl
       if (relative > 0) parts.push(`${relative} of ${l.total} links are relative`);
     }
     const samples = p.samples ?? [];
-    const broken = samples.filter((s) => s.outcome !== 'ok').length;
+    // `html-redirect` resolved, to the wrong representation; the portability
+    // check keeps it out of its broken set, and so does this evidence line.
+    const broken = samples.filter(
+      (s) => s.outcome !== 'ok' && s.outcome !== 'html-redirect',
+    ).length;
+    const redirected = samples.filter((s) => s.outcome === 'html-redirect').length;
     if (broken > 0) parts.push(`${broken} of ${samples.length} sampled links do not resolve`);
+    if (redirected > 0) {
+      parts.push(`${redirected} of ${samples.length} sampled .md links redirect to HTML pages`);
+    }
     add(p.url, 'unnavigable', parts.join(' and ') || 'links depend on a browser context');
   }
 

@@ -1414,9 +1414,11 @@ are in `embedded-data-serialization-notes.md`; the parity-side facts:
 - **What is counted.** `extractHtmlText` now also returns the largest list
   (direct `li` children of one list) and the largest table (data rows) in
   the container it selected, after the existing chrome stripping.
-  `countMarkdownItems` measures the largest contiguous list block and the
-  largest pipe table outside fences, and deduplicates list entries with the
-  check's own `normalize()`. Largest structure rather than a sum, so small
+  `countMarkdownItems` measures the top-level items of the largest
+  contiguous list block (nested bullets excluded, mirroring the HTML side)
+  and the largest pipe table outside fences, honouring CommonMark fence
+  lengths, and deduplicates entries within that block with the check's own
+  `normalize()`. Largest structure rather than a sum, so small
   side lists do not shift the count.
 - **Gates.** Compared once either side reaches 20 items; a cause is named
   only when both sides have at least 5 (one side at zero is an extraction
@@ -1429,8 +1431,11 @@ are in `embedded-data-serialization-notes.md`; the parity-side facts:
   client-rendered HTML; reported as a divergence with `default-filter` as
   the best guess, and as 100 duplicates.
 
-Tests added (7): equal counts, no repeated structure, default filter,
-pagination, staleness, duplicated entries, and table rows versus header rows.
+Tests added (10): equal counts, no repeated structure, default filter,
+pagination, staleness, duplicated entries, table rows versus header rows,
+and, from the Copilot round on PR #130, nested bullets counted once, a
+four-backtick fence not closed by a three-backtick line, and duplicates
+scoped to the compared list rather than the document.
 
 ## Files modified
 

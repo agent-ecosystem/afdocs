@@ -183,7 +183,7 @@ For pages with repeated structure, the check therefore also compares item counts
 - **`pagination`**: the markdown lists fewer, and `single-fetch-completeness` found the page paginated. The markdown is windowed, not stale.
 - **`staleness`**: the markdown lists fewer with no pagination in sight, most often one representation generated from older data.
 
-Each has a different owner and fix. Markdown entries that repeat an earlier entry verbatim are counted as duplicates and excluded from the comparison, so a generator that emits every entry twice shows up as duplication rather than as a catalog twice the size. The comparison never changes the check's result; it feeds the [dynamic content rendered statically](/interaction-diagnostics#dynamic-content-rendered-statically) diagnostic, and is skipped when one side has fewer than five items, which is more often an extraction artifact than a filter.
+Each has a different owner and fix. Only top-level items are counted on both sides, so entries that carry nested bullets are not counted several times over. Entries in the compared markdown list that repeat an earlier entry verbatim are counted as duplicates and excluded from the comparison, so a generator that emits every entry twice shows up as duplication rather than as a catalog twice the size. The comparison never changes the check's result; it feeds the [dynamic content rendered statically](/interaction-diagnostics#dynamic-content-rendered-statically) diagnostic, and is skipped when one side has fewer than five items, which is more often an extraction artifact than a filter.
 
 ### How to fix
 

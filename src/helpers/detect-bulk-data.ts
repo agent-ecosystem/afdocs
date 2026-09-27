@@ -176,23 +176,28 @@ interface TableStats {
 }
 
 function htmlTableStats(html: string): TableStats {
-  const rowMatches = html.match(/<tr\b[^>]*>[\s\S]*?(?=<tr\b|<\/table\b|$)/gi) ?? [];
+  const rowMatches = [...html.matchAll(/<tr\b[^>]*>[\s\S]*?(?=<tr\b|<\/table\b|$)/gi)];
   const cellCounts: number[] = [];
   let headerRows = 0;
+  // A row is a header row when it starts inside <thead> (decided by offset;
+  // the row text itself runs up to the next <tr> and can contain </thead>),
+  // or, without a <thead>, when it is the first row and made only of <th>.
+  const theadStart = html.search(/<thead\b/i);
   const theadEnd = html.search(/<\/thead\b/i);
-  const headerRegion = theadEnd >= 0 ? html.slice(0, theadEnd) : '';
   for (let i = 0; i < rowMatches.length; i++) {
-    const row = rowMatches[i];
+    const row = rowMatches[i][0];
+    const offset = rowMatches[i].index ?? 0;
     const cells = row.match(/<t[dh]\b/gi)?.length ?? 0;
-    const inThead = theadEnd >= 0 && headerRegion.includes(row);
-    const isHeader = inThead || (i === 0 && /<th\b/i.test(row) && !/<td\b/i.test(row));
+    const inThead = theadStart >= 0 && offset > theadStart && (theadEnd < 0 || offset < theadEnd);
+    const isHeader =
+      inThead || (theadStart < 0 && i === 0 && /<th\b/i.test(row) && !/<td\b/i.test(row));
     if (isHeader) {
       headerRows++;
       continue;
     }
     cellCounts.push(cells);
   }
-  const first = rowMatches[0]?.match(/<t[dh]\b/gi)?.length ?? 0;
+  const first = rowMatches[0]?.[0].match(/<t[dh]\b/gi)?.length ?? 0;
   return {
     rows: Math.max(0, rowMatches.length - headerRows),
     columns: first,
@@ -435,7 +440,12 @@ export function detectBulkData(text: string, thresholds: BulkThresholds): BulkDe
     elements,
     bulkChars,
     bulkShare,
-    dominant: elements.length > 0 && bulkShare >= thresholds.dominantShare,
+    // Decided on the unrounded ratio: 49.6% rounds to 50 for display but is
+    // not "at least half of the content".
+    dominant:
+      elements.length > 0 &&
+      totalChars > 0 &&
+      (bulkChars / totalChars) * 100 >= thresholds.dominantShare,
     proseChars,
     proseBeforeBulk,
     proseBeforeBulkPercent:

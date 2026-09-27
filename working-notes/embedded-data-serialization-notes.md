@@ -282,10 +282,39 @@ approach and its thresholds are settled).
   Markdown lists fewer otherwise: `staleness`. These are the three causes
   the spec names, with the one signal (pagination) that can be observed;
   the docs call the label a best guess.
-- **Duplicates.** List entries are deduplicated by the parity check's own
-  `normalize()` across the document, and the comparison uses the distinct
-  count of the largest block. A generator that emits every entry twice is
+- **Duplicates.** Entries in the compared block are deduplicated by the
+  parity check's own `normalize()`, and the comparison uses the distinct
+  count. Only the block's top-level items are counted, mirroring the HTML
+  side's direct `li` children. A generator that emits every entry twice is
   reported as duplication, not as a bigger catalog.
+
+## Review round (PR #130, Copilot)
+
+Six findings, all real, all fixed with a regression test each:
+
+- **Header rows in raw tables were decided by substring.** Each row match
+  runs up to the next `<tr>`, so a `<thead>` row's text contained
+  `</thead>` and was never a substring of the head region; only the
+  first-row-all-`th` fallback worked. A `<td>`-built header or a second
+  header row counted as data, and 19 body rows plus one such header crossed
+  the 20-row default. Membership is now decided by match offset against
+  the `<thead>` span.
+- **Dominance was decided on the rounded percentage.** A 49.6% share
+  displays as 50 and was called dominant. The unrounded ratio decides;
+  `bulkShare` stays rounded for reporting.
+- **Parity fences ignored the opener length**, so a three-backtick line
+  closed a four-backtick fence and the example inside was counted as real
+  list items. Openers keep their length; a closer must be at least as long.
+- **Parity counted nested bullets** while the HTML side counted direct
+  `li` children, so a catalog with two sub-bullets per entry compared as
+  10 against 30. Only the block's top-level items count now.
+- **Duplicates were document-wide** while the counts were per block, which
+  could report "20 entries of which only 20 are distinct". Duplicates are
+  scoped to the compared block.
+- **The diagnostic called `html-redirect` samples broken.** The portability
+  check keeps that outcome out of its broken set on purpose (the link
+  resolved, to the wrong representation); the evidence line now reports
+  redirects separately.
 
 ## Detail shape
 

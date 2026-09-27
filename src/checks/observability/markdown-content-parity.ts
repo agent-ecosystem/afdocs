@@ -89,7 +89,7 @@ export interface ItemCounts {
   markdown: number;
   /** Distinct markdown items; the comparison uses this when entries repeat. */
   markdownUnique: number;
-  /** Markdown entries that repeat an earlier entry verbatim. */
+  /** Entries in that markdown structure that repeat an earlier entry verbatim. */
   duplicates: number;
   /** True when the counts differ by more than the tolerance. */
   diverges: boolean;
@@ -244,41 +244,43 @@ function countHtmlItems(content: HTMLElement): HtmlItemCounts {
 }
 
 interface MarkdownItemCounts {
-  /** Items in the largest contiguous list. */
+  /** Top-level items in the largest contiguous list (nested bullets excluded). */
   listItems: number;
-  /** Distinct items in that list. */
+  /** Distinct top-level items in that list. */
   uniqueListItems: number;
-  /** List entries anywhere in the document that repeat an earlier entry verbatim. */
-  duplicateListItems: number;
   /** Data rows in the largest pipe table. */
   tableRows: number;
 }
 
 const MD_FENCE = /^\s*(`{3,}|~{3,})/;
-const MD_LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+(.*)$/;
+const MD_LIST_ITEM = /^(\s*)(?:[-*+]|\d+[.)])\s+(.*)$/;
 const MD_TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
 
 /**
  * Measure the largest contiguous list (blank lines between items allowed,
  * any other line ends it) and the largest pipe table in markdown, outside
- * fenced code. List entries are also deduplicated by normalized text across
- * the whole document, so a generator that emits every entry twice shows up
- * as duplicates rather than as twice the catalog.
+ * fenced code. Only the block's top-level items count, mirroring the HTML
+ * side's direct `li` children, so a catalog whose entries carry nested
+ * bullets is not counted three times over. Items are deduplicated by
+ * normalized text within the block, so a generator that emits every entry
+ * twice shows up as duplicates rather than as twice the catalog.
  */
 function countMarkdownItems(markdown: string): MarkdownItemCounts {
   const lines = markdown.split('\n');
-  let inFence: string | null = null;
+  let inFence: { char: string; length: number } | null = null;
   let listItems = 0;
   let uniqueListItems = 0;
   let tableRows = 0;
-  let totalListItems = 0;
-  const seenAnywhere = new Set<string>();
-  let block: string[] = [];
+  let block: Array<{ indent: number; key: string }> = [];
 
   const closeBlock = () => {
-    if (block.length > listItems) {
-      listItems = block.length;
-      uniqueListItems = new Set(block).size;
+    if (block.length > 0) {
+      const base = Math.min(...block.map((b) => b.indent));
+      const top = block.filter((b) => b.indent === base).map((b) => b.key);
+      if (top.length > listItems) {
+        listItems = top.length;
+        uniqueListItems = new Set(top).size;
+      }
     }
     block = [];
   };
@@ -287,18 +289,26 @@ function countMarkdownItems(markdown: string): MarkdownItemCounts {
     const line = lines[i];
     const fence = MD_FENCE.exec(line);
     if (fence) {
-      closeBlock();
-      if (inFence === null) inFence = fence[1][0];
-      else if (fence[1][0] === inFence && line.trim() === fence[1]) inFence = null;
+      if (inFence === null) {
+        closeBlock();
+        inFence = { char: fence[1][0], length: fence[1].length };
+        continue;
+      }
+      // CommonMark: the closer uses the same character, is at least as long
+      // as the opener, and carries nothing else on the line.
+      if (
+        fence[1][0] === inFence.char &&
+        fence[1].length >= inFence.length &&
+        line.trim() === fence[1]
+      ) {
+        inFence = null;
+      }
       continue;
     }
     if (inFence !== null) continue;
     const item = MD_LIST_ITEM.exec(line);
     if (item) {
-      const key = normalize(item[1]);
-      block.push(key);
-      totalListItems++;
-      seenAnywhere.add(key);
+      block.push({ indent: item[1].replace(/\t/g, '    ').length, key: normalize(item[2]) });
       continue;
     }
     if (line.trim() === '') continue;
@@ -312,12 +322,7 @@ function countMarkdownItems(markdown: string): MarkdownItemCounts {
     }
   }
   closeBlock();
-  return {
-    listItems,
-    uniqueListItems,
-    duplicateListItems: totalListItems - seenAnywhere.size,
-    tableRows,
-  };
+  return { listItems, uniqueListItems, tableRows };
 }
 
 /**
@@ -337,7 +342,7 @@ function compareItemCounts(
   const htmlCount = structure === 'list' ? html.listItems : html.tableRows;
   const mdCount = structure === 'list' ? md.listItems : md.tableRows;
   const mdUnique = structure === 'list' ? md.uniqueListItems : md.tableRows;
-  const duplicates = structure === 'list' ? md.duplicateListItems : 0;
+  const duplicates = mdCount - mdUnique;
 
   // Compare against distinct entries: a duplicated catalog is not a bigger one.
   const compared = mdUnique;

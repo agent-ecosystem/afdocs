@@ -107,6 +107,19 @@ describe('detectBulkData', () => {
       expect(detectBulkData(table(19), T).elements).toEqual([]);
     });
 
+    it('recognizes header rows by their position inside <thead>, whatever cells they use', () => {
+      const rows = (n: number) =>
+        Array.from({ length: n }, (_, i) => `<tr><td>${i}</td><td>v</td></tr>`).join('');
+      // Two header rows, one of them built from <td>: 19 data rows is not bulk.
+      const twoHeaders =
+        `<table><thead><tr><td>Group</td><td></td></tr><tr><th>a</th><th>b</th></tr></thead>` +
+        `<tbody>${rows(19)}</tbody></table>`;
+      expect(detectBulkData(twoHeaders, T).elements).toEqual([]);
+      const d = detectBulkData(twoHeaders.replace(rows(19), rows(20)), T);
+      expect(d.elements[0]?.rows).toBe(20);
+      expect(d.elements[0]?.uniformity).toBe(1);
+    });
+
     it('measures the grounding case: a 218-row generated table converted from HTML', () => {
       const rows = Array.from(
         { length: 218 },
@@ -235,6 +248,17 @@ describe('detectBulkData', () => {
       const md = `${pipeTable(50)}\n\n${'Explanation last. '.repeat(50)}`;
       const d = detectBulkData(md, T);
       expect(d.proseBeforeBulkPercent).toBe(0);
+    });
+
+    it('decides dominance on the unrounded share', () => {
+      const table = pipeTable(40);
+      // Pad so the table is 49.6% of the content: displays as 50%, is not half.
+      const total = Math.round(table.length / 0.496);
+      const md = `${'p'.repeat(total - table.length - 2)}\n\n${table}`;
+      const d = detectBulkData(md, T);
+      expect(d.bulkShare).toBe(50);
+      expect(d.dominant).toBe(false);
+      expect(detectBulkData(md, { ...T, dominantShare: 49 }).dominant).toBe(true);
     });
 
     it('is not dominant below the configured share', () => {

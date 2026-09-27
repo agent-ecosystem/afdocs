@@ -908,6 +908,26 @@ describe('diagnostics', () => {
       expect(diags.find((x) => x.id === 'dynamic-content-rendered-statically')).toBeDefined();
     });
 
+    it('does not call an html-redirect sample broken', () => {
+      const redirected = r('markdown-link-portability', 'warn', {
+        pageResults: [
+          {
+            url,
+            status: 'warn',
+            links: { absolute: 10, rootRelative: 0, pathRelative: 0, total: 10 },
+            samples: [
+              { url: 'https://example.com/a.md', outcome: 'html-redirect' },
+              { url: 'https://example.com/b.md', outcome: 'ok' },
+            ],
+          },
+        ],
+      });
+      const diags = evaluateDiagnostics(resultsMap(redirected, paginated('warn')), defaultReport());
+      const d = diags.find((x) => x.id === 'dynamic-content-rendered-statically')!;
+      expect(d.message).toContain('unnavigable (1 of 2 sampled .md links redirect to HTML pages)');
+      expect(d.message).not.toContain('do not resolve');
+    });
+
     it('counts duplicated markdown entries as the inconsistent direction', () => {
       const parity = r('markdown-content-parity', 'pass', {
         pageResults: [
