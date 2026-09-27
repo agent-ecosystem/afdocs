@@ -3226,4 +3226,152 @@ See the API reference for the full list of built-in plugins and options.`;
     expect(pageResults[0].missingSegments).toBe(1);
     expect(pageResults[0].sampleDiffs[0]).toContain('only exists in the HTML version');
   });
+
+  describe('item counts on generated pages', () => {
+    const catalogHtml = (items: number) =>
+      `<html><body><main><h1>Model catalog</h1>
+        <p>Browse the models available on the platform and pick one for your use case.</p>
+        <ul>${Array.from({ length: items }, (_, i) => `<li><a href="/m/${i}">model-${i}</a>: a model that does useful things number ${i}</li>`).join('')}</ul>
+      </main></body></html>`;
+    const catalogMd = (items: number, repeat = 1) => {
+      const lines = Array.from(
+        { length: items },
+        (_, i) =>
+          `- [model-${i}](https://cat.local/m/${i}): a model that does useful things number ${i}`,
+      );
+      const all: string[] = [];
+      for (let r = 0; r < repeat; r++) all.push(...lines);
+      return `# Model catalog\n\nBrowse the models available on the platform and pick one for your use case.\n\n${all.join('\n')}\n`;
+    };
+
+    function catalogCtx(html: string, markdown: string, host: string, paginated = false) {
+      const url = `http://${host}/models`;
+      server.use(
+        http.get(
+          url,
+          () => new HttpResponse(html, { status: 200, headers: { 'Content-Type': 'text/html' } }),
+        ),
+      );
+      const ctx = makeCtx([{ url, markdown, htmlBody: html }], host);
+      if (paginated) {
+        ctx.previousResults.set('single-fetch-completeness', {
+          id: 'single-fetch-completeness',
+          category: 'page-size',
+          status: 'warn',
+          message: '',
+          details: { pageResults: [{ url, status: 'warn', paginated: true }] },
+        });
+      }
+      return ctx;
+    }
+
+    it('reports matching counts without divergence and does not change the status', async () => {
+      const ctx = catalogCtx(catalogHtml(40), catalogMd(40), 'cat-equal.local');
+      const result = await check.run(ctx);
+      expect(result.status).toBe('pass');
+      const page = (
+        result.details?.pageResults as Array<{ itemCounts?: Record<string, unknown> }>
+      )[0];
+      expect(page.itemCounts).toEqual({
+        structure: 'list',
+        html: 40,
+        markdown: 40,
+        markdownUnique: 40,
+        duplicates: 0,
+        diverges: false,
+      });
+      expect(result.details?.itemCountDivergences).toBeUndefined();
+    });
+
+    it('omits item counts on pages without repeated structure', async () => {
+      const ctx = catalogCtx(catalogHtml(5), catalogMd(5), 'cat-small.local');
+      const result = await check.run(ctx);
+      const page = (result.details?.pageResults as Array<{ itemCounts?: unknown }>)[0];
+      expect(page.itemCounts).toBeUndefined();
+    });
+
+    it('names a default filter when the markdown lists more than the HTML shows', async () => {
+      // The spec's observed case: 98 shown under a default filter, 102 listed.
+      const ctx = catalogCtx(catalogHtml(98), catalogMd(102), 'cat-filter.local');
+      const result = await check.run(ctx);
+      expect(result.status).toBe('pass');
+      const page = (
+        result.details?.pageResults as Array<{ itemCounts?: Record<string, unknown> }>
+      )[0];
+      expect(page.itemCounts).toMatchObject({
+        html: 98,
+        markdown: 102,
+        diverges: true,
+        likelyCause: 'default-filter',
+      });
+      expect(result.details?.itemCountDivergences).toBe(1);
+    });
+
+    it('names pagination when the markdown lists fewer and single-fetch-completeness found it paginated', async () => {
+      const ctx = catalogCtx(catalogHtml(102), catalogMd(60), 'cat-paged.local', true);
+      const result = await check.run(ctx);
+      const page = (
+        result.details?.pageResults as Array<{ itemCounts?: Record<string, unknown> }>
+      )[0];
+      expect(page.itemCounts).toMatchObject({
+        html: 102,
+        markdown: 60,
+        diverges: true,
+        likelyCause: 'pagination',
+      });
+    });
+
+    it('names staleness when the markdown lists fewer with no pagination', async () => {
+      const ctx = catalogCtx(catalogHtml(102), catalogMd(80), 'cat-stale.local');
+      const result = await check.run(ctx);
+      const page = (
+        result.details?.pageResults as Array<{ itemCounts?: Record<string, unknown> }>
+      )[0];
+      expect(page.itemCounts).toMatchObject({ diverges: true, likelyCause: 'staleness' });
+    });
+
+    it('compares distinct entries when the markdown repeats every entry', async () => {
+      // A generator emitting the catalog twice is not a catalog twice the size.
+      const ctx = catalogCtx(catalogHtml(100), catalogMd(100, 2), 'cat-dupes.local');
+      const result = await check.run(ctx);
+      const page = (
+        result.details?.pageResults as Array<{ itemCounts?: Record<string, unknown> }>
+      )[0];
+      expect(page.itemCounts).toMatchObject({
+        html: 100,
+        markdown: 200,
+        markdownUnique: 100,
+        duplicates: 100,
+        diverges: false,
+      });
+    });
+
+    it('counts table data rows, not header rows, and picks the larger structure', async () => {
+      const rows = Array.from(
+        { length: 30 },
+        (_, i) => `<tr><td>driver-${i}</td><td>compatible with server ${i}</td></tr>`,
+      ).join('');
+      const html = `<html><body><main><h1>Compatibility</h1><p>The table below lists which driver versions work with which server versions.</p>
+        <table><thead><tr><th>Driver</th><th>Server</th></tr></thead><tbody>${rows}</tbody></table>
+        <ul><li>note one about the table</li><li>note two about the table</li></ul></main></body></html>`;
+      const mdRows = Array.from(
+        { length: 30 },
+        (_, i) => `| driver-${i} | compatible with server ${i} |`,
+      ).join('\n');
+      const markdown = `# Compatibility\n\nThe table below lists which driver versions work with which server versions.\n\n| Driver | Server |\n| --- | --- |\n${mdRows}\n\n- note one about the table\n- note two about the table\n`;
+      const ctx = catalogCtx(html, markdown, 'cat-table.local');
+      const result = await check.run(ctx);
+      const page = (
+        result.details?.pageResults as Array<{ itemCounts?: Record<string, unknown> }>
+      )[0];
+      expect(page.itemCounts).toEqual({
+        structure: 'table',
+        html: 30,
+        markdown: 30,
+        markdownUnique: 30,
+        duplicates: 0,
+        diverges: false,
+      });
+    });
+  });
 });

@@ -173,6 +173,18 @@ options:
 
 Note: `data-markdown-ignore` is built in and does not need to be listed in `parityExclusions`. The exclusions option is only for additional platform-specific conventions.
 
+### Generated pages
+
+Pages built from data (catalogs, model listings, compatibility matrices) can diverge between representations without anyone deciding they should, because the HTML and markdown variants are rendered by different pipelines with different defaults. The spec's observed case is a catalog whose HTML showed 98 items while its markdown listed 102: the HTML applied a default filter the markdown dump did not, and the markdown was additionally paginated. Containment cannot see this, because a markdown variant that lists more than the HTML shows is not missing anything.
+
+For pages with repeated structure, the check therefore also compares item counts between representations: the largest list (or table) in the HTML content against the largest list (or table) in the markdown, once either side reaches 20 items. Counts that differ by more than one item and more than 2% are reported as a divergence in the page's `itemCounts` detail, with a best guess at the cause:
+
+- **`default-filter`**: the markdown lists more than the HTML shows. The dynamic view applies a default filter that the dump does not.
+- **`pagination`**: the markdown lists fewer, and `single-fetch-completeness` found the page paginated. The markdown is windowed, not stale.
+- **`staleness`**: the markdown lists fewer with no pagination in sight, most often one representation generated from older data.
+
+Each has a different owner and fix. Markdown entries that repeat an earlier entry verbatim are counted as duplicates and excluded from the comparison, so a generator that emits every entry twice shows up as duplication rather than as a catalog twice the size. The comparison never changes the check's result; it feeds the [dynamic content rendered statically](/interaction-diagnostics#dynamic-content-rendered-statically) diagnostic, and is skipped when one side has fewer than five items, which is more often an extraction artifact than a filter.
+
 ### How to fix
 
 **If this check warns**, review the differences. If they reflect intentional audience segmentation, either add `data-markdown-ignore` to the human-only HTML elements or adjust thresholds. If they reflect formatting variations, minor parity issues (navigation elements present in one format but not the other) may be acceptable.

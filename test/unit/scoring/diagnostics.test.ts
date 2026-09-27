@@ -778,6 +778,186 @@ describe('diagnostics', () => {
       expect(diag!.message).toContain('3 pages were');
     });
   });
+  describe('dynamic-content-rendered-statically', () => {
+    const url = 'https://example.com/models';
+    const bulk = (status: string) =>
+      r('embedded-data-serialization', 'warn', {
+        pageResults: [
+          {
+            url,
+            status,
+            bulkShare: 80,
+            dominantElement: { kind: 'table', rows: 300, chars: 60_000, share: 78 },
+          },
+        ],
+      });
+    const paginated = (status: string) =>
+      r('single-fetch-completeness', 'warn', {
+        pageResults: [
+          {
+            url,
+            mdUrl: `${url}.md`,
+            status,
+            paginated: true,
+            issues: ['continuation URL is relative'],
+          },
+        ],
+      });
+    const links = (status: string) =>
+      r('markdown-link-portability', 'fail', {
+        pageResults: [
+          {
+            url,
+            status,
+            links: { absolute: 0, rootRelative: 100, pathRelative: 0, total: 100 },
+            samples: [
+              { url: '/a.md', outcome: 'not-markdown' },
+              { url: '/b.md', outcome: 'ok' },
+            ],
+          },
+        ],
+      });
+
+    it('does not trigger on a single symptom per page', () => {
+      const diags = evaluateDiagnostics(resultsMap(bulk('warn')), defaultReport());
+      expect(diags.find((d) => d.id === 'dynamic-content-rendered-statically')).toBeUndefined();
+    });
+
+    it('does not trigger when the symptoms are on different pages', () => {
+      const other = r('markdown-link-portability', 'fail', {
+        pageResults: [
+          {
+            url: 'https://example.com/other',
+            status: 'fail',
+            links: { absolute: 0, rootRelative: 3, pathRelative: 0, total: 3 },
+          },
+        ],
+      });
+      const diags = evaluateDiagnostics(resultsMap(bulk('warn'), other), defaultReport());
+      expect(diags.find((d) => d.id === 'dynamic-content-rendered-statically')).toBeUndefined();
+    });
+
+    it('triggers when two checks flag the same page and names the directions in spec order', () => {
+      const diags = evaluateDiagnostics(resultsMap(links('fail'), bulk('warn')), defaultReport());
+      const d = diags.find((x) => x.id === 'dynamic-content-rendered-statically');
+      expect(d).toBeDefined();
+      expect(d!.severity).toBe('warning');
+      expect(d!.message).toContain('1 generated page shows several symptoms');
+      expect(d!.message).toContain(
+        `${url}: too much (a 300-row table is 78% of the converted content); unnavigable (100 of 100 links are relative and 1 of 2 sampled links do not resolve)`,
+      );
+      expect(d!.message.indexOf('too much')).toBeLessThan(d!.message.indexOf('unnavigable'));
+      expect(d!.resolution).toContain('one pipeline problem');
+    });
+
+    it("reports all four directions on the spec's grounding page", () => {
+      const parity = r('markdown-content-parity', 'pass', {
+        pageResults: [
+          {
+            url: `${url}.md`,
+            status: 'pass',
+            missingPercent: 0,
+            itemCounts: {
+              structure: 'list',
+              html: 98,
+              markdown: 204,
+              markdownUnique: 102,
+              duplicates: 102,
+              diverges: true,
+              likelyCause: 'default-filter',
+            },
+          },
+        ],
+      });
+      const diags = evaluateDiagnostics(
+        resultsMap(bulk('warn'), paginated('warn'), parity, links('fail')),
+        defaultReport(),
+      );
+      const d = diags.find((x) => x.id === 'dynamic-content-rendered-statically')!;
+      expect(d.message).toContain(
+        'too little (markdown is paginated: continuation URL is relative)',
+      );
+      expect(d.message).toContain(
+        'inconsistent (the HTML shows 98 items while the markdown lists 102 (likely default filter))',
+      );
+      expect(d.message).toContain('unnavigable');
+      // The parity page was keyed by its .md URL and still joined the same page.
+      expect(d.message.match(/https:\/\/example\.com\/models/g)).toHaveLength(1);
+    });
+
+    it('counts a parity item-count divergence even when the parity page passed', () => {
+      const parity = r('markdown-content-parity', 'pass', {
+        pageResults: [
+          {
+            url,
+            status: 'pass',
+            missingPercent: 1,
+            itemCounts: {
+              structure: 'list',
+              html: 98,
+              markdown: 102,
+              markdownUnique: 102,
+              duplicates: 0,
+              diverges: true,
+              likelyCause: 'default-filter',
+            },
+          },
+        ],
+      });
+      const diags = evaluateDiagnostics(resultsMap(parity, paginated('fail')), defaultReport());
+      expect(diags.find((x) => x.id === 'dynamic-content-rendered-statically')).toBeDefined();
+    });
+
+    it('counts duplicated markdown entries as the inconsistent direction', () => {
+      const parity = r('markdown-content-parity', 'pass', {
+        pageResults: [
+          {
+            url,
+            status: 'pass',
+            missingPercent: 0,
+            itemCounts: {
+              structure: 'list',
+              html: 100,
+              markdown: 200,
+              markdownUnique: 100,
+              duplicates: 100,
+              diverges: false,
+            },
+          },
+        ],
+      });
+      const diags = evaluateDiagnostics(resultsMap(parity, links('warn')), defaultReport());
+      const d = diags.find((x) => x.id === 'dynamic-content-rendered-statically')!;
+      expect(d.message).toContain('the markdown lists 200 entries of which only 100 are distinct');
+    });
+
+    it('ignores passing page results and pages with fetch errors', () => {
+      const errored = r('embedded-data-serialization', 'fail', {
+        pageResults: [{ url, status: 'fail', error: 'Network error' }],
+      });
+      const diags = evaluateDiagnostics(resultsMap(errored, links('pass')), defaultReport());
+      expect(diags.find((x) => x.id === 'dynamic-content-rendered-statically')).toBeUndefined();
+    });
+
+    it('lists at most three pages and counts the rest', () => {
+      const urls = ['a', 'b', 'c', 'd', 'e'].map((p) => `https://example.com/${p}`);
+      const results = resultsMap(
+        r('embedded-data-serialization', 'warn', {
+          pageResults: urls.map((u) => ({ url: u, status: 'warn', bulkShare: 70 })),
+        }),
+        r('single-fetch-completeness', 'warn', {
+          pageResults: urls.map((u) => ({ url: u, status: 'warn', paginated: true, issues: [] })),
+        }),
+      );
+      const d = evaluateDiagnostics(results, defaultReport()).find(
+        (x) => x.id === 'dynamic-content-rendered-statically',
+      )!;
+      expect(d.message).toContain('5 generated pages show');
+      expect(d.message).toContain('And 2 more.');
+      expect(d.message).toContain('generated data is 70% of the converted content');
+    });
+  });
+
   describe('bot-protection-scan-reliability', () => {
     it('triggers when the check warns, regardless of the failure rate', () => {
       const results = resultsMap(

@@ -72,6 +72,183 @@ function failureCounts(
   return undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Dynamic Content Rendered Statically
+// ---------------------------------------------------------------------------
+
+/**
+ * The spec's four failure directions for a dynamic page flattened into
+ * static content, each owned by one check.
+ */
+export type FlatteningDirection = 'too much' | 'too little' | 'inconsistent' | 'unnavigable';
+
+export interface FlatteningFinding {
+  url: string;
+  /** Evidence per direction, in the order the spec lists them. */
+  symptoms: Array<{ direction: FlatteningDirection; evidence: string }>;
+}
+
+/**
+ * Pages are keyed by their published URL in every check involved, but the
+ * parity check keys by the cached URL (which may be the `.md` variant when
+ * llms.txt links to markdown directly). Normalize so one page is one key.
+ */
+function pageKey(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = '';
+    let path = u.pathname.replace(/\.(md|mdx)$/i, '');
+    if (path.length > 1) path = path.replace(/\/$/, '');
+    if (path === '') path = '/';
+    return `${u.protocol}//${u.host.toLowerCase()}${path}${u.search}`;
+  } catch {
+    return url;
+  }
+}
+
+const DIRECTION_ORDER: FlatteningDirection[] = [
+  'too much',
+  'too little',
+  'inconsistent',
+  'unnavigable',
+];
+
+/**
+ * Collect, per page, which of the four flattening directions the checks
+ * observed. Only warn/fail page results count as symptoms, with one
+ * exception: a parity item-count divergence counts as "inconsistent" even
+ * when the page passed, because a markdown variant that lists more than the
+ * HTML shows is never "missing" anything by the containment measure.
+ */
+export function collectFlatteningFindings(results: Map<string, CheckResult>): FlatteningFinding[] {
+  const byPage = new Map<string, { url: string; symptoms: Map<FlatteningDirection, string> }>();
+  const add = (url: string, direction: FlatteningDirection, evidence: string) => {
+    const key = pageKey(url);
+    let entry = byPage.get(key);
+    if (!entry) {
+      entry = { url, symptoms: new Map() };
+      byPage.set(key, entry);
+    }
+    if (!entry.symptoms.has(direction)) entry.symptoms.set(direction, evidence);
+  };
+  const flagged = (status?: string) => status === 'warn' || status === 'fail';
+
+  // Too much: embedded-data-serialization
+  const bulk = results.get('embedded-data-serialization')?.details?.pageResults as
+    | Array<{
+        url: string;
+        status: string;
+        error?: string;
+        bulkShare?: number;
+        dominantElement?: { kind: string; rows?: number; chars: number; share: number };
+      }>
+    | undefined;
+  for (const p of bulk ?? []) {
+    if (p.error || !flagged(p.status)) continue;
+    const el = p.dominantElement;
+    const what =
+      el?.kind === 'table'
+        ? `a ${el.rows ?? 0}-row table`
+        : el
+          ? `a ${el.kind} blob`
+          : 'generated data';
+    add(p.url, 'too much', `${what} is ${el?.share ?? p.bulkShare ?? 0}% of the converted content`);
+  }
+
+  // Too little: single-fetch-completeness
+  const completeness = results.get('single-fetch-completeness')?.details?.pageResults as
+    | Array<{ url: string; status: string; paginated?: boolean; issues?: string[] }>
+    | undefined;
+  for (const p of completeness ?? []) {
+    if (!flagged(p.status)) continue;
+    const issue = p.issues?.[0];
+    add(p.url, 'too little', issue ? `markdown is paginated: ${issue}` : 'markdown is paginated');
+  }
+
+  // Inconsistent: markdown-content-parity (status, or item counts)
+  const parity = results.get('markdown-content-parity')?.details?.pageResults as
+    | Array<{
+        url: string;
+        status: string;
+        error?: string;
+        missingPercent?: number;
+        itemCounts?: {
+          html: number;
+          markdown: number;
+          markdownUnique: number;
+          duplicates: number;
+          diverges: boolean;
+          likelyCause?: string;
+        };
+      }>
+    | undefined;
+  for (const p of parity ?? []) {
+    if (p.error) continue;
+    const ic = p.itemCounts;
+    if (ic?.diverges) {
+      const cause = ic.likelyCause ? ` (likely ${ic.likelyCause.replace('-', ' ')})` : '';
+      add(
+        p.url,
+        'inconsistent',
+        `the HTML shows ${ic.html} items while the markdown lists ${ic.markdownUnique}${cause}`,
+      );
+    } else if (ic && ic.duplicates > 0) {
+      add(
+        p.url,
+        'inconsistent',
+        `the markdown lists ${ic.markdown} entries of which only ${ic.markdownUnique} are distinct`,
+      );
+    } else if (flagged(p.status)) {
+      add(
+        p.url,
+        'inconsistent',
+        `${p.missingPercent ?? 0}% of the HTML content is missing from the markdown`,
+      );
+    }
+  }
+
+  // Unnavigable: markdown-link-portability
+  const portability = results.get('markdown-link-portability')?.details?.pageResults as
+    | Array<{
+        url: string;
+        status: string;
+        links?: {
+          rootRelative: number;
+          protocolRelative?: number;
+          pathRelative: number;
+          total: number;
+        };
+        samples?: Array<{ outcome: string }>;
+      }>
+    | undefined;
+  for (const p of portability ?? []) {
+    if (!flagged(p.status)) continue;
+    const parts: string[] = [];
+    const l = p.links;
+    if (l) {
+      const relative = l.rootRelative + (l.protocolRelative ?? 0) + l.pathRelative;
+      if (relative > 0) parts.push(`${relative} of ${l.total} links are relative`);
+    }
+    const samples = p.samples ?? [];
+    const broken = samples.filter((s) => s.outcome !== 'ok').length;
+    if (broken > 0) parts.push(`${broken} of ${samples.length} sampled links do not resolve`);
+    add(p.url, 'unnavigable', parts.join(' and ') || 'links depend on a browser context');
+  }
+
+  const findings: FlatteningFinding[] = [];
+  for (const entry of byPage.values()) {
+    if (entry.symptoms.size < 2) continue;
+    findings.push({
+      url: entry.url,
+      symptoms: DIRECTION_ORDER.filter((d) => entry.symptoms.has(d)).map((direction) => ({
+        direction,
+        evidence: entry.symptoms.get(direction)!,
+      })),
+    });
+  }
+  return findings;
+}
+
 interface DiagnosticDefinition {
   id: string;
   severity: DiagnosticSeverity;
@@ -379,6 +556,38 @@ const DIAGNOSTIC_DEFINITIONS: DiagnosticDefinition[] = [
       'Either reduce HTML page sizes (break large pages, reduce inline ' +
       'CSS/JS), or provide markdown versions and ensure agents can discover ' +
       'them via content negotiation or an llms.txt directive.',
+  },
+
+  {
+    id: 'dynamic-content-rendered-statically',
+    severity: 'warning',
+    triggers: (results) => collectFlatteningFindings(results).length > 0,
+    message: (results) => {
+      const findings = collectFlatteningFindings(results);
+      const shown = findings.slice(0, 3);
+      const pages = shown
+        .map(
+          (f) => `${f.url}: ${f.symptoms.map((s) => `${s.direction} (${s.evidence})`).join('; ')}`,
+        )
+        .join('. ');
+      const more =
+        findings.length > shown.length ? ` And ${findings.length - shown.length} more.` : '';
+      const noun = findings.length === 1 ? 'page shows' : 'pages show';
+      return (
+        `${findings.length} generated ${noun} several symptoms of the same ` +
+        `flattening problem. ${pages}.${more} Each check flags one symptom, ` +
+        'but the cause is shared: the markdown variant is a second rendering ' +
+        'pipeline, and it needs the same QA the HTML pipeline gets.'
+      );
+    },
+    resolution:
+      'Treat these as one pipeline problem rather than separate findings. ' +
+      'Review the generator that produces the agent-facing representation of ' +
+      'the affected pages for how it dumps widget data, whether it inherits UI ' +
+      'pagination or a default filter, and how it writes links, then re-run ' +
+      'embedded-data-serialization, single-fetch-completeness, ' +
+      'markdown-content-parity, and markdown-link-portability together on ' +
+      'those pages.',
   },
 
   {
