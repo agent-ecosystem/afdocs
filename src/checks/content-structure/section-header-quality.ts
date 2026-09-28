@@ -1,8 +1,10 @@
 import type { HTMLElement } from 'node-html-parser';
 import { parse } from 'node-html-parser';
+import type { Nodes } from 'mdast';
 import { registerCheck } from '../registry.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
 import type { DetectedTabGroup } from '../../helpers/detect-tabs.js';
+import { parseMarkdown } from '../../helpers/parse-markdown.js';
 
 interface TabbedPageResult {
   url: string;
@@ -22,7 +24,7 @@ interface GroupHeaderAnalysis {
   hasCrossGroupGeneric: boolean;
 }
 
-const MD_HEADING_RE = /^#{1,6}\s+(.+)$/gm;
+const HTML_HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
 
 const CALLOUT_ROLES = new Set(['alert', 'note', 'status', 'complementary']);
 
@@ -57,6 +59,13 @@ function isCalloutHeading(h: HTMLElement): boolean {
   return false;
 }
 
+function headingText(node: Nodes): string {
+  if (node.type === 'text' || node.type === 'inlineCode') return node.value;
+  if (node.type === 'image' || node.type === 'imageReference') return node.alt ?? '';
+  if (node.type === 'break') return '\n';
+  return 'children' in node ? node.children.map(headingText).join('') : '';
+}
+
 /**
  * Extract section header text from content that may be HTML, markdown, or a
  * mix (MDX). Excludes headings inside callout/admonition containers, which
@@ -64,9 +73,47 @@ function isCalloutHeading(h: HTMLElement): boolean {
  */
 function extractHeaders(content: string): string[] {
   const headers: string[] = [];
+  const markdownHeaders: Array<{ text: string; offset: number }> = [];
+  const htmlSource = content.split('');
+  const panel = parse(content).querySelector('tab, tabitem');
+  const start = panel?.firstChild?.range[0];
+  const end = panel?.lastChild?.range[1];
+  let markdownSource = content;
+  if (
+    panel &&
+    start !== undefined &&
+    end !== undefined &&
+    content.slice(0, panel.range[0]).trim() === '' &&
+    content.slice(panel.range[1]).trim() === ''
+  ) {
+    markdownSource =
+      content.slice(0, start).replace(/[^\r\n]/g, ' ') +
+      content.slice(start, end) +
+      content.slice(end).replace(/[^\r\n]/g, ' ');
+  }
+  const tree = parseMarkdown(markdownSource, { normalizeVendorFences: false });
+
+  const visit = (node: Nodes): void => {
+    const offset = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (offset === undefined || end === undefined) return;
+
+    if (node.type === 'heading') {
+      const text = headingText(node).trim();
+      if (text.length > 0) markdownHeaders.push({ text, offset });
+    }
+    if (node.type === 'code' || node.type === 'inlineCode') {
+      for (let index = offset; index < end; index++) {
+        if (htmlSource[index] !== '\n' && htmlSource[index] !== '\r') htmlSource[index] = ' ';
+      }
+      return;
+    }
+    if ('children' in node) node.children.forEach(visit);
+  };
+  visit(tree);
 
   // HTML headers — skip callout/admonition headings
-  const root = parse(content);
+  const root = parse(htmlSource.join(''));
   const htmlHeaders = root.querySelectorAll('h1, h2, h3, h4, h5, h6');
   for (const h of htmlHeaders) {
     if (isCalloutHeading(h)) continue;
@@ -74,11 +121,16 @@ function extractHeaders(content: string): string[] {
     if (text.length > 0) headers.push(text);
   }
 
-  // Markdown headers (## Heading)
-  let match;
-  while ((match = MD_HEADING_RE.exec(content)) !== null) {
-    const text = match[1].trim();
-    if (text.length > 0) headers.push(text);
+  const excludedContainers = root
+    .querySelectorAll('*')
+    .filter((element) => HTML_HEADING_TAGS.has(element.rawTagName) || isCalloutHeading(element));
+  for (const { text, offset } of markdownHeaders) {
+    if (
+      excludedContainers.some((element) => offset >= element.range[0] && offset < element.range[1])
+    ) {
+      continue;
+    }
+    headers.push(text);
   }
 
   return headers;
