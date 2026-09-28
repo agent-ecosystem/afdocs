@@ -135,7 +135,10 @@ function paginationContent(content: string): {
     const end = node.position?.end.offset;
     if (start === undefined || end === undefined) return;
 
-    if (node.type === 'code' || (node.type === 'html' && node.value.startsWith('<!--'))) {
+    if (
+      node.type === 'code' ||
+      (node.type === 'html' && node.value.trimStart().startsWith('<!--'))
+    ) {
       for (let index = start; index < end; index++) {
         if (visible[index] !== '\n' && visible[index] !== '\r') visible[index] = ' ';
       }

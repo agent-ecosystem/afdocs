@@ -119,6 +119,34 @@ describe('single-fetch-completeness', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it.each([1, 2, 3])(
+    'ignores comments indented by %i spaces without fetching a continuation',
+    async (spaces) => {
+      for (const lineEnding of ['\n', '\r\n']) {
+        for (const comment of [
+          '<!-- [Next page](/models?page=2) -->',
+          '<!--\n\nShowing 100 of 102 models.\n[Next page](/models?page=2)\n\n-->',
+        ]) {
+          const content = comment
+            .split('\n')
+            .map((line) => `${' '.repeat(spaces)}${line}`)
+            .join(lineEnding);
+          const ctx = cachedCtx([{ url: `${ORIGIN}/docs/checks`, content }]);
+          const fetchSpy = vi
+            .spyOn(ctx.http, 'fetch')
+            .mockRejectedValue(new Error('Unexpected continuation fetch'));
+
+          const result = await check.run(ctx);
+          expect(fetchSpy).not.toHaveBeenCalled();
+          expect(result.status).toBe('pass');
+          expect(result.details).toMatchObject({ paginatedPages: 0, passBucket: 1 });
+          expect(pageResults(result)[0].signals).toEqual([]);
+          expect(pageResults(result)[0].continuation).toBeUndefined();
+        }
+      }
+    },
+  );
+
   it.each(['\n', '\r\n'])(
     'fetches only the real continuation after examples with line ending %j',
     async (lineEnding) => {
@@ -129,7 +157,7 @@ describe('single-fetch-completeness', () => {
         '',
         '    [Next page](/docs/example?page=2)',
         '',
-        '<!--',
+        '   <!--',
         '',
         '[Next page](/docs/comment?page=2)',
         '',

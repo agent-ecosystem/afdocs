@@ -163,9 +163,17 @@ describe('detectPagination', () => {
       '<!--\n\nShowing 100 of 102 models.\nFetch /models?offset=100 or https://docs.example.com/models?cursor=next\n\n-->',
       '<!--\n\nShowing 100 of 102 models. [Next page](/models?page=2)',
     ])('ignores all pagination signals inside comments: %s', (content) => {
-      const result = detectPagination(content, { baseUrl: BASE });
-      expect(result.signals).toEqual([]);
-      expect(result.continuation).toBeUndefined();
+      for (const indent of ['', ' ', '  ', '   ', '    ']) {
+        for (const lineEnding of ['\n', '\r\n']) {
+          const indented = content
+            .split('\n')
+            .map((line) => `${indent}${line}`)
+            .join(lineEnding);
+          const result = detectPagination(indented, { baseUrl: BASE });
+          expect(result.signals).toEqual([]);
+          expect(result.continuation).toBeUndefined();
+        }
+      }
     });
 
     it('ignores image syntax whose alt text looks like a next link', () => {
