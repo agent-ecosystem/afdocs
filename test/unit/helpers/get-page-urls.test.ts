@@ -808,6 +808,64 @@ describe('getPageUrls', () => {
     expect(result.sources).toContain('llms-txt');
   });
 
+  it('discovers real reference links without probing pages or walking example indexes', async () => {
+    const origin = 'http://parsed-discovery.local';
+    const requests: string[] = [];
+    const content = [
+      '# Docs',
+      '',
+      '[guide][guide]',
+      '[nested][index]',
+      '[outside](/blog/post)',
+      '[external](https://other.example/docs/page)',
+      '',
+      '[guide]: /docs/guide_(intro).md',
+      '[index]: /docs/nested.txt',
+      '',
+      '    [example](/docs/code.txt)',
+      '',
+      '<!-- [hidden](/docs/comment.txt) -->',
+    ].join('\n');
+    server.use(
+      http.all(`${origin}/*`, ({ request }) => {
+        requests.push(`${request.method} ${request.url}`);
+        if (request.url === `${origin}/docs/nested.txt`) {
+          return new HttpResponse(
+            '[API][ref]\n\n[ref]: /docs/api.md\n\n[deeper](/docs/deeper.txt)\n\n    [code](/docs/code-page)\n\n<!-- [hidden](/docs/hidden-page) -->',
+          );
+        }
+        if (request.url === `${origin}/robots.txt`)
+          return new HttpResponse(`Sitemap: ${origin}/sitemap.xml`);
+        if (request.url === `${origin}/sitemap.xml`)
+          return new HttpResponse('<urlset></urlset>', {
+            headers: { 'Content-Type': 'application/xml' },
+          });
+        return new HttpResponse(null, { status: 404 });
+      }),
+    );
+    const ctx = createContext(`${origin}/docs`, { requestDelay: 0 });
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: {
+        discoveredFiles: [{ url: `${origin}/llms.txt`, content, status: 200, redirected: false }],
+      },
+    });
+    const result = await getPageUrls(ctx);
+    expect(result.urls).toEqual([`${origin}/docs/guide_(intro)`, `${origin}/docs/api`]);
+    expect(result.originalMdUrls).toEqual({
+      [`${origin}/docs/guide_(intro)`]: `${origin}/docs/guide_(intro).md`,
+      [`${origin}/docs/api`]: `${origin}/docs/api.md`,
+    });
+    expect(requests).toEqual([
+      `GET ${origin}/docs/nested.txt`,
+      `GET ${origin}/robots.txt`,
+      `GET ${origin}/sitemap.xml`,
+    ]);
+  });
+
   it.each(['llms-txt', 'sitemap'])(
     'preserves version leaves discovered through %s (#135)',
     async (source) => {
@@ -2668,6 +2726,43 @@ describe('discoverAndSamplePages', () => {
     expect(result.warnings).toEqual([]);
     expect(result.sources).toContain('llms-txt');
   });
+
+  it.each(['deterministic', 'random', 'curated'])(
+    'preserves %s sampling and verification limits for references',
+    async (samplingStrategy) => {
+      const origin = `http://parsed-sampling-${samplingStrategy}.local`;
+      const urls = Array.from({ length: 10 }, (_, index) => `${origin}/page-${index}`);
+      const references = urls
+        .map((url, index) => `[page ${index}][ref${index}]\n\n[ref${index}]: ${url}.md`)
+        .join('\n\n');
+      const content = `${references}\n\n    [code](${origin}/code.md)\n\n<!-- [hidden](${origin}/hidden.md) -->`;
+      const ctx = makeCtx(origin, content, {
+        samplingStrategy,
+        maxLinksToTest: 3,
+        curatedPages: samplingStrategy === 'curated' ? urls : undefined,
+      });
+      const requests: string[] = [];
+      server.use(
+        http.all(`${origin}/*`, ({ request }) => {
+          requests.push(`${request.method} ${request.url}`);
+          return new HttpResponse('<html><body>Guide</body></html>', {
+            headers: { 'Content-Type': 'text/html' },
+          });
+        }),
+      );
+      const result = await discoverAndSamplePages(ctx);
+      expect(result.totalPages).toBe(10);
+      expect(result.urls).toHaveLength(samplingStrategy === 'curated' ? 10 : 3);
+      expect(result.sampled).toBe(samplingStrategy !== 'curated');
+      expect(result.urls.every((url) => urls.includes(url))).toBe(true);
+      expect(requests).toEqual(
+        samplingStrategy === 'curated' ? [] : result.urls.map((url) => `GET ${url}`),
+      );
+      if (samplingStrategy === 'deterministic')
+        expect(result.urls).toEqual([urls[0], urls[3], urls[6]]);
+      expect(await discoverAndSamplePages(ctx)).toBe(result);
+    },
+  );
 
   it('samples down to maxLinksToTest when over limit', async () => {
     const links = Array.from(

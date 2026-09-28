@@ -72,6 +72,46 @@ function makeCtx(
 }
 
 describe('llms-txt-coverage', () => {
+  test('matches parsed navigation links without stale examples or page probes', async () => {
+    const host = 'cov-parser.local';
+    const origin = `http://${host}`;
+    const requests: string[] = [];
+    const ctx = makeCtx(host, [], '/docs', { coverageExclusions: ['/docs/excluded'] });
+    const content =
+      '[guide][ref]\n\n[ref]: /docs/guide_(intro).md\n\n[API](/docs/api.md)\n\n    [code](/docs/phantom)\n\n<!-- [hidden](/docs/hidden) -->';
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: {
+        discoveredFiles: [{ url: `${origin}/llms.txt`, content, status: 200, redirected: false }],
+      },
+    });
+    server.use(
+      http.all(`${origin}/*`, ({ request }) => {
+        requests.push(`${request.method} ${request.url}`);
+        if (request.url === `${origin}/robots.txt`)
+          return new HttpResponse(`Sitemap: ${origin}/sitemap.xml`);
+        if (request.url === `${origin}/sitemap.xml`)
+          return new HttpResponse(
+            makeSitemap([
+              `${origin}/docs/guide_(intro)`,
+              `${origin}/docs/api`,
+              `${origin}/docs/excluded`,
+              `${origin}/blog/outside`,
+            ]),
+            { headers: { 'Content-Type': 'application/xml' } },
+          );
+        return new HttpResponse(null, { status: 404 });
+      }),
+    );
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details).toMatchObject({ coverageRate: 100, missingCount: 0, unmatchedCount: 0 });
+    expect(requests).toEqual([`GET ${origin}/robots.txt`, `GET ${origin}/sitemap.xml`]);
+  });
+
   test('passes when llms.txt fully covers sitemap', async () => {
     const host = 'cov-pass.local';
     const pages = [

@@ -57,6 +57,28 @@ describe('llms-txt-links-resolve', () => {
     expect(result.details?.resolved).toBe(1);
   });
 
+  it.each([200, 404])(
+    'checks reference links normally (HTTP %i), never code or comments',
+    async (status) => {
+      const url = 'http://test.local/guide_(intro)?x=&amp;y';
+      const requests: string[] = [];
+      server.use(
+        http.all('http://test.local/*', ({ request }) => {
+          requests.push(`${request.method} ${request.url}`);
+          return new HttpResponse(null, { status });
+        }),
+      );
+      const content = `# Docs\n\n[guide][ref]\n\n[ref]: http://test.local/guide_(intro)?x=&amp;amp;y\n\n    [code](http://test.local/code)\n\n<!-- [hidden](http://test.local/hidden) -->\n\n![image](http://test.local/image.png)`;
+      const result = await check.run(makeCtx(content));
+      expect(result.status).toBe(status === 200 ? 'pass' : 'fail');
+      expect(result.details?.sameOrigin).toMatchObject({
+        tested: 1,
+        resolved: status === 200 ? 1 : 0,
+      });
+      expect(requests).toEqual([`HEAD ${url}`]);
+    },
+  );
+
   it('warns when resolve rate is above threshold but not 100%', async () => {
     // 10 resolve, 1 broken = ~91% resolve rate (> 0.9 threshold → warn)
     const urls: string[] = [];

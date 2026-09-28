@@ -84,6 +84,12 @@ Whether your `llms.txt` follows the [llmstxt.org](https://llmstxt.org/) structur
 
 A well-structured `llms.txt` gives agents a reliable map of the documentation. Inconsistent implementations reduce its value, though even a non-standard file with useful links is better than nothing.
 
+### What is measured
+
+AFDocs recognizes both inline links (`[Guide](/guide)`) and reference links (`[Guide][intro]` with an `[intro]: /guide` definition). It uses CommonMark parsing, including links in Markdown tables. Links inside code examples or HTML comments do not count. Standalone images do not count as navigation links, but a linked image or badge contributes its enclosing link.
+
+Discovery, coverage, and the llms.txt link checks use this same extraction. Destinations with balanced parentheses, such as `/guide_(intro)`, are preserved. Markdown escapes and HTML entities are decoded once, so `/search?a=1&amp;b=2` is checked as `/search?a=1&b=2`. Plain URL text and angle-bracket autolinks such as `<https://example.com/guide>` are not included; use inline or reference links for index entries.
+
 ### Results
 
 | Result | Condition                                                                                                    |

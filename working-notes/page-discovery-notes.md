@@ -304,6 +304,62 @@ across roots and indexes, empty/error responses, raw coverage mode, fallback
 warning propagation, normal termination, and the strict 1% boundary.
 The initial locale and unbounded-walk tests both failed before the fix.
 
+### September 2026: shared CommonMark link extraction (issue #151)
+
+The llms.txt link regex truncated `/guide_(intro)` and missed reference
+links. Both it and the portability scanner treated indented code and HTML
+comments as navigation. Discovery, coverage, llms.txt link checks, and
+Markdown fetching now use the same parser-backed scan as portability and
+pagination. The shared parser retains the GFM table extension from #150.
+
+Extraction decisions and intentional corrections:
+
+- Collect inline and resolved full, collapsed, and shortcut references in
+  document order. The first definition wins. Raw scanning and the exported
+  `extractMarkdownLinks()` retain duplicates; portability deduplicates by
+  decoded destination as before. Link labels now use rendered text,
+  including inline code and image alt text, rather than Markdown syntax.
+- Exclude inline, fenced, and indented code and HTML comments, including
+  nested containers and unclosed comments. Markdown inside raw HTML blocks
+  is not parsed as navigation; HTML anchors are not Markdown links.
+- Standalone images no longer count as llms.txt navigation links. A linked
+  badge contributes its enclosing destination, while portability continues
+  to report images separately without fetching or scoring them.
+- Use parser-decoded destinations directly. CommonMark unescapes ASCII
+  punctuation and resolves the full entity set once. In particular,
+  `&amp;amp;` becomes `&amp;`, not `&`. The legacy exported
+  `decodeCharacterReferences()` remains available but is not applied to
+  parser output. Portability's unsafe-destination guard for raw MDX regexes
+  and templates remains, as do diagnostics for malformed URLs such as
+  `https://[`.
+- Preserve UTF-16 offsets and exclusive end positions against the original
+  source, including non-ASCII characters and CRLF. The `blanked` result is
+  the original length, with code, comments, and definitions replaced by
+  spaces while preserving CR and LF.
+- Keep autolinks and bare URLs out of shared navigation extraction.
+  Pagination still has its own bare-URL/path and declaration policies;
+  those are not discovery rules. It shares parser setup, not text analysis,
+  with the other consumers.
+- Retain the vendor table-cell fence exception. A parsed code block whose
+  opening fence line contains a pipe has its opening marker masked with
+  same-length spaces and is reparsed. Repeat if this exposes another such
+  opener. The existing multiline table fixture otherwise swallows a real
+  following link. Pipes inside genuine code blocks remain code.
+
+Scope filters, URL mapping, traversal depth, and verification limits are
+unchanged. No per-discovered-URL content probes were added. Real references
+can now enter the existing sample and trigger normal checks; example links
+no longer trigger requests or false stale/broken-link results. Correcting
+the candidate set can change scores and request totals without changing
+scoring thresholds or budgets. Random and deterministic samples retain
+their caps, and curated input remains an uncapped explicit list.
+
+Regressions pin original-source spans, one-pass decoding, check outcomes,
+coverage exclusions, nested-index traversal, and exact request lists for
+discovery, sampling, fetching, and link verification. Heading extraction,
+content-parity analysis, fence validity, and llms.txt structural validation
+remain separate work.
+
 ## Documentation at scale: design considerations
 
 Drafting `docs/documentation-at-scale.md` after the #120 live reproduction

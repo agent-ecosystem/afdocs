@@ -24,6 +24,19 @@ describe('parseLinkHeaderNext', () => {
 });
 
 describe('detectPagination', () => {
+  it('uses decoded reference destinations once and keeps original continuation offsets', () => {
+    const content =
+      'Pr\u00e9face \ud83d\ude80\r\n\r\n<!-- [Next page](/hidden?page=2) -->\r\n\r\n[**Next page**][ref]\r\n\r\n[ref]: /models.md?x=&amp;amp;y&amp;page=2';
+    const result = detectPagination(content, { baseUrl: BASE });
+    expect(result.continuation).toMatchObject({
+      url: '/models.md?x=&amp;y&page=2',
+      resolvedUrl: 'https://docs.example.com/models.md?x=&amp;y&page=2',
+      offset: content.indexOf('[**Next page**]'),
+      declaredIn: 'content',
+    });
+    expect(result.signals.every((signal) => signal.url !== '/hidden?page=2')).toBe(true);
+  });
+
   describe('complete content', () => {
     it('finds nothing in ordinary documentation', () => {
       const content = `# Install\n\nRun the installer, then [configure](./configure.md) the client.\n\n## Step 2 of 5\n\nPart 1 of 3 covers setup.`;

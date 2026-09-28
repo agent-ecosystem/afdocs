@@ -99,6 +99,25 @@ describe('markdown-link-portability', () => {
     expect(result.message).toBe('No links found in 1 markdown pages');
   });
 
+  it('verifies only rendered navigation links, preserving decoded targets', async () => {
+    const destination = `${ORIGIN}/docs/guide_(intro).md?x=&amp;y`;
+    const requests: string[] = [];
+    server.use(
+      http.all(`${ORIGIN}/*`, ({ request }) => {
+        requests.push(`${request.method} ${request.url}`);
+        return new HttpResponse('# Guide\n\nContent.', {
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+    );
+    const content = `[guide][ref]\n\n[ref]: ${ORIGIN}/docs/guide_(intro).md?x=&amp;amp;y\n\n    [code](../broken.md)\n\n<!-- [hidden](../hidden.md) -->\n\n![image](../image.png)`;
+    const result = await check.run(cachedCtx([{ url: `${ORIGIN}/docs/a`, content }]));
+    expect(result.status).toBe('pass');
+    expect(pageResults(result)[0].links).toMatchObject({ absolute: 1, pathRelative: 0, total: 1 });
+    expect(pageResults(result)[0].samples).toMatchObject([{ url: destination, outcome: 'ok' }]);
+    expect(requests).toEqual([`GET ${destination}`]);
+  });
+
   it('warns on root-relative links that still resolve', async () => {
     server.use(http.get(`${ORIGIN}/docs/b.md`, markdown('# B\n\nContent.\n')));
     const content = '# A\n\nSee [B](/docs/b.md).\n';

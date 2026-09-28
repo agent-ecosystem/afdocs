@@ -3,9 +3,157 @@ import {
   classifyLink,
   countByClass,
   scanMarkdownLinks,
+  scanRawLinks,
 } from '../../../src/helpers/classify-markdown-links.js';
 
 const BASE = 'https://docs.example.com/md/guide/api.md';
+
+describe('scanRawLinks', () => {
+  it.each(['\n', '\r\n'])('excludes code and comments in nested containers (%j)', (newline) => {
+    const content = [
+      '    [indented](/indented)',
+      '',
+      '> - ```md',
+      '>   [fenced](/fenced)',
+      '>   ````',
+      '',
+      '- item',
+      '',
+      '      [nested code](/nested-code)',
+      '',
+      'Inline `[code](/inline)` and <!-- [hidden](/inline-comment) --> [real](/real)',
+      '',
+      ' <!-- [one](/one) -->',
+      '',
+      '  <!-- [two](/two) -->',
+      '',
+      '   <!-- [three](/three) -->',
+      '',
+      '> <!-- [quoted](/quoted)',
+      '> [continued](/continued) -->',
+      '',
+      '- <!-- [listed](/listed) -->',
+      '',
+      '[last](/last)',
+      '',
+      '  <!-- [unclosed](/unclosed)',
+      '[still hidden](/still-hidden)',
+    ].join(newline);
+    const { links, blanked } = scanRawLinks(content);
+    expect(links.map((link) => link.destination)).toEqual(['/real', '/last']);
+    expect(blanked).not.toMatch(
+      /\/(?:indented|fenced|nested-code|inline|one|two|three|quoted|continued|listed|unclosed|still-hidden)/,
+    );
+    expect(blanked.length).toBe(content.length);
+    for (let index = 0; index < content.length; index++) {
+      if (content[index] === '\r' || content[index] === '\n') {
+        expect(blanked[index]).toBe(content[index]);
+      }
+    }
+  });
+
+  it.each(['\n', '\r\n'])(
+    'retains original UTF-16 source positions and document order (%j)',
+    (newline) => {
+      const sources = [
+        '[caf\u00e9 \ud83d\ude80](/guide_(intro) "Title")',
+        '[reference][ref]',
+        '[![badge](/badge.svg)](/target)',
+      ];
+      const content = [
+        'Pr\u00e9face \ud83d\ude80',
+        '',
+        ...sources,
+        '',
+        '[ref]: /ref.md',
+        '  "Reference title"',
+        '',
+        '`[code](/code)`',
+      ].join(newline);
+      const { links, blanked } = scanRawLinks(content);
+      expect(links.map((link) => content.slice(link.offset, link.end))).toEqual([
+        ...sources,
+        '![badge](/badge.svg)',
+      ]);
+      expect(links.map((link) => link.offset)).toEqual(
+        [...links.map((link) => link.offset)].sort((left, right) => left - right),
+      );
+      expect(links.map((link) => link.destination)).toEqual([
+        '/guide_(intro)',
+        '/ref.md',
+        '/target',
+        '/badge.svg',
+      ]);
+      expect(blanked.length).toBe(content.length);
+      expect(blanked.slice(0, content.indexOf('[ref]:'))).toBe(
+        content.slice(0, content.indexOf('[ref]:')),
+      );
+      expect(blanked).not.toContain('/ref.md');
+      expect(blanked).not.toContain('Reference title');
+      expect(blanked).not.toContain('/code');
+    },
+  );
+
+  it('uses first definitions, normalized labels and rendered link text', () => {
+    const content =
+      '[**guide** &amp; `API`][A  B] [short][] [short]\n\n[a b]: /first\n[a b]: /second\n[short]: /short';
+    expect(scanRawLinks(content).links.map((link) => [link.text, link.destination])).toEqual([
+      ['guide & API', '/first'],
+      ['short', '/short'],
+      ['short', '/short'],
+    ]);
+  });
+
+  it('decodes escapes and the full entity set exactly once', () => {
+    const content =
+      '[nested](/a\\(b\\).md) [entity](/a&copy;.md) [once](/search?x=&amp;amp;y) [escaped](/search?x=\\&amp;y) [reference][ref]\n\n[ref]: /search?x=&amp;amp;y';
+    const expected = [
+      '/a(b).md',
+      '/a\u00a9.md',
+      '/search?x=&amp;y',
+      '/search?x=&amp;y',
+      '/search?x=&amp;y',
+    ];
+    expect(scanRawLinks(content).links.map((link) => link.destination)).toEqual(expected);
+    expect(scanMarkdownLinks(content, BASE).links.map((link) => link.url)).toEqual([
+      ...new Set(expected),
+    ]);
+  });
+
+  it('does not count autolinks, bare URLs, HTML anchors or escaped link syntax', () => {
+    const content =
+      '<https://example.com/auto> https://example.com/bare <a href="/html">HTML</a> \\[literal](/literal) [real](/real)';
+    expect(scanRawLinks(content).links.map((link) => link.destination)).toEqual(['/real']);
+  });
+
+  it('does not let vendor table-cell fences hide subsequent links', () => {
+    const content = [
+      '| Before | After |',
+      '| --- | --- |',
+      '| ```',
+      '  old: true',
+      '  ``` | ```',
+      '  new: true',
+      '  ``` |',
+      '',
+      '[real](/real.md)',
+    ].join('\n');
+    expect(scanRawLinks(content).links.map((link) => link.destination)).toEqual(['/real.md']);
+  });
+
+  it('keeps image references and linked badges separate, including escaped image markers', () => {
+    const content =
+      '![logo][img] [![badge](/badge.svg)](/target) \\![link](/escaped)\n\n[img]: /logo.svg';
+    const { links, images } = scanMarkdownLinks(content, BASE);
+    expect(links.map((link) => link.url)).toEqual(['/target', '/escaped']);
+    expect(images.map((link) => link.url)).toEqual(['/logo.svg', '/badge.svg']);
+  });
+
+  it('ignores indented code and HTML comments without losing real links', () => {
+    const content = '    [example](/example)\n\n<!-- [hidden](/hidden) -->\n\n[real](/real)';
+    expect(scanRawLinks(content).links.map((link) => link.destination)).toEqual(['/real']);
+  });
+});
 
 describe('classifyLink', () => {
   it('classifies by how much of the base URL the link needs', () => {

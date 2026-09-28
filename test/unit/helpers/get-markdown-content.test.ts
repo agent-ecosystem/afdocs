@@ -432,6 +432,32 @@ describe('fetchLlmsTxtLinkedMarkdown', () => {
     expect(await fetchLlmsTxtLinkedMarkdown(ctx)).toEqual([]);
   });
 
+  it('fetches parsed references within the existing limit and memoizes them', async () => {
+    const requests: Array<{ url: string; method: string; accept: string | null }> = [];
+    server.use(
+      http.all('http://test.local/*', ({ request }) => {
+        requests.push({
+          url: request.url,
+          method: request.method,
+          accept: request.headers.get('Accept'),
+        });
+        return new HttpResponse('# Guide\n\nContent.', {
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      }),
+    );
+    const content =
+      '[guide][ref]\n\n[ref]: http://test.local/guide_(intro).md?x=&amp;amp;y\n\n[second](http://test.local/second.md)\n\n[overflow](http://test.local/overflow.md)\n\n    [code](http://test.local/code.md)\n\n<!-- [hidden](http://test.local/hidden.md) -->\n\n[external](https://other.example/guide.md)';
+    const ctx = ctxWithLlmsTxt(content, { maxLinksToTest: 2 });
+    const pages = await fetchLlmsTxtLinkedMarkdown(ctx);
+    expect(pages.map((page) => page.url)).toEqual([
+      'http://test.local/guide_(intro).md?x=&amp;y',
+      'http://test.local/second.md',
+    ]);
+    expect(await fetchLlmsTxtLinkedMarkdown(ctx)).toBe(pages);
+    expect(requests).toEqual(pages.map((page) => ({ url: page.url, method: 'GET', accept: null })));
+  });
+
   it('fetches same-origin links that serve markdown and records the Link header', async () => {
     server.use(
       http.get(

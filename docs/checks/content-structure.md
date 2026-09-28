@@ -121,7 +121,9 @@ The check reads the same markdown responses the other markdown checks already fe
 
 A link whose address is not a valid URL at all fails the page rather than being counted as a well-formed absolute link.
 
-Same-document fragment links (`#anchor` with no path) are exempt: they resolve within the content the agent already holds, and rewriting them to absolute URLs adds nothing. Links with a non-HTTP scheme (`mailto:`, `tel:`) are exempt for the same reason. Links inside fenced code blocks and inline code are ignored, so documentation that shows example markdown is not graded on its examples. Image references are classified and reported but never affect the result: they point at assets rather than at documentation an agent navigates to.
+Same-document fragment links (`#anchor` with no path) are exempt: they resolve within the content the agent already holds, and rewriting them to absolute URLs adds nothing. Links with a non-HTTP scheme (`mailto:`, `tel:`) are exempt for the same reason. Links inside fenced or indented code blocks, inline code, and HTML comments are ignored, so documentation that shows example markdown is not graded on its examples. Image references are classified and reported but never affect the result: they point at assets rather than at documentation an agent navigates to.
+
+Link destinations follow CommonMark rules: escaped punctuation and HTML entities are decoded once before resolving the URL. Plain URL text and angle-bracket autolinks are not included in the portability tally.
 
 Relative links are resolved against the URL that served the markdown, not the page URL. For a site serving `/docs/api` as `/md/docs/api.md`, `guide.md` means `/md/docs/guide.md`.
 
