@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createContext } from '../../../src/runner.js';
 import { getCheck } from '../../../src/checks/registry.js';
+import { detectTabGroups } from '../../../src/helpers/detect-tabs.js';
 import '../../../src/checks/index.js';
 
 describe('section-header-quality', () => {
@@ -34,6 +35,189 @@ describe('section-header-quality', () => {
 
     return ctx;
   }
+
+  function makePanelCtx(...groups: Array<Array<{ label: string | null; html: string }>>) {
+    return makeCtx({
+      status: 'pass',
+      tabbedPages: [
+        {
+          url: 'http://test.local/page',
+          tabGroups: groups.map((panels) => ({
+            framework: 'mdx',
+            tabCount: panels.length,
+            htmlSlice: '<Tabs></Tabs>',
+            panels,
+          })),
+          totalTabbedChars: 200,
+          status: 'pass',
+        },
+      ],
+    });
+  }
+
+  it.each([
+    ['setext headings', 'Installation\n============', 'Installation\n------------'],
+    ['closing ATX hashes', '## Installation ##', '## Installation'],
+    ['formatted labels', '## **Installation**', '## [Installation](/install)'],
+    ['emphasis and inline code', '## *Installation*', '## `Installation`'],
+    ['reference links', '## [Installation][setup]\n\n[setup]: /install', '## Installation'],
+    ['escaped punctuation', '## Install \\*SDK\\*', '## Install `*SDK*`'],
+    ['entities', '## Install &amp; configure &#x53;DK', '## Install & configure SDK'],
+    ['single entity decoding', '## &amp;copy;', '## `&copy;`'],
+    ['image labels', '## ![Installation](/install.svg)', '## Installation'],
+    ['inline HTML', '## <em>Installation</em>', '<h2>Installation</h2>'],
+  ])('compares rendered text for %s', async (_name, first, second) => {
+    const result = await check.run(
+      makePanelCtx([
+        { label: 'Python', html: first },
+        { label: 'Node', html: second },
+      ]),
+    );
+    expect(result.status).toBe('fail');
+    expect(result.details?.analyses).toEqual([
+      expect.objectContaining({ totalHeaders: 2, genericHeaders: 2, contextualHeaders: 0 }),
+    ]);
+  });
+
+  describe.each([
+    ['LF', '\n'],
+    ['CRLF', '\r\n'],
+  ])('%s line endings', (_name, newline) => {
+    it.each([
+      ['fenced code', '```md\n## Installation\n## Configuration\n```'],
+      ['tilde fences', '~~~md\n## Installation\n~~~'],
+      ['nested shorter fences', '````md\n```\n## Installation\n```\n````'],
+      ['pipe-bearing fence info', '```md|example\n## Installation\n```'],
+      ['indented code', '    ## Installation\n    ## Configuration'],
+      ['HTML in fenced code', '```html\n<h2>Installation</h2>\n```'],
+      ['HTML in indented code', '    <h2>Installation</h2>'],
+      ['multiline inline code', '`<h2>Installation</h2>\nConfiguration`'],
+      ['HTML comments', '<!--\n## Installation\n<h2>Configuration</h2>\n-->'],
+      ['indented comments', '  <!--\n## Installation\n<h2>Configuration</h2>\n  -->'],
+      ['quoted comments', '> <!--\n> ## Installation\n> <h2>Configuration</h2>\n> -->'],
+      ['nested list fences', '- example\n\n  ```md\n  ## Installation\n  ```'],
+      ['nested indented code', '>     ## Installation\n>     <h2>Configuration</h2>'],
+      ['quoted fences', '> ```html\n> ## Installation\n> <h2>Configuration</h2>\n> ```'],
+    ])('ignores headings inside %s', async (_kind, example) => {
+      const result = await check.run(
+        makePanelCtx(
+          ['Python', 'Node'].map((label) => ({
+            label,
+            html: `<Tab name="${label}">\n\n## ${label} Setup\n\n${example}\n\n</Tab>`.replaceAll(
+              '\n',
+              newline,
+            ),
+          })),
+        ),
+      );
+      expect(result.status).toBe('pass');
+      expect(result.details?.analyses).toEqual([
+        expect.objectContaining({ totalHeaders: 2, genericHeaders: 0, contextualHeaders: 2 }),
+      ]);
+    });
+
+    it('recognizes setext headings in nested Markdown containers', async () => {
+      const result = await check.run(
+        makePanelCtx([
+          { label: 'Python', html: '> Installation\n> ------------'.replaceAll('\n', newline) },
+          { label: 'Node', html: '- Installation\n  ------------'.replaceAll('\n', newline) },
+        ]),
+      );
+      expect(result.status).toBe('fail');
+      expect(result.details?.analyses).toEqual([
+        expect.objectContaining({ totalHeaders: 2, genericHeaders: 2 }),
+      ]);
+    });
+  });
+
+  it.each([
+    ['aside', '<aside>', '</aside>'],
+    ['note role', '<div role="note">', '</div>'],
+    ['alert role', '<div role="alert">', '</div>'],
+    ['status role', '<div role="status">', '</div>'],
+    ['complementary role', '<div role="complementary">', '</div>'],
+    ['admonition class', '<div class="theme-admonition warning">', '</div>'],
+    ['callout data attribute', '<Box data-paste-element="CALLOUT">', '</Box>'],
+  ])('excludes mixed Markdown/HTML headings inside %s ancestors', async (_name, open, close) => {
+    const panels = ['Python', 'Node'].map((label) => ({
+      label,
+      html: `<Tab name="${label}">\n\n## ${label} Setup\n\n${open}\n<div>\n\n## Warning\n\nNote\n----\n\n<h3>Important</h3>\n\n</div>\n${close}\n\n## ${label} Usage\n\n</Tab>`,
+    }));
+    const result = await check.run(makePanelCtx(panels, panels));
+    expect(result.status).toBe('pass');
+    expect(result.details?.crossGroupRepeatedHeaders).toEqual([]);
+    expect(result.details?.analyses).toEqual([
+      expect.objectContaining({ totalHeaders: 4, genericHeaders: 0, contextualHeaders: 4 }),
+      expect.objectContaining({ totalHeaders: 4, genericHeaders: 0, contextualHeaders: 4 }),
+    ]);
+  });
+
+  it('does not count Markdown inside an HTML heading a second time', async () => {
+    const result = await check.run(
+      makePanelCtx([
+        { label: 'Python', html: '<h2>\n\n## Python Setup\n\n</h2>' },
+        { label: 'Node', html: '<h2>\n\n## Node Setup\n\n</h2>' },
+      ]),
+    );
+    expect(result.status).toBe('pass');
+    expect(result.details?.analyses).toEqual([
+      expect.objectContaining({ totalHeaders: 2, contextualHeaders: 2 }),
+    ]);
+  });
+
+  it.each([false, true])(
+    'keeps equivalent HTML/Markdown results (contextual: %s)',
+    async (contextual) => {
+      const panelLabels = [
+        ['Python', 'Node'],
+        ['Java', 'Ruby'],
+      ];
+      const title = (label: string) => (contextual ? `${label} Installation` : 'Installation');
+      const htmlGroups = panelLabels.map((labels) =>
+        labels.map((label) => ({ label, html: `<div><h2>${title(label)}</h2></div>` })),
+      );
+      const markdownGroups = panelLabels.map((labels, index) =>
+        labels.map((label) => ({
+          label,
+          html: `<Tab name="${label}">\n\n${index === 0 ? `## **${title(label)}** ##` : `${title(label)}\n------------`}\n\n</Tab>`,
+        })),
+      );
+      const htmlResult = await check.run(makePanelCtx(...htmlGroups));
+      const markdownResult = await check.run(makePanelCtx(...markdownGroups));
+      expect(markdownResult).toEqual(htmlResult);
+      expect(markdownResult.status).toBe(contextual ? 'pass' : 'fail');
+      expect(markdownResult.details?.crossGroupRepeatedHeaders).toEqual(
+        contextual
+          ? []
+          : [{ url: 'http://test.local/page', header: 'installation', groupCount: 2 }],
+      );
+    },
+  );
+
+  it.each(
+    ['Tab', 'TabItem'].flatMap((tag) =>
+      ['\n', '\n\n', '\r\n', '\r\n\r\n'].map((separator) => ({ tag, separator })),
+    ),
+  )('uses detected MDX panels without fetching (%j)', async ({ tag, separator }) => {
+    const source = `<Tabs>\n<${tag} name="Python">${separator}Installation\n------------${separator}</${tag}>\n<${tag} name="Node">${separator}## **Installation** ##${separator}</${tag}>\n</Tabs>`;
+    const groups = detectTabGroups(source);
+    expect(groups).toHaveLength(1);
+    const ctx = makePanelCtx(...groups.map((group) => group.panels));
+    const fetch = vi.spyOn(ctx.http, 'fetch').mockRejectedValue(new Error('Unexpected request'));
+    try {
+      const result = await check.run(ctx);
+      expect(result.status).toBe('fail');
+      expect(result.id).toBe('section-header-quality');
+      expect(result.category).toBe('content-structure');
+      expect(result.details?.analyses).toEqual([
+        expect.objectContaining({ totalHeaders: 2, genericHeaders: 2 }),
+      ]);
+      expect(check.dependsOn).toEqual([]);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
 
   it('skips when tabbed-content-serialization did not run', async () => {
     const ctx = createContext('http://test.local', { requestDelay: 0 });

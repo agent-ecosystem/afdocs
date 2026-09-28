@@ -48,6 +48,12 @@ Whether headers in tabbed sections include enough context to be meaningful witho
 
 When agents see serialized tabbed content, headers are the only way to tell which section applies to which context. Generic headers like "Step 1" repeated across Python, Node, and Go variants are indistinguishable in the serialized output. Headers like "Step 1 (Python/PyMongo)" preserve the filtering context agents need.
 
+### What is measured
+
+The check reads HTML and Markdown headings inside tab panels. Markdown headings can use hash prefixes (`## Installation`) or an underline of `=` or `-` characters. Labels are compared by their text, so bold, links, inline code, escaped punctuation, and character references such as `&amp;` do not hide repeated headings.
+
+Headings shown inside fenced or indented Markdown code examples and HTML comments are ignored. Headings inside callouts or admonitions are also excluded: a repeated "Warning" label is supplementary content, not a structural section header.
+
 ### Results
 
 | Result | Condition                                                                                            |
