@@ -124,6 +124,8 @@ However, content divergence is sometimes intentional. Some sites serve different
 
 Based on the percentage of HTML content segments missing from the markdown version, after normalization. Thresholds are configurable.
 
+Markdown is parsed as CommonMark with GitHub-style tables. Formatting is compared as rendered text, while code blocks and inline code retain their literal content. Image descriptions (alt text) are retained; comments, link destinations, and reference definitions are not treated as page text. Embedded HTML contributes its text, not its markup. Literal placeholders such as `<REGION>` remain comparable.
+
 | Result | Condition                                                     |
 | ------ | ------------------------------------------------------------- |
 | Pass   | Under pass threshold (default 5%) of content segments missing |
@@ -183,7 +185,9 @@ For pages with repeated structure, the check therefore also compares item counts
 - **`pagination`**: the markdown lists fewer, and `single-fetch-completeness` found the page paginated. The markdown is windowed, not stale.
 - **`staleness`**: the markdown lists fewer with no pagination in sight, most often one representation generated from older data.
 
-Each has a different owner and fix. Only top-level items are counted on both sides, so entries that carry nested bullets are not counted several times over. Entries in the compared markdown list that repeat an earlier entry verbatim are counted as duplicates and excluded from the comparison, so a generator that emits every entry twice shows up as duplication rather than as a catalog twice the size. The comparison never changes the check's result; it feeds the [dynamic content rendered statically](/interaction-diagnostics#dynamic-content-rendered-statically) diagnostic, and is skipped when one side has fewer than five items, which more often means the check could not find the list on that side (a navigation-only list that was stripped, or a table drawn by JavaScript) than a real difference.
+Each has a different owner and fix. Each list is measured by its direct items, including lists nested inside other lists. Nested bullets are not added to their parent list's count. Continuation paragraphs belong to the same item; code examples do not count as lists or tables. Table headers and separator rows are excluded.
+
+Entries in the compared markdown list with the same complete rendered text, after normalization, are counted as duplicates and excluded from the comparison. This includes continuation paragraphs and nested content; wrapping and formatting alone do not make an entry distinct. A generator that emits every entry twice therefore shows up as duplication rather than as a catalog twice the size. The comparison never changes the check's result; it feeds the [dynamic content rendered statically](/interaction-diagnostics#dynamic-content-rendered-statically) diagnostic, and is skipped when one side has fewer than five items, which more often means the check could not find the list on that side (a navigation-only list that was stripped, or a table drawn by JavaScript) than a real difference.
 
 ### How to fix
 

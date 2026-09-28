@@ -41,6 +41,204 @@ describe('markdown-content-parity', () => {
     return ctx;
   }
 
+  describe('CommonMark extraction', () => {
+    const codeLines = [
+      '# This heading marker is literal example code',
+      '- This bullet marker is literal example code',
+      '1. This numbered item is literal example code',
+      '> This blockquote marker is literal example code',
+      '[Example link label](https://example.com/target)',
+      '**These emphasis markers remain literal code**',
+      'const path = "C:\\Users\\example\\documents";',
+      'const placeholder = "<YOUR_API_KEY>";',
+      'const entities = "&amp; &#35; &copy;";',
+      '<!-- This comment remains literal example code -->',
+      '| Example table cell | Another table cell |',
+      'const identifier = mongoc_client_get_database;',
+    ];
+    const htmlCode = codeLines
+      .join('\n')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+
+    it.each([
+      ['backtick fence', '```text\n' + codeLines.join('\n') + '\n```'],
+      ['tilde fence', '~~~text\n' + codeLines.join('\n') + '\n~~~'],
+      [
+        'backtick fence with pipe metadata',
+        '```text title="A|B"\n' + codeLines.join('\n') + '\n```',
+      ],
+      ['tilde fence with pipe metadata', '~~~text title="A|B"\n' + codeLines.join('\n') + '\n~~~'],
+      ['indented code', codeLines.map((line) => '    ' + line).join('\n')],
+      ['blockquote fence', ['~~~text', ...codeLines, '~~~'].map((line) => '> ' + line).join('\n')],
+      [
+        'list fence',
+        '- Example:\n\n' + ['~~~text', ...codeLines, '~~~'].map((line) => '  ' + line).join('\n'),
+      ],
+      ['unclosed fence', '~~~text\n' + codeLines.join('\n')],
+    ])('preserves literal code in %s with LF and CRLF', async (_name, source) => {
+      const url = 'http://mcp-commonmark-code.local/docs/page';
+      const html = `<html><body><main><pre><code>${htmlCode}</code></pre></main></body></html>`;
+      let requests = 0;
+      server.use(
+        http.get(url, () => {
+          requests++;
+          return new HttpResponse(html, { headers: { 'Content-Type': 'text/html' } });
+        }),
+      );
+
+      for (const newline of ['\n', '\r\n']) {
+        const markdown = source.replaceAll('\n', newline);
+        const ctx = makeCtx([{ url, markdown, htmlBody: html }], 'mcp-commonmark-code.local');
+        const result = await check.run(ctx);
+        expect(result.details?.pageResults).toEqual([
+          expect.objectContaining({
+            status: 'pass',
+            totalSegments: codeLines.length,
+            missingSegments: 0,
+            sampleDiffs: [],
+          }),
+        ]);
+        await check.run(ctx);
+      }
+      expect(requests).toBe(2);
+    });
+
+    const prose = [
+      [
+        '<h2>2. Configure the deployment client</h2>',
+        '## 2. **Configure** the deployment client ##',
+      ],
+      [
+        '<h2>Understanding configuration options</h2>',
+        'Understanding _configuration_ options\n---',
+      ],
+      [
+        '<p>Install the client before configuring authentication.</p>',
+        '[Install **the client**][setup] before configuring authentication.',
+      ],
+      [
+        '<p>Follow the nested link to learn about configuration.</p>',
+        'Follow [the nested link](https://example.com/guide_(advanced)) to learn about configuration.',
+      ],
+      [
+        '<p>The shortcut and collapsed references describe configuration.</p>',
+        'The [shortcut] and [collapsed][] references describe configuration.',
+      ],
+      [
+        '<blockquote><p>A nested quotation provides additional deployment context.</p></blockquote>',
+        '> > A nested quotation provides additional deployment context.',
+      ],
+      [
+        '<ul><li>Nested list entries describe configuration in detail.</li></ul>',
+        '- Parent\n  1) Nested list entries describe configuration in detail.',
+      ],
+      [
+        '<p>The snake_case and *literal* options support [brackets].</p>',
+        'The snake\\_case and \\*literal\\* options support \\[brackets\\].',
+      ],
+      [
+        '<p>Use A &amp; B and the &#35; symbol in configuration values.</p>',
+        'Use A &amp; B and the &#35; symbol in configuration values.',
+      ],
+      [
+        '<p>The <code>`literal` C:\\Users\\</code> value remains unchanged.</p>',
+        'The `` `literal` C:\\Users\\ `` value remains unchanged.',
+      ],
+      [
+        '<p>Diagram: Deployment nodes connected by secure channels.</p>',
+        'Diagram: ![Deployment nodes connected by secure channels.](diagram.png)',
+      ],
+      [
+        '<p>Overview: Service components connected through a gateway.</p>',
+        'Overview: ![Service components connected through a gateway.][diagram]',
+      ],
+      [
+        '<p>The transaction commits without additional configuration.</p>',
+        'The trans<strong>action</strong> commits without additional configuration.',
+      ],
+      [
+        '<div><p>Embedded HTML preserves <em>rendered text</em> and &amp; entities.</p></div>',
+        '<div><p>Embedded HTML preserves <em>rendered text</em> and &amp; entities.</p></div>',
+      ],
+      [
+        '<p>Inline comments do not interrupt transaction processing.</p>',
+        'Inline comments do not interrupt trans<!-- hidden -->action processing.',
+      ],
+      [
+        '<p>Hard breaks preserve the first explanatory sentence.<br>Another sentence follows on a new line.</p>',
+        'Hard breaks preserve the first explanatory sentence.\\\nAnother sentence follows on a new line.',
+      ],
+    ];
+
+    it.each([false, true])(
+      'matches rendered prose with wrapping=%s and LF/CRLF',
+      async (wrapped) => {
+        const html = `<html><body><main>${prose.map(([html]) => html).join('\n')}</main></body></html>`;
+        const source = prose.map(([, markdown]) => markdown).join('\n\n');
+        const definitions =
+          '\n\n[setup]: /setup\n[shortcut]: /shortcut\n[collapsed]: /collapsed\n[diagram]: diagram.png';
+        const url = 'http://mcp-commonmark-prose.local/docs/page';
+        server.use(
+          http.get(url, () => new HttpResponse(html, { headers: { 'Content-Type': 'text/html' } })),
+        );
+
+        for (const newline of ['\n', '\r\n']) {
+          const markdown = (
+            (wrapped
+              ? source
+                  .replaceAll('configuration', 'configu<!-- -->ration')
+                  .replaceAll(' before ', '\nbefore ')
+              : source) + definitions
+          ).replaceAll('\n', newline);
+          const result = await check.run(
+            makeCtx([{ url, markdown, htmlBody: html }], 'mcp-commonmark-prose.local'),
+          );
+          expect(result.details?.pageResults).toEqual([
+            expect.objectContaining({ status: 'pass', missingSegments: 0, totalSegments: 17 }),
+          ]);
+        }
+      },
+    );
+
+    it.each(['comments', 'definitions', 'link metadata'])(
+      'does not count substantive text present only in %s',
+      async (location) => {
+        const lines = Array.from(
+          { length: 10 },
+          (_, index) =>
+            `Required deployment instruction number ${index} explains a distinct configuration step.`,
+        );
+        const html = `<html><body><main>${lines.map((line) => `<p>${line}</p>`).join('')}</main></body></html>`;
+        const hidden = lines
+          .slice(5)
+          .map((line, index) => {
+            if (location === 'comments') return `>   <!--\n> ${line}\n> -->`;
+            if (location === 'definitions') return `[unused-${index}]: /target\n  "${line}"`;
+            return `[short label](<https://example.com/${line}> "${line}")`;
+          })
+          .join('\n\n');
+        const markdown = lines.slice(0, 5).join('\n\n') + '\n\n' + hidden;
+        const url = 'http://mcp-commonmark-hidden.local/docs/page';
+        server.use(
+          http.get(url, () => new HttpResponse(html, { headers: { 'Content-Type': 'text/html' } })),
+        );
+        const result = await check.run(
+          makeCtx([{ url, markdown, htmlBody: html }], 'mcp-commonmark-hidden.local'),
+        );
+        expect(result.details?.pageResults).toEqual([
+          expect.objectContaining({
+            status: 'fail',
+            missingSegments: 5,
+            missingPercent: 50,
+            totalSegments: 10,
+          }),
+        ]);
+      },
+    );
+  });
+
   it('passes when markdown and HTML have equivalent content', async () => {
     const html = `<html><body>
       <h1>Getting Started</h1>
@@ -3351,6 +3549,105 @@ See the API reference for the full list of built-in plugins and options.`;
       expect(page.itemCounts).toMatchObject({ html: 24, markdown: 24, diverges: false });
     });
 
+    it.each([false, true])(
+      'counts and deduplicates complete multiline items inside blockquote=%s',
+      async (quoted) => {
+        const descriptions = Array.from(
+          { length: 24 },
+          (_, index) => `model-${index}: a model that does useful things number ${index}`,
+        );
+        const html = `<html><body><main><ul>${descriptions.map((text) => `<li><p>Model configuration details</p><p>${text}</p></li>`).join('')}</ul></main></body></html>`;
+        const first = descriptions.map((text) => `- **Model configuration details**\n\n  ${text}`);
+        const repeated = descriptions.map(
+          (text) =>
+            `- Model configuration details\n\n  ${text.replace(': a model', ': a\n  model')}`,
+        );
+        const source = [...first, ...repeated].join('\n\n');
+        const markdown = quoted
+          ? source
+              .split('\n')
+              .map((line) => '> ' + line)
+              .join('\n')
+          : source;
+        const result = await check.run(catalogCtx(html, markdown, 'cat-multiline.local'));
+        expect(result.status).toBe('pass');
+        expect(result.details?.pageResults).toEqual([
+          expect.objectContaining({
+            itemCounts: {
+              structure: 'list',
+              html: 24,
+              markdown: 48,
+              markdownUnique: 24,
+              duplicates: 24,
+              diverges: false,
+            },
+          }),
+        ]);
+      },
+    );
+
+    it('compares the largest nested list by its own direct children', async () => {
+      const html = catalogHtml(30)
+        .replace('<ul>', '<ul><li>Catalog<ul>')
+        .replace('</ul>', '</ul></li><li>Appendix</li></ul>');
+      const markdown =
+        '- Catalog\n' +
+        catalogMd(30)
+          .split('\n')
+          .filter((line) => line.startsWith('- '))
+          .map((line) => '  ' + line)
+          .join('\n') +
+        '\n- Appendix';
+      const result = await check.run(catalogCtx(html, markdown, 'cat-largest-nested.local'));
+      expect(result.details?.pageResults).toEqual([
+        expect.objectContaining({
+          itemCounts: expect.objectContaining({
+            html: 30,
+            markdown: 30,
+            markdownUnique: 30,
+            diverges: false,
+          }),
+        }),
+      ]);
+    });
+
+    it.each(['indented', 'quoted fence', 'tilde fence'])(
+      'ignores list and table examples in %s code',
+      async (kind) => {
+        const example =
+          catalogMd(40) +
+          '\n| Column | Value |\n| --- | --- |\n' +
+          Array.from({ length: 40 }, (_, index) => `| ${index} | value |`).join('\n');
+        const code =
+          kind === 'indented'
+            ? example
+                .split('\n')
+                .map((line) => '    ' + line)
+                .join('\n')
+            : kind === 'quoted fence'
+              ? ['~~~markdown', ...example.split('\n'), '~~~'].map((line) => '> ' + line).join('\n')
+              : '~~~markdown\n' + example + '\n~~~';
+        const result = await check.run(
+          catalogCtx(
+            catalogHtml(24),
+            catalogMd(24) + '\n## Code examples\n\n' + code,
+            'cat-code-examples.local',
+          ),
+        );
+        expect(result.status).toBe('pass');
+        expect(result.details?.pageResults).toEqual([
+          expect.objectContaining({
+            itemCounts: expect.objectContaining({
+              html: 24,
+              markdown: 24,
+              markdownUnique: 24,
+              diverges: false,
+            }),
+          }),
+        ]);
+      },
+    );
+
     it('does not read list lines inside a longer fence closed by a shorter marker', async () => {
       const inner = Array.from({ length: 40 }, (_, i) => `- fenced item ${i}`).join('\n');
       const md =
@@ -3398,6 +3695,41 @@ See the API reference for the full list of built-in plugins and options.`;
         duplicates: 100,
         diverges: false,
       });
+    });
+
+    it('counts GFM rows with escaped pipes, code cells, and missing cells across LF/CRLF', async () => {
+      const labels = Array.from(
+        { length: 24 },
+        (_, index) => `Compatibility entry ${index} for hosted deployments`,
+      );
+      const html = `<html><body><main><table><tr><th>Entry</th><th>Value</th></tr>${labels.map((label, index) => `<tr><td>${label}</td><td>${index % 2 ? '' : '<code>alpha|beta</code> or a literal | pipe'}</td></tr>`).join('')}</table></main></body></html>`;
+      const source =
+        'Entry | Value\n--- | ---\n' +
+        labels
+          .map((label, index) =>
+            index % 2 ? label : label + ' | `alpha\\|beta` or a literal \\| pipe',
+          )
+          .join('\n') +
+        '\n\n## Smaller table\n\nName | Value\n--- | ---\none | small\ntwo | small\n';
+      for (const newline of ['\n', '\r\n']) {
+        const result = await check.run(
+          catalogCtx(html, source.replaceAll('\n', newline), 'cat-gfm.local'),
+        );
+        expect(result.status).toBe('pass');
+        expect(result.details?.pageResults).toEqual([
+          expect.objectContaining({
+            missingSegments: 0,
+            itemCounts: {
+              structure: 'table',
+              html: 24,
+              markdown: 24,
+              markdownUnique: 24,
+              duplicates: 0,
+              diverges: false,
+            },
+          }),
+        ]);
+      }
     });
 
     it('counts table data rows, not header rows, and picks the larger structure', async () => {
