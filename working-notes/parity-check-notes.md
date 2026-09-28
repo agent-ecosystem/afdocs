@@ -14,8 +14,8 @@ version for comparison.
 ## Current state of the code
 
 - Implementation: `src/checks/observability/markdown-content-parity.ts`
-- Tests: `test/unit/checks/markdown-content-parity.test.ts` (41 tests, all passing)
-- Full suite: 1216 tests passing, lint clean
+- Tests: `test/unit/checks/markdown-content-parity.test.ts`
+- Markdown text and repeated structures use the shared CommonMark/GFM parser (issue #152).
 - The `diff` dependency has been removed; comparison now uses containment checking
 - No unused imports or cleanup needed
 
@@ -128,23 +128,59 @@ The known tag set covers all standard HTML elements. The regex
 and checks it against the set. Tags with attributes (like `<span class="...">`)
 have their first word extracted as the tag name.
 
-### Markdown text extraction ordering
+### Markdown extraction with CommonMark (issue #152)
 
-The `extractMarkdownText()` function strips markdown formatting in a specific
-order:
+Parse each compared page once with the shared `parseMarkdown()` helper and
+reuse its tree for text and repeated-item extraction. Parity opts out of the
+helper's vendor-table fence normalization: a pipe in valid fence metadata
+must not cause literal code to become prose. Discovery and pagination retain
+their existing default normalization. Link-discovery projections are not
+parity inputs because they intentionally exclude code.
 
-1. Code fences (keep content)
-2. Heading markers
-3. Setext heading underlines
-4. Link/image URLs (keep text)
-5. Reference-style link definitions
-6. List bullets/numbers (before emphasis, so leading `*` isn't misinterpreted)
-7. **Inline code backticks** (before emphasis, so underscores in code
-   identifiers like `mongoc_client_get_database` aren't mangled)
-8. Emphasis markers (`*` only, not `_` — underscores are too common in code
-   identifiers and cause false mismatches when stripped as emphasis)
-9. Blockquote markers
-10. Horizontal rules
+- Text, fenced/indented code, and inline code use their parsed values. Code
+  keeps literal Markdown syntax, backslashes, entities, and placeholders.
+  CommonMark handles delimiter lengths, containers, LF/CRLF, and unclosed
+  fences. The separate fence-validity check remains unchanged.
+- Headings, emphasis, links (including references), lists, and blockquotes
+  contribute their rendered text. Block and table-cell boundaries separate
+  text; inline formatting does not split words. Escapes and character
+  references are decoded by the parser, not another stripping pass.
+- Markdown images retain alt text, extending the existing inline-image
+  behavior to reference images. Destinations, titles, definitions, and
+  non-rendered comments cannot satisfy missing-content comparisons.
+- Embedded HTML uses the existing DOM text walker, including block breaks
+  and its non-content tag exclusions. Markdown text is HTML-escaped and raw
+  HTML nodes are kept together in one fragment, preserving ancestor context
+  across inline tags. Paired SVG, MathML, and custom elements are markup, not
+  placeholders; visible text is retained unless an ancestor is excluded by
+  the existing walker (such as SVG). Only unclosed, non-self-closing unknown
+  tags remain literal placeholders (for example `<REGION>`), identified by
+  their parsed source ranges. This preserves the historical field regression
+  without leaking inline SVG children into prose (PR #155 review). This is
+  not a general MDX renderer; HTML-side container, chrome, audience, and
+  custom-selector handling is unchanged.
+- Each list is counted by direct children, and the largest list wins (first
+  in document order on ties), including nested lists considered independently.
+  Nested bullets are not added to the parent's count. Deduplication uses
+  complete normalized rendered item text, including continuation paragraphs
+  and nested content, rather than the old first source line. Items that differ
+  only in formatting, wrapping, or link destinations have the same text key.
+- The largest GFM table contributes its data rows only. Header/delimiter
+  rows are excluded; missing cells and escaped pipes follow GFM parsing.
+  Lists/tables inside code are not structures. Raw HTML lists/tables in
+  Markdown remain outside this Markdown-syntax counter.
+
+Characterization tests reproduced loss of literal code in tilde, indented,
+nested, and unclosed fences before replacing text extraction. Catalog tests
+reproduced fragmented multiline lists, missing blockquoted/nested lists,
+indented examples counted as items, and truncated tables. Historical field
+regressions remain covered. Request assertions verify one HTML fetch per
+uncached page and cache reuse; no discovery or sampling changes were made.
+
+The ordered placeholder/regex passes and line-based list/table parser were
+removed. Normalization, scoring, thresholds, public result shapes, and
+informational-only item-count diagnostics are unchanged. The session notes
+below describe earlier implementations and why their regressions matter.
 
 ### Thresholds
 

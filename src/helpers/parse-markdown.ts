@@ -3,13 +3,17 @@ import { gfmTableFromMarkdown } from 'mdast-util-gfm-table';
 import { gfmTable } from 'micromark-extension-gfm-table';
 import type { Nodes, Root } from 'mdast';
 
-export function parseMarkdown(content: string): Root {
+export function parseMarkdown(
+  content: string,
+  { normalizeVendorFences = true }: { normalizeVendorFences?: boolean } = {},
+): Root {
   let source = content;
   while (true) {
     const tree = fromMarkdown(source, {
       extensions: [gfmTable()],
       mdastExtensions: [gfmTableFromMarkdown()],
     });
+    if (!normalizeVendorFences) return tree;
     const vendorFences: Array<{ offset: number; length: number }> = [];
     const visit = (node: Nodes): void => {
       const offset = node.position?.start.offset;

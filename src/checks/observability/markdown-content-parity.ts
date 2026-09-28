@@ -1,6 +1,8 @@
 import { parse, NodeType, type HTMLElement, type Node } from 'node-html-parser';
+import type { Nodes, Root } from 'mdast';
 import { registerCheck } from '../registry.js';
 import { fetchPage } from '../../helpers/fetch-page.js';
+import { parseMarkdown } from '../../helpers/parse-markdown.js';
 import { toHtmlUrl } from '../../helpers/to-md-urls.js';
 import { DEFAULT_PARITY_PASS_THRESHOLD, DEFAULT_PARITY_WARN_THRESHOLD } from '../../constants.js';
 import type { CheckContext, CheckResult, CheckStatus } from '../../types.js';
@@ -85,11 +87,11 @@ export interface ItemCounts {
   structure: 'list' | 'table';
   /** Items in the HTML content container (list items or table data rows). */
   html: number;
-  /** Items in the markdown (list-item lines or pipe-table data rows). */
+  /** Items in the markdown (direct list items or GFM table data rows). */
   markdown: number;
   /** Distinct markdown items; the comparison uses this when entries repeat. */
   markdownUnique: number;
-  /** Entries in that markdown structure that repeat an earlier entry verbatim. */
+  /** Entries in that markdown structure with the same normalized rendered text. */
   duplicates: number;
   /** True when the counts differ by more than the tolerance. */
   diverges: boolean;
@@ -168,6 +170,18 @@ const BLOCK_TAGS = new Set([
   'hr',
 ]);
 
+const HTML_TAG_NAMES = new Set(
+  (
+    'a abbr address area article aside audio b base bdi bdo blockquote body br button canvas caption ' +
+    'cite code col colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset ' +
+    'figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ' +
+    'ins kbd label legend li link main map mark menu meta meter nav noscript object ol optgroup ' +
+    'option output p picture pre progress q rp rt ruby s samp script search section select slot ' +
+    'small source span strong style sub summary sup svg table tbody td template textarea tfoot ' +
+    'th thead time title tr track u ul var video wbr'
+  ).split(' '),
+);
+
 /**
  * Minimum link density (0–1) and minimum link count for an element to be
  * classified as navigation chrome. Navigation panels are structurally
@@ -244,84 +258,35 @@ function countHtmlItems(content: HTMLElement): HtmlItemCounts {
 }
 
 interface MarkdownItemCounts {
-  /** Top-level items in the largest contiguous list (nested bullets excluded). */
+  /** Direct items in the largest list (nested bullets not added to its count). */
   listItems: number;
-  /** Distinct top-level items in that list. */
+  /** Distinct rendered items in that list. */
   uniqueListItems: number;
   /** Data rows in the largest pipe table. */
   tableRows: number;
 }
 
-const MD_FENCE = /^\s*(`{3,}|~{3,})/;
-const MD_LIST_ITEM = /^(\s*)(?:[-*+]|\d+[.)])\s+(.*)$/;
-const MD_TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
-
 /**
- * Measure the largest contiguous list (blank lines between items allowed,
- * any other line ends it) and the largest pipe table in markdown, outside
- * fenced code. Only the block's top-level items count, mirroring the HTML
- * side's direct `li` children, so a catalog whose entries carry nested
- * bullets is not counted three times over. Items are deduplicated by
- * normalized text within the block, so a generator that emits every entry
- * twice shows up as duplicates rather than as twice the catalog.
+ * Measure the largest list and GFM table, mirroring the HTML side's direct
+ * `li` children and data rows. Deduplicate complete rendered item text within
+ * the selected list, including continuation paragraphs and nested content.
  */
-function countMarkdownItems(markdown: string): MarkdownItemCounts {
-  const lines = markdown.split('\n');
-  let inFence: { char: string; length: number } | null = null;
+function countMarkdownItems(tree: Root): MarkdownItemCounts {
   let listItems = 0;
   let uniqueListItems = 0;
   let tableRows = 0;
-  let block: Array<{ indent: number; key: string }> = [];
 
-  const closeBlock = () => {
-    if (block.length > 0) {
-      const base = Math.min(...block.map((b) => b.indent));
-      const top = block.filter((b) => b.indent === base).map((b) => b.key);
-      if (top.length > listItems) {
-        listItems = top.length;
-        uniqueListItems = new Set(top).size;
-      }
+  const visit = (node: Nodes): void => {
+    if (node.type === 'list' && node.children.length > listItems) {
+      listItems = node.children.length;
+      uniqueListItems = new Set(node.children.map((item) => normalize(extractMarkdownText(item))))
+        .size;
+    } else if (node.type === 'table') {
+      tableRows = Math.max(tableRows, node.children.length - 1);
     }
-    block = [];
+    if ('children' in node) node.children.forEach(visit);
   };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const fence = MD_FENCE.exec(line);
-    if (fence) {
-      if (inFence === null) {
-        closeBlock();
-        inFence = { char: fence[1][0], length: fence[1].length };
-        continue;
-      }
-      // CommonMark: the closer uses the same character, is at least as long
-      // as the opener, and carries nothing else on the line.
-      if (
-        fence[1][0] === inFence.char &&
-        fence[1].length >= inFence.length &&
-        line.trim() === fence[1]
-      ) {
-        inFence = null;
-      }
-      continue;
-    }
-    if (inFence !== null) continue;
-    const item = MD_LIST_ITEM.exec(line);
-    if (item) {
-      block.push({ indent: item[1].replace(/\t/g, '    ').length, key: normalize(item[2]) });
-      continue;
-    }
-    if (line.trim() === '') continue;
-    closeBlock();
-    if (line.includes('|') && i + 1 < lines.length && MD_TABLE_DELIMITER.test(lines[i + 1])) {
-      let j = i + 2;
-      while (j < lines.length && lines[j].trim() !== '' && lines[j].includes('|')) j++;
-      const rows = j - (i + 2);
-      if (rows > tableRows) tableRows = rows;
-      i = j - 1;
-    }
-  }
-  closeBlock();
+  visit(tree);
   return { listItems, uniqueListItems, tableRows };
 }
 
@@ -520,228 +485,48 @@ function walkNode(node: Node): string {
   return walkContent(el);
 }
 
-/** ASCII punctuation that a backslash escapes (CommonMark §2.4). */
-const ESCAPABLE_PUNCTUATION = new Set('!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~');
-
-/**
- * Find the start of the next backtick run of exactly `runLength` backticks
- * at or after `from`, or -1 if none precedes a blank line. Per CommonMark
- * §6.1 a code span closes only on a run of the same length, and inline
- * content never crosses a paragraph boundary, so a stray backtick cannot
- * pair with one hundreds of lines later and swallow the text between.
- */
-function findClosingBacktickRun(text: string, from: number, runLength: number): number {
-  const n = text.length;
-  let i = from;
-  while (i < n) {
-    const ch = text[i];
-    if (ch === '`') {
-      let j = i;
-      while (j < n && text[j] === '`') j++;
-      if (j - i === runLength) return i;
-      i = j;
-      continue;
-    }
-    if (ch === '\n') {
-      let j = i + 1;
-      while (j < n && (text[j] === ' ' || text[j] === '\t')) j++;
-      if (j >= n || text[j] === '\n') return -1;
-    }
-    i++;
-  }
-  return -1;
+function escapeHtmlText(text: string): string {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
-/**
- * Single left-to-right pass that replaces inline code spans with
- * \x00CODE{n}\x00 placeholders and backslash-escaped punctuation with
- * \x00ESC{n}\x00 placeholders, following CommonMark's inline rules:
- *
- * - A backtick run of length N opens a code span closed by the next run of
- *   exactly N backticks (so `` `a` `` contains a literal backtick and a
- *   bare ``` in prose with no partner is just text). Content keeps
- *   backslashes verbatim, as <code> does in HTML, and gets the spec's
- *   one-space trim when it both starts and ends with a space.
- * - Outside code spans, a backslash followed by ASCII punctuation is that
- *   punctuation as literal text: snake\_case renders as snake_case,
- *   string\[] as string[], \*not bold\* keeps its asterisks (issue #110).
- *   The escaped character is stashed so the heading/list/link/emphasis
- *   regexes never see it as syntax, and restored after they run.
- *
- * Fenced blocks must already be placeholder-protected; their content is
- * opaque here.
- */
-function protectCodeSpansAndEscapes(text: string, codeSpans: string[], escapes: string[]): string {
-  const n = text.length;
-  const out: string[] = [];
-  let i = 0;
-  let plainStart = 0;
-
-  while (i < n) {
-    const ch = text[i];
-
-    if (ch === '\\' && i + 1 < n && ESCAPABLE_PUNCTUATION.has(text[i + 1])) {
-      out.push(text.slice(plainStart, i));
-      const idx = escapes.length;
-      escapes.push(text[i + 1]);
-      out.push(`\x00ESC${idx}\x00`);
-      i += 2;
-      plainStart = i;
-      continue;
+function markdownTextFragment(node: Nodes): string {
+  switch (node.type) {
+    case 'text':
+    case 'code':
+    case 'inlineCode':
+      return escapeHtmlText(node.value);
+    case 'image':
+    case 'imageReference':
+      return escapeHtmlText(node.alt ?? '');
+    case 'html':
+      return node.value;
+    case 'break':
+      return '\n';
+    case 'definition':
+      return '';
+    default: {
+      if (!('children' in node)) return '';
+      const separator = ['root', 'blockquote', 'list', 'listItem', 'table', 'tableRow'].includes(
+        node.type,
+      )
+        ? '\n'
+        : '';
+      return node.children.map(markdownTextFragment).join(separator);
     }
-
-    if (ch === '`') {
-      let j = i;
-      while (j < n && text[j] === '`') j++;
-      const runLength = j - i;
-      const close = findClosingBacktickRun(text, j, runLength);
-      if (close === -1) {
-        // Unmatched run: literal text. Skip past it so its backticks are
-        // not re-examined as potential openers.
-        i = j;
-        continue;
-      }
-      out.push(text.slice(plainStart, i));
-      let content = text.slice(j, close);
-      if (content.startsWith(' ') && content.endsWith(' ') && content.trim().length > 0) {
-        content = content.slice(1, -1);
-      }
-      const idx = codeSpans.length;
-      codeSpans.push(content);
-      out.push(`\x00CODE${idx}\x00`);
-      i = close + runLength;
-      plainStart = i;
-      continue;
-    }
-
-    i++;
   }
-
-  out.push(text.slice(plainStart));
-  return out.join('');
 }
 
-/**
- * Extract plain text from markdown by stripping all formatting.
- *
- * Code content (both fenced blocks and inline spans) is protected from
- * stripping via placeholders. Without this, content like `# Heading` or
- * `[link](url)` inside code blocks/spans would have its markdown syntax
- * stripped (headings, links, blockquotes, emphasis), while the HTML side
- * preserves the literal text inside <pre><code> and <code> tags. The
- * placeholder approach hides code content from the stripping regexes,
- * then restores it after all stripping is done.
- *
- * Heading lines are also placeholder-protected: a heading like
- * "### 1. How well..." has the "1. " stripped by the numbered-list regex
- * if processed normally, even though that "1. " is part of the heading
- * text on the HTML side. Protecting heading content keeps the bullet/
- * numbered-list passes from touching it.
- *
- * Backslash-escaped punctuation is likewise placeholder-protected and then
- * restored as the bare character, so "snake\_case" in markdown matches
- * "snake_case" in HTML and "\*literal\*" is not stripped as emphasis.
- */
-function extractMarkdownText(markdown: string): string {
-  let text = markdown;
-
-  // Step 1: Protect fenced code block content from subsequent stripping.
-  // Replace entire fenced blocks (``` ... ```) with placeholders so
-  // heading/link/emphasis/blockquote regexes don't modify literal content
-  // that the HTML side preserves as-is inside <pre><code> tags.
-  //
-  // Per CommonMark §4.5, a fence opens with N>=3 backticks and closes only
-  // on a run of >=N. Capture the opener so the close-side backreference
-  // matches; otherwise nested example fences (4-backtick outer, 3-backtick
-  // inner) get mis-paired and inner markers leak out as text.
-  //
-  // Fences inside list items are indented by the list marker width (e.g.
-  // Turndown indents them 4 spaces under "1.  item"), so the opener may not
-  // sit at column 0. Capture the opener's indentation and require the closer
-  // at the same indent plus the 0-3 spaces of slack CommonMark allows, so a
-  // more deeply indented literal ``` inside the block can't close it early.
-  const codeBlocks: string[] = [];
-  text = text.replace(
-    /^( *)(`{3,})[^`\n]*\n([\s\S]*?)^\1 {0,3}\2`*\s*$/gm,
-    (_match, _indent, _opener, content) => {
-      const idx = codeBlocks.length;
-      codeBlocks.push(content);
-      return `\x00BLOCK${idx}\x00`;
-    },
-  );
-
-  // Step 2: Protect inline code spans and backslash escapes from
-  // subsequent stripping. Both are placeholder-protected in one
-  // left-to-right pass (see protectCodeSpansAndEscapes) because CommonMark
-  // resolves them positionally: a backslash before a backtick consumes it
-  // (\`literal\` is prose, not a code span), while a backslash inside an
-  // open code span is literal content (`C:\Users\` is one span). Neither
-  // ordering of two independent regex passes gets both cases right.
-  const codeSpans: string[] = [];
-  const escapes: string[] = [];
-  text = protectCodeSpansAndEscapes(text, codeSpans, escapes);
-
-  // Step 3: Protect heading lines from list-marker stripping. Headings
-  // like "### 1. How well are X supported?" survive into the HTML as
-  // "<h3>1. How well are X supported?</h3>", so the leading "1. " is
-  // part of the heading text — not a list marker. Without this, the
-  // numbered-list regex would strip it and the markdown side wouldn't
-  // contain the HTML segment.
-  const headings: string[] = [];
-  text = text.replace(/^#{1,6}\s+(.*)$/gm, (_match, content) => {
-    const idx = headings.length;
-    headings.push(content);
-    return `\x00HEAD${idx}\x00`;
-  });
-
-  // Step 4: Strip list markers and setext underlines while heading lines
-  // are still placeholder-protected. These are the passes that would
-  // misinterpret heading text — e.g., the numbered-list regex stripping
-  // "1. " from "### 1. How well..." (issue #91).
-  text = text
-    // Remove setext-style heading underlines
-    .replace(/^[=-]+$/gm, '')
-    // Remove reference-style link definitions
-    .replace(/^\[.*?\]:\s+.*$/gm, '')
-    // Remove list bullets/numbers (before emphasis, so leading * isn't
-    // misinterpreted as an emphasis marker)
-    .replace(/^[\s]*[-*+]\s+/gm, '')
-    .replace(/^[\s]*\d+\.\s+/gm, '');
-
-  // Step 5: Restore heading text. From here on, heading content is
-  // processed like any other body text — emphasis, links, etc. inside
-  // heading text gets the same treatment so it matches the HTML side
-  // (where <h1><em>Foo</em></h1> renders as "Foo").
-  // eslint-disable-next-line no-control-regex
-  text = text.replace(/\x00HEAD(\d+)\x00/g, (_match, idxStr) => headings[parseInt(idxStr, 10)]);
-
-  // Step 6: Strip remaining markdown formatting on body and heading text.
-  text = text
-    // Remove link/image URLs, keep text: [text](url) → text
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    // Remove emphasis markers. * emphasis is stripped unconditionally.
-    // _ emphasis is stripped only at word boundaries (per CommonMark,
-    // _text_ is emphasis only when _ is not adjacent to an alphanumeric).
-    // This preserves code identifiers like mongoc_client_get_database
-    // that appear as plain text (not inside backticks).
-    .replace(/(\*{1,3})(.*?)\1/g, '$2')
-    .replace(/(?<!\w)(_{1,3})(.*?)\1(?!\w)/g, '$2')
-    // Remove blockquote markers
-    .replace(/^>\s?/gm, '')
-    // Remove horizontal rules
-    .replace(/^[-*_]{3,}$/gm, '');
-
-  // Step 7: Restore escaped characters as their literal selves, then code
-  // content (without backticks/fence markers). Escapes are restored after
-  // formatting is stripped so a restored * or _ is never re-read as emphasis.
-  // eslint-disable-next-line no-control-regex
-  text = text.replace(/\x00ESC(\d+)\x00/g, (_match, idxStr) => escapes[parseInt(idxStr, 10)]);
-  // eslint-disable-next-line no-control-regex
-  text = text.replace(/\x00CODE(\d+)\x00/g, (_match, idxStr) => codeSpans[parseInt(idxStr, 10)]);
-  // eslint-disable-next-line no-control-regex
-  text = text.replace(/\x00BLOCK(\d+)\x00/g, (_match, idxStr) => codeBlocks[parseInt(idxStr, 10)]);
-
-  return text;
+function extractMarkdownText(node: Nodes): string {
+  const fragment = markdownTextFragment(node);
+  const root = parse(fragment, { parseNoneClosedTags: true, lowerCaseTagName: true });
+  for (const element of root.querySelectorAll('*')) {
+    if (HTML_TAG_NAMES.has(element.rawTagName)) continue;
+    const source = fragment.slice(...element.range);
+    if (/^<[a-z][a-z0-9-]*(?:\s[^<>]*)?>$/i.test(source) && !source.endsWith('/>')) {
+      element.replaceWith(escapeHtmlText(source), ...element.childNodes);
+    }
+  }
+  return walkContent(root);
 }
 
 /**
@@ -819,7 +604,7 @@ function toSegments(text: string): string[] {
  */
 function computeParity(
   htmlText: string,
-  markdownText: string,
+  markdownTree: Root,
   warnThreshold: number,
   failThreshold: number,
 ): Omit<PageParityResult, 'url' | 'markdownSource' | 'error'> {
@@ -858,7 +643,7 @@ function computeParity(
     };
   }
 
-  const normalizedMd = normalize(extractMarkdownText(markdownText));
+  const normalizedMd = normalize(extractMarkdownText(markdownTree));
   const sampleDiffs: string[] = [];
   let missingCount = 0;
 
@@ -991,10 +776,11 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
             items,
           } = extractHtmlText(page.body, parityExclusions);
           totalSegmentationStripped += segmentationStripped;
-          const parity = computeParity(htmlText, markdownContent, warnThreshold, failThreshold);
+          const markdownTree = parseMarkdown(markdownContent, { normalizeVendorFences: false });
+          const parity = computeParity(htmlText, markdownTree, warnThreshold, failThreshold);
           const itemCounts = compareItemCounts(
             items,
-            countMarkdownItems(markdownContent),
+            countMarkdownItems(markdownTree),
             paginatedPages.has(url),
           );
 
