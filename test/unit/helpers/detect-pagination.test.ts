@@ -72,6 +72,40 @@ describe('detectPagination', () => {
       expect(detectPagination(content, { baseUrl: BASE }).signals).toEqual([]);
     });
 
+    it.each([64, 72, 80, 100, 200])(
+      'ignores illustrative prose hard-wrapped at %i columns',
+      (width) => {
+        const paragraph =
+          'For checks that test multiple pages, results are proportional. If 3 out of 50 pages fail, ' +
+          'the check scores ~94% of its weight. The cache served 12 of 20 results, and page 2 of 5 ' +
+          'in the wizard shows the token.';
+        const lines = [''];
+        for (const word of paragraph.split(' ')) {
+          const last = lines.length - 1;
+          if (!lines[last]) lines[last] = word;
+          else if (lines[last].length + word.length + 1 <= width) lines[last] += ` ${word}`;
+          else lines.push(word);
+        }
+        const content = `# Checks\n\n${lines.join('\n')}`;
+        expect(detectPagination(content, { baseUrl: BASE }).signals).toEqual([]);
+      },
+    );
+
+    it.each([
+      "Observed on a catalog's markdown\nvariant: 100 of 102 entries shown, a note at the bottom.",
+      "Observed on a catalog's markdown variant:\n100 of 102 entries shown, a note at the bottom.",
+      'If\n3 out of 50 pages fail, the check scores 94%.',
+      'The cache served\n12 of 20 results, and the wizard shows the token.',
+      'Note: this listing is windowed,\nshowing 100 of 102 entries.',
+      '- The cache served\n  12 of 20 results, and the wizard shows the token.',
+      '> The cache served\n12 of 20 results, and the wizard shows the token.',
+      'The cache served\n[previous results](/docs/cache)\n12 of 20 results.',
+      'The cache served\n`cached entries`\n12 of 20 results.',
+      'The cache served\r\n12 of 20 results, and the wizard shows the token.',
+    ])('ignores a phrase on a continuation line of prose: %s', (content) => {
+      expect(detectPagination(content, { baseUrl: BASE }).signals).toEqual([]);
+    });
+
     it('accepts an "N of M" note behind blockquote, list, emphasis, table, or label prefixes', () => {
       for (const line of [
         '> Showing 100 of 102 models.',
@@ -86,6 +120,59 @@ describe('detectPagination', () => {
           result.signals.map((s) => s.type),
           line,
         ).toEqual(['n-of-m']);
+      }
+    });
+
+    it.each([
+      '> The cache served\n> 12 of 20 results.',
+      '>> The cache served\n>> 12 of 20 results.',
+      '> - The cache served\n>   12 of 20 results.',
+      '- > The cache served\n  > 12 of 20 results.',
+      '[The cache served](/cache)\n12 of 20 results.',
+      '`If`\n3 out of 50 pages fail, the check scores 94%.',
+      'Showing 100 of\n\n102 models',
+      'Showing 100 of\n```text\nUnrelated sample\n```\n102 models',
+      'Showing 100 of\n- 102 models',
+      '| Showing 100 of | 102 models |',
+      'Showing 100 of `unrelated sample` 102 models',
+      'Showing 100 of <!-- unrelated sample --> 102 models',
+      '# Example\n\n    Showing 100 of 102 models.',
+      '# Example\n\n\tShowing 100 of 102 models.',
+      '<!--\n\nShowing 100 of 102 models.\n\n-->',
+    ])('ignores non-declarations with either line ending: %s', (content) => {
+      for (const lineEnding of ['\n', '\r\n']) {
+        expect(
+          detectPagination(content.replace(/\n/g, lineEnding), { baseUrl: BASE }).signals,
+        ).toEqual([]);
+      }
+    });
+
+    it.each(['    ', '\t', '>     '])(
+      'ignores all pagination signals inside indented code: %j',
+      (indent) => {
+        const example =
+          'Showing 100 of 102 models. [Next page](/models?page=2) Fetch /models?offset=100 or https://docs.example.com/models?cursor=next';
+        const result = detectPagination(`# Example\n\n${indent}${example}`, { baseUrl: BASE });
+        expect(result.signals).toEqual([]);
+        expect(result.continuation).toBeUndefined();
+      },
+    );
+
+    it.each([
+      '<!-- Showing 100 of 102 models. [Next page](/models?page=2) -->',
+      '<!--\n\nShowing 100 of 102 models.\nFetch /models?offset=100 or https://docs.example.com/models?cursor=next\n\n-->',
+      '<!--\n\nShowing 100 of 102 models. [Next page](/models?page=2)',
+    ])('ignores all pagination signals inside comments: %s', (content) => {
+      for (const indent of ['', ' ', '  ', '   ', '    ']) {
+        for (const lineEnding of ['\n', '\r\n']) {
+          const indented = content
+            .split('\n')
+            .map((line) => `${indent}${line}`)
+            .join(lineEnding);
+          const result = detectPagination(indented, { baseUrl: BASE });
+          expect(result.signals).toEqual([]);
+          expect(result.continuation).toBeUndefined();
+        }
       }
     });
 
@@ -118,6 +205,60 @@ describe('detectPagination', () => {
   });
 
   describe('signals', () => {
+    it.each([
+      'Catalog status\n===\nShowing 25 of 80 items',
+      'Catalog status\n---\nShowing 25 of 80 items',
+      '> Other text.\n>\n> Showing 25 of 80 items',
+      '> Note:\n> Showing 25 of 80 items',
+      '>> Note:\n>> Showing 25 of 80 items',
+      '> - Note:\n>   Showing 25 of 80 items',
+      '- Other text.\n- Showing 25 of 80 items',
+      '1. Other text.\n2. Showing 25 of 80 items',
+      '- Note:\n    Showing 25 of 80 items',
+      '> Showing 25 of\n> 80 items',
+      '[Note:](/note) Showing 25 of 80 items',
+      '[Showing 25 of 80 items](/models)',
+      'Showing **25** of **80** items',
+      '    An example.\n\nShowing 25 of 80 items',
+      '<!-- An example. -->\n\nShowing 25 of 80 items',
+    ])('preserves real notes and source offsets with either line ending: %s', (input) => {
+      for (const lineEnding of ['\n', '\r\n']) {
+        const content = input.replace(/\n/g, lineEnding);
+        const result = detectPagination(content, { baseUrl: BASE });
+        expect(result.signals).toEqual([
+          { type: 'n-of-m', text: 'Showing 25 of 80', offset: content.indexOf('Showing') },
+        ]);
+      }
+    });
+
+    it.each([
+      'Showing 25 of 80 items\nfrom the catalog.',
+      '\nShowing 25 of 80 items\nfrom the catalog.',
+      '# Models\nShowing 25 of 80 items',
+      'Models\n===\nShowing 25 of 80 items',
+      'Models\n---\nShowing 25 of 80 items',
+      'Other text.\n\nShowing 25 of 80 items',
+      'Other text.\n \t\nShowing 25 of 80 items',
+      'Other text.\n## Showing 25 of 80 items',
+      'Other text.\n> Showing 25 of 80 items\n> from the catalog.',
+      '- Other item.\n- Showing 25 of 80 items\n  from the catalog.',
+      '1. Other item.\n2. Showing 25 of 80 items\n   from the catalog.',
+      '| Status |\n| --- |\n| Showing 25 of 80 items |',
+      'Note:\nShowing 25 of 80 items',
+      '- Note:\n  Showing 25 of 80 items',
+      '> Note:\n> Showing 25 of 80 items',
+      '**Showing 25 of 80 items\nfrom the catalog.**',
+      '_Showing 25 of 80 items\nfrom the catalog._',
+      '```text\nAn example.\n```\nShowing 25 of 80 items',
+      '~~~text\nAn example.\n~~~\nShowing 25 of 80 items',
+    ])('preserves a declaration and its offset across block boundaries: %s', (content) => {
+      const result = detectPagination(content, { baseUrl: BASE });
+      expect(result.signals).toEqual([
+        { type: 'n-of-m', text: 'Showing 25 of 80', offset: content.indexOf('Showing') },
+      ]);
+      expect(result.continuation).toBeUndefined();
+    });
+
     it('detects "N of M" phrasing without a link and reports no continuation', () => {
       const content = `# Models\n\n- a\n- b\n\nShowing 100 of 102 models.`;
       const result = detectPagination(content, { baseUrl: BASE });
