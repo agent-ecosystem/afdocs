@@ -11,6 +11,10 @@
  * only the latter is a defect.
  */
 
+import { fromMarkdown } from 'mdast-util-from-markdown';
+import { gfmTableFromMarkdown } from 'mdast-util-gfm-table';
+import { gfmTable } from 'micromark-extension-gfm-table';
+import type { Nodes, PhrasingContent } from 'mdast';
 import { scanRawLinks } from './classify-markdown-links.js';
 
 export type PaginationSignalType = 'n-of-m' | 'pagination-param' | 'next-link' | 'link-header';
@@ -101,7 +105,7 @@ const BARE_PAGED_PATH =
 const MAX_SIGNAL_TEXT = 80;
 
 /**
- * What may precede an "N of M" phrase on its line for it to read as a
+ * What may precede an "N of M" phrase in its block for it to read as a
  * pagination note rather than prose: markdown structure (blockquote, list
  * marker, table cell, emphasis) and at most one short label such as
  * "Note:". A phrase inside a sentence ("If 3 out of 50 pages fail, the
@@ -109,6 +113,67 @@ const MAX_SIGNAL_TEXT = 80;
  * is partial.
  */
 const NOTE_LEAD = /^[\s>*_\-+|#\d.)]*(?:\*\*|__)?(?:[A-Za-z][\w ]{0,24}:\s*)?(?:\*\*|__)?\s*$/;
+
+interface PaginationTextBlock {
+  offset: number;
+  text: string;
+}
+
+function paginationContent(content: string): {
+  textBlocks: PaginationTextBlock[];
+  visibleContent: string;
+} {
+  const tree = fromMarkdown(content, {
+    extensions: [gfmTable()],
+    mdastExtensions: [gfmTableFromMarkdown()],
+  });
+  const visible = content.split('');
+  const textBlocks: PaginationTextBlock[] = [];
+
+  const visit = (node: Nodes): void => {
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (start === undefined || end === undefined) return;
+
+    if (node.type === 'code' || (node.type === 'html' && node.value.startsWith('<!--'))) {
+      for (let index = start; index < end; index++) {
+        if (visible[index] !== '\n' && visible[index] !== '\r') visible[index] = ' ';
+      }
+      return;
+    }
+
+    if (node.type === 'paragraph' || node.type === 'heading' || node.type === 'tableCell') {
+      const text = Array<string>(end - start).fill(' ');
+      const inline = (child: PhrasingContent): void => {
+        const childStart = child.position?.start.offset;
+        const childEnd = child.position?.end.offset;
+        if (childStart === undefined || childEnd === undefined) return;
+
+        if (child.type === 'text') {
+          const source = content
+            .slice(childStart, childEnd)
+            .replace(/(\r?\n)[ \t]*(?:>[ \t]*)+/g, (prefix) => prefix.replace(/[^\r\n]/g, ' '));
+          for (let index = 0; index < source.length; index++) {
+            text[childStart - start + index] = source[index];
+          }
+        } else if ('children' in child) {
+          for (const descendant of child.children) inline(descendant);
+        } else if (child.type !== 'break') {
+          text.fill('\0', childStart - start, childEnd - start);
+        }
+      };
+      for (const child of node.children) inline(child);
+      textBlocks.push({ offset: start, text: text.join('') });
+    }
+
+    if ('children' in node) {
+      for (const child of node.children) visit(child);
+    }
+  };
+
+  visit(tree);
+  return { textBlocks, visibleContent: visible.join('') };
+}
 
 /** `decodeURIComponent` throws on malformed escapes (`?page=%`) that `new URL` accepts. */
 function safeDecode(value: string): string {
@@ -268,7 +333,8 @@ export function detectPagination(
   const signals: PaginationSignal[] = [];
   const candidates: ContinuationCandidate[] = [];
 
-  const { links, remainder } = collectLinks(content);
+  const { textBlocks, visibleContent } = paginationContent(content);
+  const { links, remainder } = collectLinks(visibleContent);
 
   const addCandidate = (url: string, offset: number) => {
     candidates.push({
@@ -340,20 +406,26 @@ export function detectPagination(
   // One phrase can satisfy more than one pattern ("Showing 100 of 102
   // models" is both "showing N of M" and "N of M models"); report it once.
   const phraseSpans: Array<[number, number]> = [];
-  for (const pattern of N_OF_M_PATTERNS) {
-    pattern.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = pattern.exec(remainder)) !== null) {
-      const shown = parseCount(m[m.length - 2]);
-      const total = parseCount(m[m.length - 1]);
-      if (!Number.isFinite(shown) || !Number.isFinite(total) || shown >= total) continue;
-      const start = m.index;
-      const end = start + m[0].length;
-      if (phraseSpans.some(([a, b]) => start < b && end > a)) continue;
-      const lineStart = remainder.lastIndexOf('\n', start - 1) + 1;
-      if (!NOTE_LEAD.test(remainder.slice(lineStart, start))) continue;
-      phraseSpans.push([start, end]);
-      signals.push({ type: 'n-of-m', text: shorten(m[0]), offset: start });
+  for (const block of textBlocks) {
+    for (const pattern of N_OF_M_PATTERNS) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(block.text)) !== null) {
+        const shown = parseCount(match[match.length - 2]);
+        const total = parseCount(match[match.length - 1]);
+        if (!Number.isFinite(shown) || !Number.isFinite(total) || shown >= total) continue;
+        const start = block.offset + match.index;
+        const end = start + match[0].length;
+        if (
+          phraseSpans.some(
+            ([previousStart, previousEnd]) => start < previousEnd && end > previousStart,
+          )
+        )
+          continue;
+        if (!NOTE_LEAD.test(block.text.slice(0, match.index))) continue;
+        phraseSpans.push([start, end]);
+        signals.push({ type: 'n-of-m', text: shorten(match[0]), offset: start });
+      }
     }
   }
 

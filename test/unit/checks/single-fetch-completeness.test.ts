@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { createContext } from '../../../src/runner.js';
@@ -15,7 +15,10 @@ beforeAll(() => {
   return () => server.close();
 });
 
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  vi.restoreAllMocks();
+});
 
 const check = getCheck('single-fetch-completeness')!;
 const ORIGIN = 'http://sfc.local';
@@ -90,6 +93,87 @@ describe('single-fetch-completeness', () => {
       expect(p.issues).toEqual([]);
     }
   });
+
+  it.each([
+    "Observed on a catalog's markdown variant: 100 of 102 entries shown, a note at the bottom.",
+    "Observed on a catalog's markdown\nvariant: 100 of 102 entries shown, a note at the bottom.",
+    "Observed on a catalog's markdown variant:\n100 of 102 entries shown, a note at the bottom.",
+    '> The cache served\n> 12 of 20 results.',
+    '> - The cache served\n>   12 of 20 results.',
+    '[The cache served](/cache)\n12 of 20 results.',
+    '`If`\n3 out of 50 pages fail, the check scores 94%.',
+    'Showing 100 of\n\n102 models.',
+    'Showing 100 of\n```text\nExample\n```\n102 models.',
+    '    Showing 100 of 102 models. [Next page](/models?page=2)',
+    '<!--\n\nShowing 100 of 102 models. [Next page](/models?page=2)\n\n-->',
+  ])('passes prose and examples without fetching a continuation: %s', async (paragraph) => {
+    const ctx = cachedCtx([{ url: `${ORIGIN}/docs/checks`, content: `# Checks\n\n${paragraph}` }]);
+    const fetchSpy = vi.spyOn(ctx.http, 'fetch');
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details).toMatchObject({ paginatedPages: 0, passBucket: 1 });
+    expect(pageResults(result)).toMatchObject([
+      { status: 'pass', paginated: false, signals: [], issues: [] },
+    ]);
+    expect(pageResults(result)[0].continuation).toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each(['\n', '\r\n'])(
+    'fetches only the real continuation after examples with line ending %j',
+    async (lineEnding) => {
+      const next = `${ORIGIN}/docs/models.md?page=2`;
+      server.use(http.get(`${ORIGIN}/docs/models.md`, markdown(catalog(2))));
+      const content = [
+        '# Models',
+        '',
+        '    [Next page](/docs/example?page=2)',
+        '',
+        '<!--',
+        '',
+        '[Next page](/docs/comment?page=2)',
+        '',
+        '-->',
+        '',
+        '>> Note:',
+        '>> Showing 100 of',
+        `>> 102 models. [Next page](${next})`,
+        '',
+        catalog(),
+      ]
+        .join('\n')
+        .replace(/\n/g, lineEnding);
+      const ctx = cachedCtx([{ url: `${ORIGIN}/docs/models`, content }]);
+      const fetchSpy = vi.spyOn(ctx.http, 'fetch');
+
+      const result = await check.run(ctx);
+      expect(result.status).toBe('pass');
+      const [page] = pageResults(result);
+      expect(page.signals.map((signal) => signal.type)).toEqual(['n-of-m', 'next-link']);
+      expect(page.signals[0].offset).toBe(content.indexOf('Showing'));
+      expect(page.continuation).toMatchObject({
+        url: next,
+        offset: content.indexOf(`[Next page](${next})`),
+        atTop: true,
+        outcome: 'ok',
+      });
+      expect(fetchSpy).toHaveBeenCalledExactlyOnceWith(next);
+    },
+  );
+
+  it.each(['\n', '\r\n'])(
+    'fails a genuine note without a continuation with line ending %j',
+    async (lineEnding) => {
+      const content = 'Models\n===\nShowing 100 of 102 models.'.replace(/\n/g, lineEnding);
+      const ctx = cachedCtx([{ url: `${ORIGIN}/docs/models`, content }]);
+      const fetchSpy = vi.spyOn(ctx.http, 'fetch');
+      const result = await check.run(ctx);
+      expect(result.status).toBe('fail');
+      expect(result.details?.reasons).toMatchObject({ missing: 1 });
+      expect(pageResults(result)[0].signals[0].offset).toBe(content.indexOf('Showing'));
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
 
   it('passes pagination declared at the top with an absolute URL that resolves', async () => {
     const next = `${ORIGIN}/docs/models.md?page=2`;

@@ -83,6 +83,9 @@
   "dependencies": {
     "chalk": "^5.4.1",
     "commander": "^13.1.0",
+    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-gfm-table": "^2.0.0",
+    "micromark-extension-gfm-table": "^2.1.2",
     "node-html-parser": "^7.1.0",
     "picomatch": "^4.0.4",
     "turndown": "^7.2.2",
@@ -91,6 +94,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/mdast": "^4.0.4",
     "@types/node": "^22.13.4",
     "@types/picomatch": "^4.0.3",
     "@types/turndown": "^5.0.6",
