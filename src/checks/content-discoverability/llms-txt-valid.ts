@@ -1,5 +1,6 @@
 import { registerCheck } from '../registry.js';
 import { getLlmsTxtFilesForAnalysis } from '../../helpers/llms-txt.js';
+import { scanRawLinks } from '../../helpers/classify-markdown-links.js';
 import type { CheckContext, CheckResult } from '../../types.js';
 
 interface ValidationResult {
@@ -11,15 +12,11 @@ interface ValidationResult {
   issues: string[];
 }
 
-/** Extract markdown links from text: [name](url) */
+/** Extract inline and reference links, excluding images, code and comments. */
 export function extractMarkdownLinks(content: string): Array<{ name: string; url: string }> {
-  const linkRegex = /\[([^\]]+)\]\(([^\s)]+)(?:\s+["'][^"']*["'])?\)/g;
-  const links: Array<{ name: string; url: string }> = [];
-  let match;
-  while ((match = linkRegex.exec(content)) !== null) {
-    links.push({ name: match[1], url: match[2] });
-  }
-  return links;
+  return scanRawLinks(content)
+    .links.filter((link) => !link.isImage && link.destination !== '')
+    .map((link) => ({ name: link.text, url: link.destination }));
 }
 
 function validateLlmsTxt(content: string, url: string): ValidationResult {

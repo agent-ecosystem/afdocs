@@ -11,10 +11,8 @@
  * only the latter is a defect.
  */
 
-import { fromMarkdown } from 'mdast-util-from-markdown';
-import { gfmTableFromMarkdown } from 'mdast-util-gfm-table';
-import { gfmTable } from 'micromark-extension-gfm-table';
 import type { Nodes, PhrasingContent } from 'mdast';
+import { parseMarkdown } from './parse-markdown.js';
 import { scanRawLinks } from './classify-markdown-links.js';
 
 export type PaginationSignalType = 'n-of-m' | 'pagination-param' | 'next-link' | 'link-header';
@@ -123,10 +121,7 @@ function paginationContent(content: string): {
   textBlocks: PaginationTextBlock[];
   visibleContent: string;
 } {
-  const tree = fromMarkdown(content, {
-    extensions: [gfmTable()],
-    mdastExtensions: [gfmTableFromMarkdown()],
-  });
+  const tree = parseMarkdown(content);
   const visible = content.split('');
   const textBlocks: PaginationTextBlock[] = [];
 

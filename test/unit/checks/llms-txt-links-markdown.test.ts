@@ -68,6 +68,22 @@ Just text, no links here.
     expect(result.details?.markdownRate).toBe(100);
   });
 
+  it('checks real references for Markdown without requesting hidden examples', async () => {
+    const requests: string[] = [];
+    server.use(
+      http.all('http://test.local/*', ({ request }) => {
+        requests.push(`${request.method} ${request.url}`);
+        return new HttpResponse(null, { headers: { 'Content-Type': 'text/markdown' } });
+      }),
+    );
+    const content =
+      '[guide][ref]\n\n[ref]: http://test.local/guide_(intro)\n\n    [code](http://test.local/code)\n\n<!-- [hidden](http://test.local/hidden) -->';
+    const result = await check.run(makeCtx(content));
+    expect(result.status).toBe('pass');
+    expect(result.details?.markdownRate).toBe(100);
+    expect(requests).toEqual(['HEAD http://test.local/guide_(intro)']);
+  });
+
   it('fails when same-origin links are HTML with no markdown alternatives', async () => {
     server.use(
       http.head(

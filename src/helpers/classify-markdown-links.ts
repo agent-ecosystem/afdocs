@@ -9,6 +9,9 @@
  * points once resolved.
  */
 
+import type { Nodes } from 'mdast';
+import { parseMarkdown } from './parse-markdown.js';
+
 /**
  * How much of the base URL a link needs to be reconstructable.
  *
@@ -30,7 +33,7 @@ export type LinkClass =
   | 'other-scheme';
 
 export interface MarkdownLink {
-  /** The URL exactly as written in the markdown. */
+  /** The destination after CommonMark escape and entity decoding. */
   url: string;
   /** The link text, collapsed and shortened. */
   text: string;
@@ -57,7 +60,7 @@ export interface MarkdownLink {
 }
 
 export interface MarkdownLinkScan {
-  /** Links an agent would follow, in document order, deduplicated by raw URL. */
+  /** Links an agent would follow, in document order, deduplicated by decoded URL. */
   links: MarkdownLink[];
   /**
    * Image references, classified the same way but kept separate: they point
@@ -134,122 +137,6 @@ export function promisesMarkdownUrl(url: string): boolean {
   }
 }
 
-function blankRun(text: string): string {
-  return text.replace(/[^\n]/g, ' ');
-}
-
-/**
- * Replace fenced code blocks and inline code spans with spaces of the same
- * length, so that example links inside code samples are not read as the
- * page's own links. Length is preserved so the result lines up with the
- * original.
- *
- * Fences are matched by scanning lines rather than with a backreference,
- * because CommonMark lets a closing fence be longer than its opener, and
- * because a fence nested inside a list item carries the list's indent.
- * Deeply indented fences are ordinary in tutorial documentation, and a fence
- * this function fails to recognize puts every example link inside it into
- * the scan. An opener is therefore accepted at any indent: within served
- * markdown, a line that is nothing but three or more backticks or tildes is
- * a fence, and erring toward blanking costs recall while erring the other
- * way invents broken links.
- */
-function blankCode(text: string): string {
-  const lines = text.split('\n');
-  let open: { char: string; length: number } | null = null;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const match = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line);
-
-    if (open) {
-      // Everything inside an open fence is blanked, whatever it contains.
-      // The table-cell guard below must not reach here: a fenced shell
-      // example such as `cat x | grep '[a](../b.md)'` would otherwise stay
-      // in the scan and fail the page on a link that is sample code.
-      lines[i] = blankRun(line);
-      if (
-        match &&
-        match[1][0] === open.char &&
-        match[1].length >= open.length &&
-        match[2].trim() === ''
-      ) {
-        open = null;
-      }
-      continue;
-    }
-
-    if (!match) continue;
-    // Fences inside markdown table cells are a vendor extension, not real
-    // CommonMark fences; `markdown-code-fence-validity` skips them too. This
-    // only prevents *opening* a fence.
-    if (line.includes('|')) continue;
-    // A backtick fence's info string may not itself contain a backtick.
-    if (match[1][0] === '`' && match[2].includes('`')) continue;
-    open = { char: match[1][0], length: match[1].length };
-    lines[i] = blankRun(line);
-  }
-
-  // An unclosed fence runs to the end of the document, per CommonMark, so
-  // whatever followed it has already been blanked.
-  return blankCodeSpans(lines.join('\n'));
-}
-
-/**
- * Blank inline code spans the way CommonMark delimits them: a backtick
- * string of length N opens a span, the next backtick string of exactly
- * length N closes it, and the span may run across lines. A backtick run with
- * no matching closer is literal text, not a delimiter.
- *
- * A regex over single backticks on one line gets both directions wrong: a
- * double-backtick span wrapping a link on the following line stays visible
- * to the scanner and fails the page on sample code, while a backslash-escaped
- * backtick reads as a delimiter and can hide a real link.
- */
-function blankCodeSpans(text: string): string {
-  const out = text.split('');
-  let i = 0;
-
-  while (i < text.length) {
-    if (text[i] !== '`' || isEscapedAt(text, i)) {
-      i++;
-      continue;
-    }
-    const start = i;
-    while (i < text.length && text[i] === '`') i++;
-    const runLength = i - start;
-
-    let j = i;
-    let closed = false;
-    while (j < text.length) {
-      if (text[j] !== '`' || isEscapedAt(text, j)) {
-        j++;
-        continue;
-      }
-      const runStart = j;
-      while (j < text.length && text[j] === '`') j++;
-      if (j - runStart === runLength) {
-        for (let k = start; k < j; k++) {
-          if (out[k] !== '\n') out[k] = ' ';
-        }
-        i = j;
-        closed = true;
-        break;
-      }
-    }
-    if (!closed) i = start + runLength;
-  }
-
-  return out.join('');
-}
-
-/** True when the character at `i` is preceded by an odd run of backslashes. */
-function isEscapedAt(text: string, i: number): boolean {
-  let count = 0;
-  for (let j = i - 1; j >= 0 && text[j] === '\\'; j--) count++;
-  return count % 2 === 1;
-}
-
 function shorten(text: string): string {
   const flat = text.replace(/\s+/g, ' ').trim();
   return flat.length > MAX_TEXT ? `${flat.slice(0, MAX_TEXT - 1)}…` : flat;
@@ -258,6 +145,7 @@ function shorten(text: string): string {
 /** A link as written, before classification: where it sits and what it points at. */
 export interface RawMarkdownLink {
   text: string;
+  /** Destination decoded once by CommonMark, not a slice of the source. */
   destination: string;
   isImage: boolean;
   /** Offset of the opening `[` (or the `!` of an image) in the scanned text. */
@@ -266,232 +154,71 @@ export interface RawMarkdownLink {
   end: number;
 }
 
-type RawLink = RawMarkdownLink;
-
-/**
- * A CommonMark link reference definition on its own line:
- * `[label]: destination "optional title"`.
- */
-const REFERENCE_DEFINITION =
-  /^[ \t]{0,3}\[((?:\\.|[^\\[\]\n])+)\]:[ \t]*(?:<([^>\n]*)>|(\S+))(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$/gm;
-
-function normalizeLabel(label: string): string {
-  return label.trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
-/**
- * Collect link reference definitions and blank their lines, so a definition
- * is never read as a shortcut reference to itself. The first definition of a
- * label wins, per CommonMark.
- */
-function collectReferenceDefinitions(text: string): { defs: Map<string, string>; text: string } {
-  const defs = new Map<string, string>();
-  const out = text.replace(
-    REFERENCE_DEFINITION,
-    (m, label: string, angled: string | undefined, bare: string | undefined) => {
-      const key = normalizeLabel(label);
-      if (!defs.has(key)) defs.set(key, angled ?? bare ?? '');
-      return blankRun(m);
-    },
-  );
-  return { defs, text: out };
-}
-
-function isSpace(ch: string): boolean {
-  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
-}
-
-/**
- * CommonMark backslash escapes apply to ASCII punctuation only. `\w` is a
- * literal backslash followed by `w`, not an escaped `w`, which is what keeps
- * a regex literal in an MDX preamble from unescaping into a plausible URL.
- */
-const ASCII_PUNCTUATION = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
-
-function isEscape(text: string, i: number): boolean {
-  return text[i] === '\\' && i + 1 < text.length && ASCII_PUNCTUATION.test(text[i + 1]);
-}
-
-/**
- * Read a CommonMark inline-link destination starting just after the `(`.
- *
- * Two forms: an angle-bracket destination, which may contain spaces, and a
- * bare destination, which runs to whitespace or to the closing paren and may
- * contain balanced parentheses. Getting the second right matters: a regex
- * that stops at the first `)` turns
- * `https://host/chapter_(draft).md` into `https://host/chapter_(draft`, and
- * this check would then fetch that truncated URL and report a broken link
- * that does not exist.
- */
-function readDestination(text: string, start: number): { value: string; end: number } | null {
-  let i = start;
-  while (i < text.length && isSpace(text[i])) i++;
-
-  let value = '';
-  if (text[i] === '<') {
-    i++;
-    while (i < text.length && text[i] !== '>' && text[i] !== '\n') {
-      if (isEscape(text, i)) {
-        value += text[i + 1];
-        i += 2;
-        continue;
-      }
-      value += text[i++];
-    }
-    if (text[i] !== '>') return null;
-    i++;
-  } else {
-    let depth = 0;
-    while (i < text.length) {
-      const ch = text[i];
-      if (isSpace(ch)) break;
-      if (isEscape(text, i)) {
-        value += text[i + 1];
-        i += 2;
-        continue;
-      }
-      if (ch === '(') depth++;
-      else if (ch === ')') {
-        if (depth === 0) break;
-        depth--;
-      }
-      value += ch;
-      i++;
-    }
-    // An unbalanced `(` means the destination was never closed; treating what
-    // was read as a URL is how a truncated target becomes a phantom 404.
-    if (depth !== 0) return null;
-  }
-
-  while (i < text.length && isSpace(text[i])) i++;
-  const quote = text[i];
-  if (quote === '"' || quote === "'" || quote === '(') {
-    const closer = quote === '(' ? ')' : quote;
-    i++;
-    while (i < text.length && text[i] !== closer) {
-      if (text[i] === '\\') {
-        i += 2;
-        continue;
-      }
-      i++;
-    }
-    if (text[i] !== closer) return null;
-    i++;
-    while (i < text.length && isSpace(text[i])) i++;
-  }
-
-  if (text[i] !== ')') return null;
-  return { value, end: i + 1 };
-}
-
-/**
- * Read the reference part of a link whose bracketed text has just closed at
- * `j`: `[text][label]`, `[text][]` (collapsed), or `[text]` alone (shortcut).
- * Returns the destination when the label is defined, else null.
- */
-function readReference(
-  text: string,
-  label: string,
-  j: number,
-  defs: Map<string, string>,
-): { value: string; end: number } | null {
-  if (defs.size === 0) return null;
-  if (text[j] === '[') {
-    const close = text.indexOf(']', j + 1);
-    if (close === -1) return null;
-    const ref = text.slice(j + 1, close);
-    if (ref.includes('[') || ref.includes('\n\n')) return null;
-    const value = defs.get(normalizeLabel(ref === '' ? label : ref));
-    return value === undefined ? null : { value, end: close + 1 };
-  }
-  const value = defs.get(normalizeLabel(label));
-  return value === undefined ? null : { value, end: j };
-}
-
-/**
- * Collect links and images in document order: inline (`[text](dest)`,
- * `![alt](src)`) and reference-style (`[text][label]`, `[text][]`, `[label]`)
- * with `defs` holding the reference definitions. Autolinks and bare URLs are
- * deliberately not collected: see `scanMarkdownLinks`.
- */
-function scanInlineLinks(text: string, defs: Map<string, string>, base = 0): RawLink[] {
-  const found: RawLink[] = [];
-  let i = 0;
-
-  while (i < text.length) {
-    const open = text.indexOf('[', i);
-    if (open === -1) break;
-    // CommonMark renders `\[example](../x)` as literal text, so an escaped
-    // bracket opens nothing. Without this, documentation that shows escaped
-    // markdown syntax is graded on its own examples.
-    if (isEscapedAt(text, open)) {
-      i = open + 1;
-      continue;
-    }
-
-    let depth = 1;
-    let j = open + 1;
-    while (j < text.length && depth > 0) {
-      const ch = text[j];
-      if (isEscape(text, j)) {
-        j += 2;
-        continue;
-      }
-      if (ch === '[') depth++;
-      else if (ch === ']') depth--;
-      j++;
-    }
-    if (depth !== 0) {
-      i = open + 1;
-      continue;
-    }
-
-    const label = text.slice(open + 1, j - 1);
-    // A link label may not span a blank line; without this a stray `[` runs
-    // the bracket scan across half the document.
-    if (label.includes('\n\n')) {
-      i = open + 1;
-      continue;
-    }
-
-    const destination =
-      text[j] === '(' ? readDestination(text, j + 1) : readReference(text, label, j, defs);
-    if (!destination) {
-      i = open + 1;
-      continue;
-    }
-
-    const isImage = open > 0 && text[open - 1] === '!';
-    found.push({
-      text: label,
-      destination: destination.value,
-      isImage,
-      offset: base + (isImage ? open - 1 : open),
-      end: base + destination.end,
-    });
-    // An image inside link text (a badge linking somewhere) still counts as
-    // an image; the label is not rescanned for anything else.
-    if (!isImage && label.includes('![')) {
-      for (const nested of scanInlineLinks(label, defs, base + open + 1)) {
-        if (nested.isImage) found.push(nested);
-      }
-    }
-    i = destination.end;
-  }
-
-  return found;
+function linkText(node: Nodes): string {
+  if (node.type === 'text' || node.type === 'inlineCode') return node.value;
+  if (node.type === 'image' || node.type === 'imageReference') return node.alt ?? '';
+  if (node.type === 'break') return '\n';
+  return 'children' in node ? node.children.map(linkText).join('') : '';
 }
 
 /**
  * Scan a markdown document for the links an agent could follow, without
- * classifying them. Code (fenced and inline) and reference definitions are
- * blanked first; `blanked` is that copy, the same length as `content`, and
- * every offset indexes into it. Shared with `detect-pagination`, so both
- * checks agree on what is and is not a link.
+ * classifying them. Code, HTML comments and reference definitions are
+ * blanked in a same-length copy, preserving CR/LF and original UTF-16 offsets.
+ * Destinations and labels use CommonMark decoding; autolinks are excluded.
  */
 export function scanRawLinks(content: string): { links: RawMarkdownLink[]; blanked: string } {
-  const { defs, text } = collectReferenceDefinitions(blankCode(content));
-  return { links: scanInlineLinks(text, defs), blanked: text };
+  const tree = parseMarkdown(content);
+  const definitions = new Map<string, string>();
+  const links: RawMarkdownLink[] = [];
+  const blanked = content.split('');
+
+  const collectDefinitions = (node: Nodes): void => {
+    if (node.type === 'definition' && !definitions.has(node.identifier)) {
+      definitions.set(node.identifier, node.url);
+    }
+    if ('children' in node) node.children.forEach(collectDefinitions);
+  };
+  collectDefinitions(tree);
+
+  const visit = (node: Nodes): void => {
+    const offset = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (offset === undefined || end === undefined) return;
+
+    if (
+      node.type === 'code' ||
+      node.type === 'inlineCode' ||
+      node.type === 'definition' ||
+      (node.type === 'html' && node.value.trimStart().startsWith('<!--'))
+    ) {
+      for (let index = offset; index < end; index++) {
+        if (blanked[index] !== '\n' && blanked[index] !== '\r') blanked[index] = ' ';
+      }
+      return;
+    }
+
+    if (
+      node.type === 'link' ||
+      node.type === 'image' ||
+      node.type === 'linkReference' ||
+      node.type === 'imageReference'
+    ) {
+      const destination = 'url' in node ? node.url : definitions.get(node.identifier);
+      if (destination !== undefined && content[offset] !== '<') {
+        links.push({
+          text: linkText(node),
+          destination,
+          isImage: node.type === 'image' || node.type === 'imageReference',
+          offset,
+          end,
+        });
+      }
+    }
+    if ('children' in node) node.children.forEach(visit);
+  };
+  visit(tree);
+  return { links, blanked: blanked.join('') };
 }
 
 export function classifyLink(url: string): LinkClass {
@@ -504,7 +231,7 @@ export function classifyLink(url: string): LinkClass {
 }
 
 function describe(rawUrl: string, text: string, baseUrl: string): MarkdownLink | null {
-  const url = decodeCharacterReferences(rawUrl.trim());
+  const url = rawUrl.trim();
   if (url === '' || UNSAFE_DESTINATION.test(url)) return null;
 
   const linkClass = classifyLink(url);

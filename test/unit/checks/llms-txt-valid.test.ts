@@ -10,6 +10,30 @@ import type { DiscoveredFile } from '../../../src/types.js';
 const FIXTURES = resolve(import.meta.dirname, '../../fixtures/llms-txt');
 
 describe('extractMarkdownLinks', () => {
+  it('keeps duplicate navigation links but excludes standalone images and autolinks', () => {
+    const content =
+      '![logo](/logo.svg) [![badge](/badge.svg)](/guide) [guide](/guide) <https://example.com> [empty]()';
+    expect(extractMarkdownLinks(content)).toEqual([
+      { name: 'badge', url: '/guide' },
+      { name: 'guide', url: '/guide' },
+    ]);
+  });
+
+  it('preserves nested destinations and resolves reference links', () => {
+    expect(extractMarkdownLinks('[guide](/guide_(intro))\n\n[API][ref]\n\n[ref]: /api')).toEqual([
+      { name: 'guide', url: '/guide_(intro)' },
+      { name: 'API', url: '/api' },
+    ]);
+  });
+
+  it('ignores indented code and HTML comments', () => {
+    expect(
+      extractMarkdownLinks(
+        '    [example](/example)\n\n<!-- [hidden](/hidden) -->\n\n[real](/real)',
+      ),
+    ).toEqual([{ name: 'real', url: '/real' }]);
+  });
+
   it('extracts links from markdown', () => {
     const content = '- [Foo](https://example.com/foo): A foo\n- [Bar](https://example.com/bar)';
     const links = extractMarkdownLinks(content);
@@ -66,6 +90,22 @@ describe('llms-txt-valid', () => {
     const content = await readFile(resolve(FIXTURES, 'valid.txt'), 'utf-8');
     const result = await runWithContent(content);
     expect(result.status).toBe('pass');
+  });
+
+  it('counts reference links without changing structural validation', async () => {
+    const result = await runWithContent(
+      '# Docs\n\n> Summary\n\n## Guides\n\n[guide][ref]\n\n[ref]: /guide_(intro)',
+    );
+    expect(result.status).toBe('pass');
+    expect(result.details?.validations).toMatchObject([{ linkCount: 1, issues: [] }]);
+  });
+
+  it('fails when the only apparent links are examples, comments or images', async () => {
+    const result = await runWithContent(
+      '# Docs\n\n> Summary\n\n## Guides\n\n    [code](/code)\n\n<!-- [hidden](/hidden) -->\n\n![logo](/logo.svg)',
+    );
+    expect(result.status).toBe('fail');
+    expect(result.details?.validations).toMatchObject([{ linkCount: 0 }]);
   });
 
   it('warns for llms.txt without H1', async () => {
