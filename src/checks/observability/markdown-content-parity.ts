@@ -485,20 +485,21 @@ function walkNode(node: Node): string {
   return walkContent(el);
 }
 
-function extractMarkdownText(node: Nodes): string {
+function escapeHtmlText(text: string): string {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function markdownTextFragment(node: Nodes): string {
   switch (node.type) {
     case 'text':
     case 'code':
     case 'inlineCode':
-      return node.value;
+      return escapeHtmlText(node.value);
     case 'image':
     case 'imageReference':
-      return node.alt ?? '';
-    case 'html': {
-      const tag = /^<([a-z][a-z0-9-]*)(?:\s[^<>]*)?>$/i.exec(node.value)?.[1];
-      if (tag && !HTML_TAG_NAMES.has(tag.toLowerCase())) return node.value;
-      return walkContent(parse(node.value));
-    }
+      return escapeHtmlText(node.alt ?? '');
+    case 'html':
+      return node.value;
     case 'break':
       return '\n';
     case 'definition':
@@ -510,9 +511,22 @@ function extractMarkdownText(node: Nodes): string {
       )
         ? '\n'
         : '';
-      return node.children.map(extractMarkdownText).join(separator);
+      return node.children.map(markdownTextFragment).join(separator);
     }
   }
+}
+
+function extractMarkdownText(node: Nodes): string {
+  const fragment = markdownTextFragment(node);
+  const root = parse(fragment, { parseNoneClosedTags: true, lowerCaseTagName: true });
+  for (const element of root.querySelectorAll('*')) {
+    if (HTML_TAG_NAMES.has(element.rawTagName)) continue;
+    const source = fragment.slice(...element.range);
+    if (/^<[a-z][a-z0-9-]*(?:\s[^<>]*)?>$/i.test(source) && !source.endsWith('/>')) {
+      element.replaceWith(escapeHtmlText(source), ...element.childNodes);
+    }
+  }
+  return walkContent(root);
 }
 
 /**

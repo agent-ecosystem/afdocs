@@ -105,6 +105,57 @@ describe('markdown-content-parity', () => {
       expect(requests).toBe(2);
     });
 
+    it.each([
+      ['inline SVG', '<svg><path d="M0 0 L10 10"></path></svg>'],
+      ['self-closing SVG', '<svg><path d="M0 0 L10 10" /></svg>'],
+      ['SVG with non-content text', '<svg><title>Next action</title><text>Icon label</text></svg>'],
+      ['paired custom element', '<doc-icon name="next"></doc-icon>'],
+      ['paired uppercase custom element', '<REGION></REGION>'],
+      ['standalone self-closing element', '<doc-icon name="next" />'],
+      ['MathML with visible text', '<math><mrow><mi>x</mi><mo>+</mo><mn>1</mn></mrow></math>'],
+      ['nested custom elements', '<doc-label><doc-value>visible text</doc-value></doc-label>'],
+    ])('does not leak %s markup into parity text', async (_name, markup) => {
+      const lines = Array.from(
+        { length: 10 },
+        (_, index) => `Click ${markup} now to complete deployment instruction number ${index}.`,
+      );
+      const html = `<html><body><main>${lines.map((line) => `<p>${line}</p>`).join('')}</main></body></html>`;
+      const url = 'http://mcp-inline-markup.local/docs/page';
+      server.use(
+        http.get(url, () => new HttpResponse(html, { headers: { 'Content-Type': 'text/html' } })),
+      );
+      for (const newline of ['\n', '\r\n']) {
+        const result = await check.run(
+          makeCtx(
+            [{ url, markdown: lines.join(newline + newline), htmlBody: html }],
+            'mcp-inline-markup.local',
+          ),
+        );
+        expect(result.details?.pageResults).toEqual([
+          expect.objectContaining({ status: 'pass', totalSegments: 10, missingSegments: 0 }),
+        ]);
+      }
+    });
+
+    it('preserves Markdown formatting and standalone placeholders beside paired markup', async () => {
+      const lines = Array.from({ length: 10 }, (_, index) => ({
+        html: `Choose &lt;REGION&gt; or &lt;field name&gt; for <doc-label><strong>deployment ${index}</strong></doc-label>, then <REGION>confirm</REGION> now.`,
+        markdown: `Choose <REGION> or <field name> for <doc-label>**deployment ${index}**</doc-label>, then <REGION>confirm</REGION> now.`,
+      }));
+      const html = `<html><body><main>${lines.map((line) => `<p>${line.html}</p>`).join('')}</main></body></html>`;
+      const markdown = lines.map((line) => line.markdown).join('\n\n');
+      const url = 'http://mcp-markup-placeholders.local/docs/page';
+      server.use(
+        http.get(url, () => new HttpResponse(html, { headers: { 'Content-Type': 'text/html' } })),
+      );
+      const result = await check.run(
+        makeCtx([{ url, markdown, htmlBody: html }], 'mcp-markup-placeholders.local'),
+      );
+      expect(result.details?.pageResults).toEqual([
+        expect.objectContaining({ status: 'pass', totalSegments: 10, missingSegments: 0 }),
+      ]);
+    });
+
     const prose = [
       [
         '<h2>2. Configure the deployment client</h2>',
@@ -202,7 +253,7 @@ describe('markdown-content-parity', () => {
       },
     );
 
-    it.each(['comments', 'definitions', 'link metadata'])(
+    it.each(['comments', 'definitions', 'link metadata', 'SVG titles'])(
       'does not count substantive text present only in %s',
       async (location) => {
         const lines = Array.from(
@@ -216,6 +267,7 @@ describe('markdown-content-parity', () => {
           .map((line, index) => {
             if (location === 'comments') return `>   <!--\n> ${line}\n> -->`;
             if (location === 'definitions') return `[unused-${index}]: /target\n  "${line}"`;
+            if (location === 'SVG titles') return `Icon: <svg><title>${line}</title></svg>`;
             return `[short label](<https://example.com/${line}> "${line}")`;
           })
           .join('\n\n');

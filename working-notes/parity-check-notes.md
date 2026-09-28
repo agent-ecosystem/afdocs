@@ -149,10 +149,16 @@ parity inputs because they intentionally exclude code.
   behavior to reference images. Destinations, titles, definitions, and
   non-rendered comments cannot satisfy missing-content comparisons.
 - Embedded HTML uses the existing DOM text walker, including block breaks
-  and its non-content tag exclusions. Standalone unknown opening tags remain
-  literal placeholders (for example `<REGION>`), preserving the historical
-  field regression. This is not a general MDX renderer; HTML-side container,
-  chrome, audience, and custom-selector handling is unchanged.
+  and its non-content tag exclusions. Markdown text is HTML-escaped and raw
+  HTML nodes are kept together in one fragment, preserving ancestor context
+  across inline tags. Paired SVG, MathML, and custom elements are markup, not
+  placeholders; visible text is retained unless an ancestor is excluded by
+  the existing walker (such as SVG). Only unclosed, non-self-closing unknown
+  tags remain literal placeholders (for example `<REGION>`), identified by
+  their parsed source ranges. This preserves the historical field regression
+  without leaking inline SVG children into prose (PR #155 review). This is
+  not a general MDX renderer; HTML-side container, chrome, audience, and
+  custom-selector handling is unchanged.
 - Each list is counted by direct children, and the largest list wins (first
   in document order on ties), including nested lists considered independently.
   Nested bullets are not added to the parent's count. Deduplication uses
