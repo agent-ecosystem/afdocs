@@ -5,6 +5,7 @@ import {
   detectLocalePosition,
   countLocaleCodesAt,
   resolveLocaleVariant,
+  sameLanguageVariants,
 } from '../../../src/helpers/locale-codes.js';
 
 describe('isLocaleSegment', () => {
@@ -206,6 +207,40 @@ describe('countLocaleCodesAt', () => {
         ['fr-fr', 1],
       ]),
     );
+  });
+});
+
+describe('sameLanguageVariants', () => {
+  test('returns only the exact code when present', () => {
+    expect(
+      sameLanguageVariants(
+        'en',
+        new Map([
+          ['en', 1],
+          ['en-us', 9],
+        ]),
+      ),
+    ).toEqual(['en']);
+  });
+
+  test('returns every compatible variant ranked by count, then alphabetically', () => {
+    const available = new Map([
+      ['en-gb', 2],
+      ['en-us', 7],
+      ['en-au', 2],
+      ['fr-fr', 9],
+    ]);
+    expect(sameLanguageVariants('en', available)).toEqual(['en-us', 'en-au', 'en-gb']);
+    expect(sameLanguageVariants('de', available)).toEqual([]);
+  });
+
+  test('excludes variants whose script conflicts', () => {
+    const available = new Map([
+      ['zh-hant', 5],
+      ['zh-hans-cn', 1],
+      ['zh', 1],
+    ]);
+    expect(sameLanguageVariants('zh-Hans', available)).toEqual(['zh', 'zh-hans-cn']);
   });
 });
 

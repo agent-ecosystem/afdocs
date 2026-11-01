@@ -9,6 +9,7 @@ import {
   detectLocalePosition,
   countLocaleCodesAt,
   resolveLocaleVariant,
+  sameLanguageVariants,
 } from './locale-codes.js';
 import type { CheckContext, DiscoveredFile, UrlPathPattern } from '../types.js';
 
@@ -522,14 +523,17 @@ export function filterLocaleSitemaps(
   // Need at least 2 distinct locale codes to consider this a locale-organized index
   if (locales.size < 2) return subSitemapUrls;
 
-  // Prefer the user's locale, then 'en', resolving a regional or script
-  // variant when the exact code is absent (`en` selects `en-us` shards,
-  // issue #164), then any non-locale sitemaps.
+  // Prefer the user's locale, then 'en', then any non-locale sitemaps. An
+  // exact code selects its sitemaps alone. Otherwise every same-language
+  // variant is kept (`en` keeps `en-us` and `en-gb` shards, issue #164):
+  // sitemap counts are a poor proxy for page counts, and the page-level
+  // refinement, which also sees llms.txt, is the one place that picks a
+  // single variant. Fetching a variant it rejects costs bounded budget;
+  // skipping the one it picks loses pages.
   const counts = new Map([...locales].map(([code, list]) => [code, list.length]));
-  const resolved =
-    (preferredLocale ? resolveLocaleVariant(preferredLocale, counts) : null) ??
-    resolveLocaleVariant('en', counts);
-  const preferred = resolved ? locales.get(resolved)! : [];
+  const matched = preferredLocale ? sameLanguageVariants(preferredLocale, counts) : [];
+  const selected = matched.length > 0 ? matched : sameLanguageVariants('en', counts);
+  const preferred = selected.flatMap((code) => locales.get(code) ?? []);
   return [...preferred, ...nonLocale].length > 0 ? [...preferred, ...nonLocale] : subSitemapUrls;
 }
 

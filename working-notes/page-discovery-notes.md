@@ -519,7 +519,19 @@ Copilot review of the first draft found three gaps, all addressed:
   `skipRefinement` because child selection and the collection cap stay as
   in refined discovery); the 500-URL sitemap cap is then applied to the
   sitemap additions only, because `maxLinksToTest` has no upper bound and
-  llms.txt pages were never subject to that cap; child-sitemap selection resolved the preference
+  llms.txt pages were never subject to that cap;
+- A seventh review pass asked for human assessment of indexed-sitemap
+  pruning without a concrete finding. One real gap was identifiable:
+  child-sitemap selection resolved a variant by counting _sitemaps_, while
+  the page-level pass counts _pages_ and sees llms.txt. Two GB shards and
+  one US shard selected GB children only; if llms.txt then tipped the page
+  pass to en-us, the US sitemap pages had never been fetched. Child
+  selection is now inclusive when it resolves by variant: every
+  same-language child is fetched (`sameLanguageVariants`) and the single
+  page-level pass picks the variant. An exact code still selects its own
+  children alone. Fetching a rejected variant costs bounded budget;
+  skipping the chosen one loses pages. This is consistent with the raw
+  coverage walk keeping every child when no locale is known. child-sitemap selection resolved the preference
   alone and could pick an `en-au` child whose pages neither scope keeps
   (children needed by any fallback scope's locale are kept as well).
 

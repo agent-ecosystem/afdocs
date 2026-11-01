@@ -386,6 +386,22 @@ describe('filterLocaleSitemaps', () => {
     expect(filterLocaleSitemaps(urls, 'de')).toEqual([urls[2]]);
   });
 
+  it('keeps every same-language child when resolving by variant', () => {
+    // Two GB shards and one US shard: sitemap counts must not pick GB here,
+    // because the page-level pass (which also sees llms.txt) decides the
+    // variant and needs the US pages to be fetched.
+    const urls = [
+      'https://example.com/sitemap-en-gb-1.xml',
+      'https://example.com/sitemap-en-gb-2.xml',
+      'https://example.com/sitemap-en-us.xml',
+      'https://example.com/sitemap-fr-fr.xml',
+      'https://example.com/sitemap-pages.xml',
+    ];
+    expect(filterLocaleSitemaps(urls)).toEqual([urls[0], urls[1], urls[2], urls[4]]);
+    // An exact code still selects its own sitemaps alone.
+    expect(filterLocaleSitemaps(urls, 'en-US')).toEqual([urls[2], urls[4]]);
+  });
+
   it('prefers the locale from the base URL when preferredLocale is set', () => {
     const urls = [
       'https://example.com/sitemap-el.xml',
@@ -2690,6 +2706,55 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
     expect(result.urls).toHaveLength(502);
     expect(result.urls.slice(0, 501)).toEqual(llmsPages);
     expect(result.urls[501]).toBe('http://opt-cap.local/docs/extra');
+  });
+
+  it('fetches every same-language child so the page-level pass can pick the variant', async () => {
+    // Default en. Two GB shards, one US shard. llms.txt lists US pages, so
+    // the merged pool resolves to en-us; the US shard must have been fetched.
+    const usLlms = ['intro', 'guide', 'api'].map((p) => `http://opt-shards.local/en-us/docs/${p}`);
+    const content = `# Docs\n## Links\n${usLlms.map((u) => `- [p](${u}): p`).join('\n')}\n`;
+    const ctx = makeCtx('http://opt-shards.local', content);
+    const urlset = (locs: string[]) =>
+      `<?xml version="1.0"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${locs.map((u) => `<url><loc>${u}</loc></url>`).join('\n')}\n</urlset>`;
+    server.use(
+      http.get('http://opt-shards.local/robots.txt', () => new HttpResponse('', { status: 404 })),
+      http.get(
+        'http://opt-shards.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<sitemap><loc>http://opt-shards.local/sitemap-en-gb-1.xml</loc></sitemap>\n<sitemap><loc>http://opt-shards.local/sitemap-en-gb-2.xml</loc></sitemap>\n<sitemap><loc>http://opt-shards.local/sitemap-en-us.xml</loc></sitemap>\n</sitemapindex>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+      http.get(
+        'http://opt-shards.local/sitemap-en-gb-1.xml',
+        () =>
+          new HttpResponse(urlset(['http://opt-shards.local/en-gb/docs/intro']), {
+            status: 200,
+            headers: { 'Content-Type': 'application/xml' },
+          }),
+      ),
+      http.get(
+        'http://opt-shards.local/sitemap-en-gb-2.xml',
+        () =>
+          new HttpResponse(urlset(['http://opt-shards.local/en-gb/docs/guide']), {
+            status: 200,
+            headers: { 'Content-Type': 'application/xml' },
+          }),
+      ),
+      http.get(
+        'http://opt-shards.local/sitemap-en-us.xml',
+        () =>
+          new HttpResponse(urlset(['http://opt-shards.local/en-us/docs/extra']), {
+            status: 200,
+            headers: { 'Content-Type': 'application/xml' },
+          }),
+      ),
+    );
+
+    const result = await getPageUrls(ctx);
+    expect(result.sources).toEqual(['llms-txt', 'sitemap']);
+    expect(result.urls).toEqual([...usLlms, 'http://opt-shards.local/en-us/docs/extra']);
   });
 
   it('keeps child sitemaps needed by the fallback scope (issue #164)', async () => {

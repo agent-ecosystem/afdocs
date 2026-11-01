@@ -278,6 +278,29 @@ function scriptOf(code: string): string | undefined {
 }
 
 /**
+ * Codes in `available` that can stand in for `preferred`: the exact code if
+ * present, otherwise every code with the same language whose script agrees
+ * when both specify one (`en` → `en-us`, `en-gb`; `zh-hans` → `zh-hans-cn`,
+ * never `zh-hant`). Ranked by count, then alphabetically, so the first entry
+ * is the best-represented variant. Empty when no code shares the language.
+ */
+export function sameLanguageVariants(preferred: string, available: Map<string, number>): string[] {
+  const target = preferred.toLowerCase();
+  if (available.has(target)) return [target];
+
+  const language = target.split('-')[0];
+  const targetScript = scriptOf(target);
+  return [...available]
+    .filter(([code]) => {
+      if (code.split('-')[0] !== language) return false;
+      const script = scriptOf(code);
+      return !(targetScript && script && script !== targetScript);
+    })
+    .sort(([codeA, countA], [codeB, countB]) => countB - countA || (codeA < codeB ? -1 : 1))
+    .map(([code]) => code);
+}
+
+/**
  * Resolve a preferred locale against the codes a site actually uses.
  *
  * An exact match wins. Otherwise the best-represented code with the same
@@ -289,28 +312,14 @@ function scriptOf(code: string): string | undefined {
  *
  * One variant is returned rather than every same-language variant so that
  * regional duplicates (`en-us` plus `en-gb`) do not both enter a sample.
+ * Callers that only *collect* candidates, such as child-sitemap selection,
+ * use `sameLanguageVariants` so the single page-level pass decides.
  */
 export function resolveLocaleVariant(
   preferred: string,
   available: Map<string, number>,
 ): string | null {
-  const target = preferred.toLowerCase();
-  if (available.has(target)) return target;
-
-  const language = target.split('-')[0];
-  const targetScript = scriptOf(target);
-  let best: string | null = null;
-  let bestCount = -1;
-  for (const [code, count] of available) {
-    if (code.split('-')[0] !== language) continue;
-    const script = scriptOf(code);
-    if (targetScript && script && script !== targetScript) continue;
-    if (count > bestCount || (count === bestCount && best !== null && code < best)) {
-      best = code;
-      bestCount = count;
-    }
-  }
-  return best;
+  return sameLanguageVariants(preferred, available)[0] ?? null;
 }
 
 /**
