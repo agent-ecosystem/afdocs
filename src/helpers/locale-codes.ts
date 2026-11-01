@@ -246,3 +246,66 @@ export function hasStructuralDuplication(
 
   return overlap > strippedPaths.size * 0.5;
 }
+
+/**
+ * Detect whether a URL set uses locale-prefixed paths and, if so, return the
+ * path segment position where locales appear.
+ *
+ * Shared by page discovery (`filterLocalizedUrls`) and the llms-txt-coverage
+ * check so both agree about which sites are localized (issue #159).
+ *
+ * Detection is empirical, in two passes over each path segment position:
+ *
+ * 1. Two or more distinct locale codes at the position that together cover
+ *    more than half of the URLs (e.g. `/docs/en/intro`, `/docs/de/intro`).
+ * 2. Otherwise, any locale code at the position confirmed by structural
+ *    duplication: stripping the code yields paths that match unprefixed URLs
+ *    in the same set. This catches a single-locale site and a site whose
+ *    default language is unprefixed with translations in the minority
+ *    (e.g. `/fr/`, `/ja/`, `/ko/`, `/es/` at 40% of URLs).
+ */
+export function detectLocalePosition(urls: string[]): number | null {
+  const positionCounts = new Map<number, Map<string, number>>();
+  const positionTotals = new Map<number, number>();
+
+  for (const url of urls) {
+    try {
+      const segments = new URL(url).pathname.split('/').filter(Boolean);
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i].toLowerCase();
+        if (isLocaleSegment(seg)) {
+          if (!positionCounts.has(i)) positionCounts.set(i, new Map());
+          const counts = positionCounts.get(i)!;
+          counts.set(seg, (counts.get(seg) ?? 0) + 1);
+          positionTotals.set(i, (positionTotals.get(i) ?? 0) + 1);
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // First pass: ≥2 distinct locale codes covering >50% of URLs (strong signal)
+  for (const [pos, counts] of positionCounts) {
+    if (counts.size < 2) continue;
+    const total = positionTotals.get(pos) ?? 0;
+    if (total > urls.length * 0.5) {
+      return pos;
+    }
+  }
+
+  // Second pass: locale codes below the coverage threshold, confirmed by
+  // structural duplication: stripping a code must produce paths that match
+  // unprefixed URLs in the same set. This catches multi-locale sites whose
+  // default locale is unprefixed and whose translations are a minority of
+  // the sitemap (e.g. /fr/, /ja/, /ko/, /es/ at 40% of URLs), as well as
+  // the single-locale case.
+  for (const [pos, counts] of positionCounts) {
+    const codes = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([code]) => code);
+    if (codes.some((code) => hasStructuralDuplication(urls, pos, code))) {
+      return pos;
+    }
+  }
+
+  return null;
+}

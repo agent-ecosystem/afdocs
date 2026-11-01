@@ -401,6 +401,28 @@ Coverage's second detection pass handles several minority locale codes
 (PR #100) while discovery's handles one; that drift is tracked in
 issue #159.
 
+### October 2026: one locale-position detector for discovery and coverage (issue #159)
+
+PR #100 (issue #98) generalized the coverage check's second detection pass
+so that any locale code at a position confirmed by structural duplication
+marks it as a locale position, which catches an unprefixed default language
+with several minority translations (Datadog's `/fr/`, `/ja/`, `/ko/`,
+`/es/` at about 40% of URLs). Discovery kept its own copy of the detector
+whose second pass required exactly one code, so the same site was
+locale-filtered by coverage and left mixed-language in the page sample.
+Noticed while fixing issue #158.
+
+Decision: **`detectLocalePosition` lives in `src/helpers/locale-codes.ts`
+and is the only detector.** `filterLocalizedUrls` and the coverage check
+both call it. Its tests moved next to it. Discovery gained the
+minority-translation regression that previously existed only for coverage.
+
+Rejected alternatives: porting the generalized pass into discovery's copy
+(leaves two detectors to drift again); re-exporting from the coverage
+module (keeps a helper under a check's namespace for no reason). The
+target-locale and unprefixed-fallback rules from issue #158 are unchanged;
+only how the position is found moved.
+
 ## Documentation at scale: design considerations
 
 Drafting `docs/documentation-at-scale.md` after the #120 live reproduction

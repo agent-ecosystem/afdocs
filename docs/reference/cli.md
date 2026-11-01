@@ -128,6 +128,7 @@ afdocs check https://docs.example.com --max-links 100
 | `--network-context <class>`    | detected    | Where the scan runs from, reported with bot-protection findings: `developer-machine`, `ci`, or `cloud` |
 
 When `afdocs` discovers pages from a sitemap or `llms.txt`, it automatically filters out duplicate locale and version variants so you get a representative sample of unique content.
+Locale prefixes are detected the same way as in the [`llms-txt-coverage` check](/checks/observability#locale-handling), including sites whose default language is unprefixed and whose translations are a minority of URLs.
 
 Sitemap walks stop after 20 sitemap fetch attempts or after completed sitemap
 bodies total 50 MiB of decoded data, even when no URLs match the base path.

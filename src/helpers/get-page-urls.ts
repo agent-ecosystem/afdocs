@@ -4,7 +4,7 @@ import { getLlmsTxtFilesForAnalysis, selectCanonicalLlmsTxt } from './llms-txt.j
 import { isNonPageUrl, isMdUrl, toHtmlUrl } from './to-md-urls.js';
 import { isSameSite, canonicalHost } from './host-equivalence.js';
 import { fetchPage } from './fetch-page.js';
-import { isLocaleSegment, hasStructuralDuplication } from './locale-codes.js';
+import { isLocaleSegment, detectLocalePosition } from './locale-codes.js';
 import type { CheckContext, DiscoveredFile, UrlPathPattern } from '../types.js';
 
 /**
@@ -499,9 +499,8 @@ export function filterLocaleSitemaps(
 /**
  * Filter page URLs to a single locale when the URL set contains locale-organized paths.
  *
- * Detection: for each path segment position, count how many distinct 2-letter
- * (or xx-yy) codes appear. If a position has ≥2 distinct codes covering >50%
- * of URLs, it's a locale segment.
+ * Detection uses the shared `detectLocalePosition` helper, so discovery and
+ * the llms-txt-coverage check agree about which sites are localized.
  *
  * When detected, keeps only URLs matching the preferred locale (from the base
  * URL), or 'en' as default. Returns the original array if no locale pattern
@@ -510,50 +509,7 @@ export function filterLocaleSitemaps(
 export function filterLocalizedUrls(urls: string[], preferredLocale?: string | null): string[] {
   if (urls.length < 2) return urls;
 
-  // For each path segment position, collect locale-like codes
-  const positionCounts = new Map<number, Map<string, number>>();
-  const positionTotals = new Map<number, number>();
-
-  for (const url of urls) {
-    try {
-      const segments = new URL(url).pathname.split('/').filter(Boolean);
-      for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i].toLowerCase();
-        if (isLocaleSegment(seg)) {
-          if (!positionCounts.has(i)) positionCounts.set(i, new Map());
-          const counts = positionCounts.get(i)!;
-          counts.set(seg, (counts.get(seg) ?? 0) + 1);
-          positionTotals.set(i, (positionTotals.get(i) ?? 0) + 1);
-        }
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  // Find the position that looks like a locale segment
-  let localePosition: number | null = null;
-  // First pass: ≥2 distinct locale codes covering >50% of URLs
-  for (const [pos, counts] of positionCounts) {
-    if (counts.size < 2) continue;
-    const total = positionTotals.get(pos) ?? 0;
-    if (total > urls.length * 0.5) {
-      localePosition = pos;
-      break;
-    }
-  }
-  // Second pass: single locale code confirmed by structural duplication
-  if (localePosition === null) {
-    for (const [pos, counts] of positionCounts) {
-      if (counts.size !== 1) continue;
-      const [code] = counts.keys();
-      if (hasStructuralDuplication(urls, pos, code)) {
-        localePosition = pos;
-        break;
-      }
-    }
-  }
-
+  const localePosition = detectLocalePosition(urls);
   if (localePosition === null) return urls;
 
   const targetLocale = preferredLocale?.toLowerCase() ?? 'en';

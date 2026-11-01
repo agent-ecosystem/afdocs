@@ -559,6 +559,27 @@ describe('filterLocalizedUrls', () => {
     ]);
   });
 
+  it('filters minority multi-locale translations to the unprefixed default (issue #159)', () => {
+    // Datadog shape: unprefixed default plus fr/ja/ko/es at 40% of URLs.
+    // Below the majority threshold, and more than one code, so only the
+    // generalized structural-duplication pass (shared with coverage) detects it.
+    const urls = [
+      'https://example.com/docs/intro',
+      'https://example.com/docs/api',
+      'https://example.com/docs/guides',
+      'https://example.com/docs/integrations',
+      'https://example.com/docs/dashboards',
+      'https://example.com/docs/alerts',
+      'https://example.com/docs/fr/intro',
+      'https://example.com/docs/ja/api',
+      'https://example.com/docs/ko/guides',
+      'https://example.com/docs/es/integrations',
+    ];
+    expect(filterLocalizedUrls(urls)).toEqual(urls.slice(0, 6));
+    // An explicit minority locale still wins over the unprefixed default.
+    expect(filterLocalizedUrls(urls, 'fr')).toEqual(['https://example.com/docs/fr/intro']);
+  });
+
   it('does not false-detect topic paths as single-locale', () => {
     // "hr" is a valid ISO 639-1 code (Croatian) but used here as a topic
     const urls = [
