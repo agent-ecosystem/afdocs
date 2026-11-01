@@ -2637,6 +2637,35 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
     ]);
   });
 
+  it('keeps every page of the winning variant from both sources', async () => {
+    // Default en. llms.txt: 3 US + 2 GB pages; sitemap: the same 3 US + 4 other
+    // GB pages. Refining each source alone picks US from llms.txt and GB from
+    // the sitemap and loses the two GB pages only llms.txt listed. Merging the
+    // scoped pools first resolves en to en-gb (6 vs 3) and keeps all six.
+    const us = ['intro', 'guide', 'api'].map((p) => `http://opt-pool.local/en-us/docs/${p}`);
+    const gbLlms = ['intro', 'guide'].map((p) => `http://opt-pool.local/en-gb/docs/${p}`);
+    const gbSitemap = ['api', 'faq', 'cli', 'sdk'].map(
+      (p) => `http://opt-pool.local/en-gb/docs/${p}`,
+    );
+    const content = `# Docs\n## Links\n${[...us, ...gbLlms].map((u) => `- [p](${u}): p`).join('\n')}\n`;
+    const ctx = makeCtx('http://opt-pool.local', content);
+    server.use(
+      http.get('http://opt-pool.local/robots.txt', () => new HttpResponse('', { status: 404 })),
+      http.get(
+        'http://opt-pool.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${[...us, ...gbSitemap].map((u) => `<url><loc>${u}</loc></url>`).join('\n')}\n</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+
+    const result = await getPageUrls(ctx);
+    expect(result.sources).toEqual(['llms-txt', 'sitemap']);
+    expect(result.urls).toEqual([...gbLlms, ...gbSitemap]);
+  });
+
   it('keeps child sitemaps needed by the fallback scope (issue #164)', async () => {
     // Preferred en-GB resolves to en-au among the children (alphabetical tie),
     // but the fallback scope /en-us needs the en-us child.

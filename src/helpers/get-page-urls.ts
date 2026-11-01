@@ -827,6 +827,13 @@ export interface SitemapOptions {
   pathFilterBase?: string | string[];
   /** Skip URL-level locale/version refinement. Use when the caller needs raw URLs (e.g. coverage check). */
   skipRefinement?: boolean;
+  /**
+   * Return path-scoped URLs without locale/version refinement or the maxUrls
+   * cap so the caller can refine a pool merged from several sources. Unlike
+   * `skipRefinement`, child-sitemap selection and the collection limit behave
+   * as they do for refined discovery.
+   */
+  deferRefinement?: boolean;
 }
 
 export async function getUrlsFromSitemap(
@@ -834,7 +841,13 @@ export async function getUrlsFromSitemap(
   warnings: string[],
   opts: SitemapOptions = {},
 ): Promise<string[]> {
-  const { maxUrls = MAX_SITEMAP_URLS, originOverride, pathFilterBase, skipRefinement } = opts;
+  const {
+    maxUrls = MAX_SITEMAP_URLS,
+    originOverride,
+    pathFilterBase,
+    skipRefinement,
+    deferRefinement,
+  } = opts;
   const sitemapUrls = opts.sitemapUrls ?? (await discoverSitemapUrls(ctx, originOverride));
   const urls: string[] = [];
   const matchOrigin = originOverride ?? ctx.origin;
@@ -943,7 +956,7 @@ export async function getUrlsFromSitemap(
 
   warnOnNarrowPathPrefix(warnings, 'Sitemap', prefixPath, matchingUrls, examinedUrls);
 
-  if (skipRefinement) return urls;
+  if (skipRefinement || deferRefinement) return urls;
 
   const localeFiltered = filterLocalizedUrls(
     urls,
@@ -1136,10 +1149,11 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
     return deduplicateVersionedUrls(localeFiltered, version);
   }
 
+  /** Path-scope llms.txt URLs without refining them, warning on a narrow prefix. */
   function scopeLlmsTxtUrls(urls: string[]): string[] {
     const scoped = urls.filter((url) => filterPaths.some((p) => matchesPathPrefix(url, p)));
     warnOnNarrowPathPrefix(warnings, 'llms.txt', filterPaths[0], scoped.length, urls.length);
-    return refineUrls(scoped);
+    return scoped;
   }
 
   /** Filter the originalMdUrls map to a subset of URLs. */
@@ -1157,13 +1171,15 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
 
   // 1. Try llms.txt links from cached results (if llms-txt-exists ran)
   const cached = await getUrlsFromCachedLlmsTxtWithOriginals(ctx);
-  let llmsTxtUrls = scopeLlmsTxtUrls(cached.pageUrls);
+  let scopedLlmsTxtUrls = scopeLlmsTxtUrls(cached.pageUrls);
+  let llmsTxtUrls = refineUrls(scopedLlmsTxtUrls);
   let originalMdUrls = cached.originalMdUrls;
 
   // 2. Try fetching llms.txt directly (standalone mode, llms-txt-exists didn't run)
   if (llmsTxtUrls.length === 0 && !ctx.previousResults.has('llms-txt-exists')) {
     const fetched = await fetchLlmsTxtUrls(ctx);
-    llmsTxtUrls = scopeLlmsTxtUrls(fetched.pageUrls);
+    scopedLlmsTxtUrls = scopeLlmsTxtUrls(fetched.pageUrls);
+    llmsTxtUrls = refineUrls(scopedLlmsTxtUrls);
     originalMdUrls = fetched.originalMdUrls;
   }
 
@@ -1177,14 +1193,22 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
     }
 
     // llms.txt is thin — try sitemap to fill the gap
-    const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: filterBases });
+    // Merge the path-scoped pools *before* refining. Refining each source on
+    // its own lets them disagree about the locale variant (llms.txt lists
+    // only /en-us/, the sitemap also has the requested /en-gb/) and discards
+    // pages of the winning variant that only the other source listed. One
+    // refinement over the merged pool keeps every page of the one variant
+    // that wins, with the exact requested variant first (issue #164).
+    const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, {
+      pathFilterBase: filterBases,
+      deferRefinement: true,
+    });
     if (sitemapUrls.length > 0) {
       sources.push('sitemap');
-      // Each source was refined on its own, so they can disagree about the
-      // locale variant (llms.txt lists only /en-us/, the sitemap also has the
-      // requested /en-gb/). Refine the merged pool so one variant survives
-      // and the exact requested variant wins when present (issue #164).
-      const merged = refineUrls(mergeUrlSets(llmsTxtUrls, sitemapUrls));
+      const merged = refineUrls(mergeUrlSets(scopedLlmsTxtUrls, sitemapUrls)).slice(
+        0,
+        MAX_SITEMAP_URLS,
+      );
       return {
         urls: merged,
         warnings,

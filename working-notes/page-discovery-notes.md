@@ -512,8 +512,12 @@ Copilot review of the first draft found three gaps, all addressed:
   paths and, with no recognized second code, locale detection never fired,
   so both locales were returned (dual scope now applies only to recognized
   locale codes); the thin-llms.txt branch refined each source alone and
-  merged two variants (the merged pool is refined once more, so the exact
-  requested variant wins); child-sitemap selection resolved the preference
+  merged two variants, and refining the merge again could not recover pages
+  of the winning variant that only one source listed (the path-scoped,
+  unrefined pools are merged first and refined once; the sitemap walker
+  gained `deferRefinement` for this, distinct from coverage's
+  `skipRefinement` because child selection and the collection cap stay as
+  in refined discovery); child-sitemap selection resolved the preference
   alone and could pick an `en-au` child whose pages neither scope keeps
   (children needed by any fallback scope's locale are kept as well).
 
