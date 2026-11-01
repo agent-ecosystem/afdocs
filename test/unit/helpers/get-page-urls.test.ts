@@ -2555,14 +2555,10 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
   });
 
   it('selects the requested same-language variant from a sitemap when both exist', async () => {
-    // No llms.txt result is cached, so discovery probes the llms.txt and
-    // sitemap candidates under both the origin and the /en-us subpath.
+    // With a path-bearing base, discovery also probes sitemap candidates under
+    // the /en-us subpath; mock them so the test does not wait on real DNS.
     mockSitemapNotFound(server, 'http://opt-both-sitemap.local/en-us');
     server.use(
-      http.get(
-        'http://opt-both-sitemap.local/*llms.txt',
-        () => new HttpResponse('', { status: 404 }),
-      ),
       http.get(
         'http://opt-both-sitemap.local/robots.txt',
         () => new HttpResponse('', { status: 404 }),
@@ -2591,6 +2587,106 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
     expect(result.urls).toEqual([
       'http://opt-both-sitemap.local/en-gb/docs/intro',
       'http://opt-both-sitemap.local/en-gb/docs/guide',
+    ]);
+  });
+
+  it('scopes a site-specific preference to its own path even over a locale-prefixed base', async () => {
+    const content = `# Docs\n## Links\n- [US](http://opt-custom.local/en-us/docs/intro): Intro\n- [US guide](http://opt-custom.local/en-us/docs/guide): Guide\n- [Custom](http://opt-custom.local/en-custom/docs/intro): Intro\n- [Custom guide](http://opt-custom.local/en-custom/docs/guide): Guide\n`;
+    // en-custom is not a recognized locale code, so no variant fallback: the
+    // requested path alone is in scope.
+    const ctx = makeCtx('http://opt-custom.local/en-us', content);
+    ctx.options.preferredLocale = 'en-custom';
+
+    const result = await getPageUrls(ctx);
+    expect(result.urls).toEqual([
+      'http://opt-custom.local/en-custom/docs/intro',
+      'http://opt-custom.local/en-custom/docs/guide',
+    ]);
+  });
+
+  it('refines the merged llms.txt and sitemap pool to one locale variant', async () => {
+    // llms.txt is thin and lists only US pages; the sitemap has the requested
+    // GB variant. Refining each source alone would merge both variants.
+    const content = `# Docs\n## Links\n- [US](http://opt-merge.local/en-us/docs/intro): Intro\n- [US guide](http://opt-merge.local/en-us/docs/guide): Guide\n`;
+    // makeCtx registers sitemap 404s for the base; the sitemap handler below
+    // must be registered afterwards so it takes precedence.
+    const ctx = makeCtx('http://opt-merge.local/en-us', content);
+    ctx.options.preferredLocale = 'en-GB';
+    server.use(
+      http.get('http://opt-merge.local/robots.txt', () => new HttpResponse('', { status: 404 })),
+      http.get(
+        'http://opt-merge.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://opt-merge.local/en-us/docs/intro</loc></url>
+  <url><loc>http://opt-merge.local/en-us/docs/guide</loc></url>
+  <url><loc>http://opt-merge.local/en-gb/docs/intro</loc></url>
+  <url><loc>http://opt-merge.local/en-gb/docs/guide</loc></url>
+</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+    const result = await getPageUrls(ctx);
+    expect(result.sources).toEqual(['llms-txt', 'sitemap']);
+    expect(result.urls).toEqual([
+      'http://opt-merge.local/en-gb/docs/intro',
+      'http://opt-merge.local/en-gb/docs/guide',
+    ]);
+  });
+
+  it('keeps child sitemaps needed by the fallback scope (issue #164)', async () => {
+    // Preferred en-GB resolves to en-au among the children (alphabetical tie),
+    // but the fallback scope /en-us needs the en-us child.
+    mockSitemapNotFound(server, 'http://opt-children.local/en-us');
+    server.use(
+      http.get('http://opt-children.local/robots.txt', () => new HttpResponse('', { status: 404 })),
+      http.get(
+        'http://opt-children.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>http://opt-children.local/sitemap-en-au.xml</loc></sitemap>
+  <sitemap><loc>http://opt-children.local/sitemap-en-us.xml</loc></sitemap>
+</sitemapindex>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+      http.get(
+        'http://opt-children.local/sitemap-en-au.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://opt-children.local/en-au/docs/intro</loc></url>
+</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+      http.get(
+        'http://opt-children.local/sitemap-en-us.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://opt-children.local/en-us/docs/intro</loc></url>
+  <url><loc>http://opt-children.local/en-us/docs/guide</loc></url>
+</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+    const ctx = makeCtx('http://opt-children.local/en-us');
+    ctx.options.preferredLocale = 'en-GB';
+
+    const result = await getPageUrls(ctx);
+    expect(result.sources).toEqual(['sitemap']);
+    expect(result.urls).toEqual([
+      'http://opt-children.local/en-us/docs/intro',
+      'http://opt-children.local/en-us/docs/guide',
     ]);
   });
 

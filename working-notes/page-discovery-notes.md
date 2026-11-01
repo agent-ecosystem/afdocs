@@ -507,6 +507,15 @@ Copilot review of the first draft found three gaps, all addressed:
   sitemap URLs alike, and `filterLocalizedUrls` takes the exact variant
   when present and resolves to the base variant otherwise. A different
   language still rewrites without fallback.
+- Three consequences of the dual scope, found on the next review pass:
+  a site-specific preference (`en-custom`) over a `/en-us` base kept both
+  paths and, with no recognized second code, locale detection never fired,
+  so both locales were returned (dual scope now applies only to recognized
+  locale codes); the thin-llms.txt branch refined each source alone and
+  merged two variants (the merged pool is refined once more, so the exact
+  requested variant wins); child-sitemap selection resolved the preference
+  alone and could pick an `en-au` child whose pages neither scope keeps
+  (children needed by any fallback scope's locale are kept as well).
 
 ## Documentation at scale: design considerations
 

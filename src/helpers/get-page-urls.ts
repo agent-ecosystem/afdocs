@@ -891,6 +891,7 @@ export async function getUrlsFromSitemap(
     if (urls.length >= collectLimit) break;
 
     const parsed = await fetchWithinBudget(sitemapUrl);
+
     if (!parsed) break;
 
     // Add direct URLs (filtered to same origin and path prefix)
@@ -909,10 +910,21 @@ export async function getUrlsFromSitemap(
     // and byte budgets still bound the walk.
     if (parsed.sitemapIndexUrls.length > 0 && urls.length < collectLimit) {
       const knownLocale = ctx.options.preferredLocale ?? extractLocaleFromUrl(ctx.baseUrl);
+      // Fallback path scopes (issue #164) need their own children too: with
+      // scopes /en-gb and /en-us and children {en-au, en-us}, the preferred
+      // locale alone would resolve to en-au, whose pages neither scope keeps.
+      const scopeLocales = prefixPaths
+        .slice(1)
+        .map((p) => extractLocaleFromUrl(`${matchOrigin}${p}`))
+        .filter((l): l is string => l !== null);
       const filteredSubSitemaps =
         skipRefinement && !knownLocale
           ? parsed.sitemapIndexUrls
-          : filterLocaleSitemaps(parsed.sitemapIndexUrls, knownLocale);
+          : [knownLocale, ...scopeLocales].reduce<string[]>(
+              (kept, locale) =>
+                mergeUrlSets(kept, filterLocaleSitemaps(parsed.sitemapIndexUrls, locale)),
+              [],
+            );
       for (const subSitemapUrl of filteredSubSitemaps) {
         if (urls.length >= collectLimit) break;
 
@@ -1080,7 +1092,10 @@ function pathFilterBases(ctx: CheckContext): string[] {
   const original = getPathFilterBase(ctx);
   const { preferredLocale, preferredVersion } = ctx.options;
   const primary = rewriteFilterBase(original, preferredLocale, preferredVersion);
-  if (!preferredLocale) return [primary];
+  // Variant resolution only applies to recognized locale codes. A
+  // site-specific preference such as `en-custom` scopes to its own path
+  // alone, as it did before variants were resolved.
+  if (!preferredLocale || !isLocaleSegment(preferredLocale)) return [primary];
 
   const detected = extractLocaleFromUrl(original);
   if (!detected || detected === preferredLocale.toLowerCase()) return [primary];
@@ -1165,11 +1180,16 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
     const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: filterBases });
     if (sitemapUrls.length > 0) {
       sources.push('sitemap');
+      // Each source was refined on its own, so they can disagree about the
+      // locale variant (llms.txt lists only /en-us/, the sitemap also has the
+      // requested /en-gb/). Refine the merged pool so one variant survives
+      // and the exact requested variant wins when present (issue #164).
+      const merged = refineUrls(mergeUrlSets(llmsTxtUrls, sitemapUrls));
       return {
-        urls: mergeUrlSets(llmsTxtUrls, sitemapUrls),
+        urls: merged,
         warnings,
         sources,
-        originalMdUrls: filteredOriginals,
+        originalMdUrls: filterOriginalMdUrls(originalMdUrls, merged),
       };
     }
 
