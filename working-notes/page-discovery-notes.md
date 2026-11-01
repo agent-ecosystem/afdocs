@@ -517,7 +517,9 @@ Copilot review of the first draft found three gaps, all addressed:
   unrefined pools are merged first and refined once; the sitemap walker
   gained `deferRefinement` for this, distinct from coverage's
   `skipRefinement` because child selection and the collection cap stay as
-  in refined discovery); child-sitemap selection resolved the preference
+  in refined discovery); the 500-URL sitemap cap is then applied to the
+  sitemap additions only, because `maxLinksToTest` has no upper bound and
+  llms.txt pages were never subject to that cap; child-sitemap selection resolved the preference
   alone and could pick an `en-au` child whose pages neither scope keeps
   (children needed by any fallback scope's locale are kept as well).
 

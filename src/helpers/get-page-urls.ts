@@ -1205,9 +1205,15 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
     });
     if (sitemapUrls.length > 0) {
       sources.push('sitemap');
-      const merged = refineUrls(mergeUrlSets(scopedLlmsTxtUrls, sitemapUrls)).slice(
-        0,
-        MAX_SITEMAP_URLS,
+      // Refine once over the merged pool, then cap only the sitemap additions:
+      // llms.txt pages that survive refinement are kept in full, since
+      // maxLinksToTest has no upper bound and the 500-URL cap belongs to the
+      // sitemap contribution alone, as it did before the sources were merged.
+      const refined = refineUrls(mergeUrlSets(scopedLlmsTxtUrls, sitemapUrls));
+      const fromLlmsTxt = new Set(scopedLlmsTxtUrls);
+      let sitemapAdditions = 0;
+      const merged = refined.filter(
+        (url) => fromLlmsTxt.has(url) || sitemapAdditions++ < MAX_SITEMAP_URLS,
       );
       return {
         urls: merged,

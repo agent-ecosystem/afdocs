@@ -2666,6 +2666,32 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
     expect(result.urls).toEqual([...gbLlms, ...gbSitemap]);
   });
 
+  it('caps only the sitemap additions, not surviving llms.txt pages', async () => {
+    // maxLinksToTest has no upper bound. 501 llms.txt pages plus one sitemap
+    // page must yield 502, not the sitemap cap of 500.
+    const llmsPages = Array.from({ length: 501 }, (_, i) => `http://opt-cap.local/docs/page-${i}`);
+    const content = `# Docs\n## Links\n${llmsPages.map((u) => `- [p](${u}): p`).join('\n')}\n`;
+    const ctx = makeCtx('http://opt-cap.local', content);
+    ctx.options.maxLinksToTest = 600;
+    server.use(
+      http.get('http://opt-cap.local/robots.txt', () => new HttpResponse('', { status: 404 })),
+      http.get(
+        'http://opt-cap.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>http://opt-cap.local/docs/extra</loc></url>\n</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+
+    const result = await getPageUrls(ctx);
+    expect(result.sources).toEqual(['llms-txt', 'sitemap']);
+    expect(result.urls).toHaveLength(502);
+    expect(result.urls.slice(0, 501)).toEqual(llmsPages);
+    expect(result.urls[501]).toBe('http://opt-cap.local/docs/extra');
+  });
+
   it('keeps child sitemaps needed by the fallback scope (issue #164)', async () => {
     // Preferred en-GB resolves to en-au among the children (alphabetical tie),
     // but the fallback scope /en-us needs the en-us child.
