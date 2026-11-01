@@ -516,6 +516,31 @@ describe('filterLocalizedUrls', () => {
     expect(result).toEqual(['https://example.com/docs/', 'https://example.com/docs/intro']);
   });
 
+  it('honors an explicit script-subtag locale the locale helper does not recognize (issue #161)', () => {
+    // zh-Hans is not an isLocaleSegment match, so it never enters the detection
+    // counts. Detection fires on es/fr; the explicit target must still be
+    // confirmed against the raw segments rather than falling back to unprefixed.
+    const urls = [
+      'https://example.com/docs',
+      'https://example.com/docs/intro',
+      'https://example.com/docs/guide',
+      'https://example.com/docs/zh-Hans/intro',
+      'https://example.com/docs/zh-Hans/guide',
+      'https://example.com/docs/es/intro',
+      'https://example.com/docs/es/guide',
+      'https://example.com/docs/es/api',
+      'https://example.com/docs/fr/intro',
+      'https://example.com/docs/fr/guide',
+      'https://example.com/docs/fr/api',
+    ];
+    const result = filterLocalizedUrls(urls, 'zh-Hans');
+    expect(result).toEqual([
+      'https://example.com/docs',
+      'https://example.com/docs/zh-Hans/intro',
+      'https://example.com/docs/zh-Hans/guide',
+    ]);
+  });
+
   it('detects single-locale site via structural duplication and filters to unprefixed', () => {
     const urls = [
       'https://example.com/docs/intro',

@@ -374,17 +374,26 @@ Both discovery paths were affected: the llms.txt walk follows Mintlify's
 nested `_llms/{en,es,fr,zh}` aggregates and the sitemap lists every locale,
 and each collapsed independently to the base URL.
 
-Decision: **filter to the target locale only when the per-position code
-counts gathered during detection contain the target.** Otherwise go
-straight to the unprefixed fallback. The short-URL keep rule is unchanged
-in both branches, so the base URL stays in the sample either way.
+Decision: **filter to the target locale only when some URL carries the
+target at the detected position, compared against the raw segment.**
+Otherwise go straight to the unprefixed fallback. The short-URL keep rule
+is unchanged in both branches, so the base URL stays in the sample either
+way.
 
-Rejected alternatives: a second pass over the URLs to look for the target
-(the reporter's suggestion; equivalent, but recomputes what detection
-already knows); dropping the short-URL keep rule (would exclude the base
+Rejected alternatives: deciding from the per-position code counts gathered
+during detection (the first draft of the fix; Copilot review pointed out
+that the counts only hold codes `isLocaleSegment` recognizes, so an
+explicit `--doc-locale zh-Hans` would have fallen through to unprefixed
+even when zh-Hans URLs existed, a regression from the raw comparison the
+old filter did); dropping the short-URL keep rule (would exclude the base
 URL on prefixed sites and break the existing test); triggering the fallback
 when the filtered set is "mostly" short URLs (a threshold where a direct
 check exists).
+
+Script-subtag codes are a pre-existing gap across all locale handling, not
+just this branch: detection, base-URL locale extraction, and the unprefixed
+fallback all treat `/docs/zh-Hans/intro` as unprefixed. Tracked in issue
+#161.
 
 The coverage check was not affected: its `filterByLocale` requires the
 segment to exist, so the base URL never masks a missing target there.
