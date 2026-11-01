@@ -479,6 +479,68 @@ describe('filterLocalizedUrls', () => {
     expect(result).not.toContain('https://example.com/docs/fr/intro');
   });
 
+  it('falls back to unprefixed default when only the base URL survives the target filter (issue #158)', () => {
+    // Default language unprefixed, translations prefixed, and the base URL
+    // itself in the list. Before the fix, /docs alone survived the 'en'
+    // filter (too few segments to reach the locale position), so the
+    // non-empty result short-circuited the unprefixed fallback.
+    const urls = [
+      'https://example.com/docs',
+      'https://example.com/docs/intro',
+      'https://example.com/docs/guide',
+      'https://example.com/docs/es/intro',
+      'https://example.com/docs/es/guide',
+      'https://example.com/docs/fr/intro',
+      'https://example.com/docs/fr/guide',
+      'https://example.com/docs/zh/intro',
+      'https://example.com/docs/zh/guide',
+    ];
+    const result = filterLocalizedUrls(urls);
+    expect(result).toEqual([
+      'https://example.com/docs',
+      'https://example.com/docs/intro',
+      'https://example.com/docs/guide',
+    ]);
+  });
+
+  it('falls back to unprefixed default with an explicit preferred locale when the base URL is listed', () => {
+    const urls = [
+      'https://example.com/docs/',
+      'https://example.com/docs/intro',
+      'https://example.com/docs/es/intro',
+      'https://example.com/docs/es/guide',
+      'https://example.com/docs/fr/intro',
+      'https://example.com/docs/fr/guide',
+    ];
+    const result = filterLocalizedUrls(urls, 'en');
+    expect(result).toEqual(['https://example.com/docs/', 'https://example.com/docs/intro']);
+  });
+
+  it('honors an explicit script-subtag locale the locale helper does not recognize (issue #161)', () => {
+    // zh-Hans is not an isLocaleSegment match, so it never enters the detection
+    // counts. Detection fires on es/fr; the explicit target must still be
+    // confirmed against the raw segments rather than falling back to unprefixed.
+    const urls = [
+      'https://example.com/docs',
+      'https://example.com/docs/intro',
+      'https://example.com/docs/guide',
+      'https://example.com/docs/zh-Hans/intro',
+      'https://example.com/docs/zh-Hans/guide',
+      'https://example.com/docs/es/intro',
+      'https://example.com/docs/es/guide',
+      'https://example.com/docs/es/api',
+      'https://example.com/docs/fr/intro',
+      'https://example.com/docs/fr/guide',
+      'https://example.com/docs/fr/api',
+    ];
+    const result = filterLocalizedUrls(urls, 'zh-Hans');
+    expect(result).toEqual([
+      'https://example.com/docs',
+      'https://example.com/docs/zh-Hans/intro',
+      'https://example.com/docs/zh-Hans/guide',
+    ]);
+  });
+
   it('detects single-locale site via structural duplication and filters to unprefixed', () => {
     const urls = [
       'https://example.com/docs/intro',
