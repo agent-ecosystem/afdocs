@@ -2555,8 +2555,14 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
   });
 
   it('selects the requested same-language variant from a sitemap when both exist', async () => {
-    mockSitemapNotFound(server, 'http://opt-both-sitemap.local');
+    // No llms.txt result is cached, so discovery probes the llms.txt and
+    // sitemap candidates under both the origin and the /en-us subpath.
+    mockSitemapNotFound(server, 'http://opt-both-sitemap.local/en-us');
     server.use(
+      http.get(
+        'http://opt-both-sitemap.local/*llms.txt',
+        () => new HttpResponse('', { status: 404 }),
+      ),
       http.get(
         'http://opt-both-sitemap.local/robots.txt',
         () => new HttpResponse('', { status: 404 }),
