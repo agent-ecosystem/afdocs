@@ -58,7 +58,7 @@ Multi-locale sites usually list only one language in `llms.txt`, so localized si
 
 - When locale prefixes cover most of the sitemap, the prefix position is detected directly.
 - When translations are a minority of the sitemap (an unprefixed default language plus a few translated locales), the check confirms the prefixes by structural duplication: stripping a locale code must produce paths that match unprefixed URLs.
-- `--doc-locale <code>` (or `preferredLocale` in config) overrides detection. If the sitemap has no URLs prefixed with that locale, it is treated as the unprefixed default and the localized variants are excluded.
+- `--doc-locale <code>` (or `preferredLocale` in config) overrides detection. A regional or script variant of the same language counts as a match (`en` selects `/en-us/`). If the sitemap has no URLs for that language at all, it is treated as the unprefixed default and the localized variants are excluded.
 
 ### How to fix
 

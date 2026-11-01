@@ -4,7 +4,13 @@ import { getLlmsTxtFilesForAnalysis, selectCanonicalLlmsTxt } from './llms-txt.j
 import { isNonPageUrl, isMdUrl, toHtmlUrl } from './to-md-urls.js';
 import { isSameSite, canonicalHost } from './host-equivalence.js';
 import { fetchPage } from './fetch-page.js';
-import { isLocaleSegment, detectLocalePosition } from './locale-codes.js';
+import {
+  isLocaleSegment,
+  detectLocalePosition,
+  countLocaleCodesAt,
+  resolveLocaleVariant,
+  sameLanguageVariants,
+} from './locale-codes.js';
 import type { CheckContext, DiscoveredFile, UrlPathPattern } from '../types.js';
 
 /**
@@ -455,6 +461,13 @@ export function filterLocaleSitemaps(
   preferredLocale?: string | null,
 ): string[] {
   if (subSitemapUrls.length < 2) return subSitemapUrls;
+  // Distinct children only, so a repeated index entry is fetched once.
+  subSitemapUrls = [...new Set(subSitemapUrls)];
+  // An explicit preference the locale helper does not recognize (`en-custom`)
+  // cannot be matched to a child by code, and resolving it by language would
+  // keep the wrong children and drop others. Keep every child so the
+  // page-level exact-prefix filter can decide (issue #164).
+  if (preferredLocale && !isLocaleSegment(preferredLocale)) return subSitemapUrls;
 
   // Locale shape shared by all patterns: language[-Script][-REGION], e.g.
   // `en`, `fr-fr`, `zh-hans`, `zh-hans-cn`. Fixing the subtag order keeps a
@@ -517,9 +530,17 @@ export function filterLocaleSitemaps(
   // Need at least 2 distinct locale codes to consider this a locale-organized index
   if (locales.size < 2) return subSitemapUrls;
 
-  // Prefer the user's locale, then 'en', then any non-locale sitemaps
-  const locale = preferredLocale?.toLowerCase();
-  const preferred = (locale && locales.get(locale)) ?? locales.get('en') ?? [];
+  // Prefer the user's locale, then 'en', then any non-locale sitemaps. An
+  // exact code selects its sitemaps alone. Otherwise every same-language
+  // variant is kept (`en` keeps `en-us` and `en-gb` shards, issue #164):
+  // sitemap counts are a poor proxy for page counts, and the page-level
+  // refinement, which also sees llms.txt, is the one place that picks a
+  // single variant. Fetching a variant it rejects costs bounded budget;
+  // skipping the one it picks loses pages.
+  const counts = new Map([...locales].map(([code, list]) => [code, list.length]));
+  const matched = preferredLocale ? sameLanguageVariants(preferredLocale, counts) : [];
+  const selected = matched.length > 0 ? matched : sameLanguageVariants('en', counts);
+  const preferred = selected.flatMap((code) => locales.get(code) ?? []);
   return [...preferred, ...nonLocale].length > 0 ? [...preferred, ...nonLocale] : subSitemapUrls;
 }
 
@@ -555,19 +576,24 @@ export function filterLocalizedUrls(urls: string[], preferredLocale?: string | n
   // unprefixed fallback below (issue #158). Compare raw segments rather than
   // the detection counts so that an explicit preference the locale helper does
   // not recognize (e.g. a site-specific code such as `latam`) still wins.
-  const hasTargetLocale = urls.some((url) => {
+  const hasExactTarget = urls.some((url) => {
     try {
       return segmentAtLocalePosition(url) === targetLocale;
     } catch {
       return false;
     }
   });
+  // Without an exact match, a regional or script variant of the same language
+  // stands in for the target (`en` selects `/en-us/` pages, issue #164).
+  const effectiveTarget = hasExactTarget
+    ? targetLocale
+    : resolveLocaleVariant(targetLocale, countLocaleCodesAt(urls, localePosition));
 
-  if (hasTargetLocale) {
+  if (effectiveTarget) {
     return urls.filter((url) => {
       try {
         const seg = segmentAtLocalePosition(url);
-        return seg === null || seg === targetLocale; // keep URLs without enough segments
+        return seg === null || seg === effectiveTarget; // keep URLs without enough segments
       } catch {
         return true;
       }
@@ -808,9 +834,17 @@ export interface SitemapOptions {
   maxUrls?: number;
   sitemapUrls?: string[];
   originOverride?: string;
-  pathFilterBase?: string;
+  /** One or more base URLs; a URL is kept when it falls under any of them. */
+  pathFilterBase?: string | string[];
   /** Skip URL-level locale/version refinement. Use when the caller needs raw URLs (e.g. coverage check). */
   skipRefinement?: boolean;
+  /**
+   * Return path-scoped URLs without locale/version refinement or the maxUrls
+   * cap so the caller can refine a pool merged from several sources. Unlike
+   * `skipRefinement`, child-sitemap selection and the collection limit behave
+   * as they do for refined discovery.
+   */
+  deferRefinement?: boolean;
 }
 
 export async function getUrlsFromSitemap(
@@ -818,14 +852,24 @@ export async function getUrlsFromSitemap(
   warnings: string[],
   opts: SitemapOptions = {},
 ): Promise<string[]> {
-  const { maxUrls = MAX_SITEMAP_URLS, originOverride, pathFilterBase, skipRefinement } = opts;
+  const {
+    maxUrls = MAX_SITEMAP_URLS,
+    originOverride,
+    pathFilterBase,
+    skipRefinement,
+    deferRefinement,
+  } = opts;
   const sitemapUrls = opts.sitemapUrls ?? (await discoverSitemapUrls(ctx, originOverride));
   const urls: string[] = [];
   const matchOrigin = originOverride ?? ctx.origin;
 
-  // Pre-compute the path prefix so we can filter before counting against the cap.
-  // When pathFilterBase is provided, only URLs under that prefix consume cap slots.
-  const prefixPath = pathFilterBase ? new URL(pathFilterBase).pathname.replace(/\/$/, '') : '';
+  // Pre-compute the path prefixes so we can filter before counting against the cap.
+  // When pathFilterBase is provided, only URLs under one of those prefixes consume
+  // cap slots. The first prefix is the primary scope used in warnings.
+  const prefixPaths = (
+    Array.isArray(pathFilterBase) ? pathFilterBase : pathFilterBase ? [pathFilterBase] : []
+  ).map((base) => new URL(base).pathname.replace(/\/$/, ''));
+  const prefixPath = prefixPaths[0] ?? '';
   let examinedUrls = 0;
   let matchingUrls = 0;
   const budget: SitemapBudget = { fetches: 0, bytes: 0 };
@@ -847,6 +891,10 @@ export async function getUrlsFromSitemap(
     return fetchSitemap(ctx, sitemapUrl, warnings, budget);
   }
 
+  // Distinct URLs only. A page repeated within a sitemap or listed by two
+  // shards would otherwise count twice in the per-variant totals that choose
+  // a locale (issue #164) and in the prefix-coverage counts.
+  const seen = new Set<string>();
   function shouldInclude(url: string): boolean {
     try {
       new URL(url);
@@ -854,8 +902,12 @@ export async function getUrlsFromSitemap(
       return false;
     }
     if (!isSameSite(url, matchOrigin)) return false;
+    if (seen.has(url)) return false;
+    seen.add(url);
     examinedUrls++;
-    if (prefixPath && !matchesPathPrefix(url, prefixPath)) return false;
+    if (prefixPaths.length > 0 && !prefixPaths.some((p) => matchesPathPrefix(url, p))) {
+      return false;
+    }
     matchingUrls++;
     return true;
   }
@@ -869,6 +921,7 @@ export async function getUrlsFromSitemap(
     if (urls.length >= collectLimit) break;
 
     const parsed = await fetchWithinBudget(sitemapUrl);
+
     if (!parsed) break;
 
     // Add direct URLs (filtered to same origin and path prefix)
@@ -879,12 +932,29 @@ export async function getUrlsFromSitemap(
       }
     }
 
-    // Follow one level of sitemap index, filtering to default locale if detected
+    // Follow one level of sitemap index, filtering to the preferred locale
+    // when one is known. A raw coverage walk (skipRefinement) with no
+    // preference keeps every child: coverage infers the locale from llms.txt
+    // afterwards, and choosing a default variant here (`en-gb` over `en-us`)
+    // would discard the children it ends up needing (issue #164). The fetch
+    // and byte budgets still bound the walk.
     if (parsed.sitemapIndexUrls.length > 0 && urls.length < collectLimit) {
-      const filteredSubSitemaps = filterLocaleSitemaps(
-        parsed.sitemapIndexUrls,
-        ctx.options.preferredLocale ?? extractLocaleFromUrl(ctx.baseUrl),
-      );
+      const knownLocale = ctx.options.preferredLocale ?? extractLocaleFromUrl(ctx.baseUrl);
+      // Fallback path scopes (issue #164) need their own children too: with
+      // scopes /en-gb and /en-us and children {en-au, en-us}, the preferred
+      // locale alone would resolve to en-au, whose pages neither scope keeps.
+      const scopeLocales = prefixPaths
+        .slice(1)
+        .map((p) => extractLocaleFromUrl(`${matchOrigin}${p}`))
+        .filter((l): l is string => l !== null);
+      const filteredSubSitemaps =
+        skipRefinement && !knownLocale
+          ? parsed.sitemapIndexUrls
+          : [knownLocale, ...scopeLocales].reduce<string[]>(
+              (kept, locale) =>
+                mergeUrlSets(kept, filterLocaleSitemaps(parsed.sitemapIndexUrls, locale)),
+              [],
+            );
       for (const subSitemapUrl of filteredSubSitemaps) {
         if (urls.length >= collectLimit) break;
 
@@ -903,7 +973,7 @@ export async function getUrlsFromSitemap(
 
   warnOnNarrowPathPrefix(warnings, 'Sitemap', prefixPath, matchingUrls, examinedUrls);
 
-  if (skipRefinement) return urls;
+  if (skipRefinement || deferRefinement) return urls;
 
   const localeFiltered = filterLocalizedUrls(
     urls,
@@ -950,7 +1020,8 @@ export function getPathFilterBase(ctx: CheckContext): string {
  *
  * For example, base URL `example.com/en/docs` with `--locale de` rewrites
  * to `example.com/de/docs` so that path prefix filtering matches the
- * preferred locale's URL space.
+ * preferred locale's URL space. See `pathFilterBases` for the same-language
+ * case, where the original base is kept as a second scope.
  */
 function rewriteFilterBase(
   filterBase: string,
@@ -1035,6 +1106,37 @@ function mergeUrlSets(primary: string[], secondary: string[]): string[] {
 }
 
 /**
+ * Path scopes for discovery, primary first.
+ *
+ * The primary scope is the base URL with the preferred locale and version
+ * substituted. When the preference is a same-language variant of the base
+ * URL's locale (`en-GB` over `/en-us/`, `en-US` over `/en/`), the original
+ * locale path is kept as a second scope. Scoping to the rewritten path alone
+ * would discard every page on a site that lacks the exact variant; scoping to
+ * the original alone would keep the base variant even when the requested one
+ * exists. With both in scope, `filterLocalizedUrls` takes the exact variant
+ * when present and resolves to the base variant otherwise (issue #164).
+ * A different language never falls back to the base locale.
+ */
+function pathFilterBases(ctx: CheckContext): string[] {
+  const original = getPathFilterBase(ctx);
+  const { preferredLocale, preferredVersion } = ctx.options;
+  const primary = rewriteFilterBase(original, preferredLocale, preferredVersion);
+  // Variant resolution only applies to recognized locale codes. A
+  // site-specific preference such as `en-custom` scopes to its own path
+  // alone, as it did before variants were resolved.
+  if (!preferredLocale || !isLocaleSegment(preferredLocale)) return [primary];
+
+  const detected = extractLocaleFromUrl(original);
+  if (!detected || detected === preferredLocale.toLowerCase()) return [primary];
+  const sameLanguage = resolveLocaleVariant(preferredLocale, new Map([[detected, 1]])) !== null;
+  if (!sameLanguage) return [primary];
+
+  const secondary = rewriteFilterBase(original, undefined, preferredVersion);
+  return secondary === primary ? [primary] : [primary, secondary];
+}
+
+/**
  * Discover page URLs from llms.txt links, sitemap, or fall back to baseUrl.
  *
  * Priority:
@@ -1055,11 +1157,8 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
 
   const locale = ctx.options.preferredLocale ?? extractLocaleFromUrl(ctx.baseUrl);
   const version = ctx.options.preferredVersion ?? extractVersionFromUrl(ctx.baseUrl);
-  const filterBase = rewriteFilterBase(
-    getPathFilterBase(ctx),
-    ctx.options.preferredLocale,
-    ctx.options.preferredVersion,
-  );
+  const filterBases = pathFilterBases(ctx);
+  const filterPaths = filterBases.map((base) => new URL(base).pathname.replace(/\/$/, ''));
 
   /** Apply locale and version filtering to a discovered URL set. */
   function refineUrls(urls: string[]): string[] {
@@ -1067,16 +1166,11 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
     return deduplicateVersionedUrls(localeFiltered, version);
   }
 
+  /** Path-scope llms.txt URLs without refining them, warning on a narrow prefix. */
   function scopeLlmsTxtUrls(urls: string[]): string[] {
-    const scoped = filterByPathPrefix(urls, filterBase);
-    warnOnNarrowPathPrefix(
-      warnings,
-      'llms.txt',
-      new URL(filterBase).pathname.replace(/\/$/, ''),
-      scoped.length,
-      urls.length,
-    );
-    return refineUrls(scoped);
+    const scoped = urls.filter((url) => filterPaths.some((p) => matchesPathPrefix(url, p)));
+    warnOnNarrowPathPrefix(warnings, 'llms.txt', filterPaths[0], scoped.length, urls.length);
+    return scoped;
   }
 
   /** Filter the originalMdUrls map to a subset of URLs. */
@@ -1094,13 +1188,15 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
 
   // 1. Try llms.txt links from cached results (if llms-txt-exists ran)
   const cached = await getUrlsFromCachedLlmsTxtWithOriginals(ctx);
-  let llmsTxtUrls = scopeLlmsTxtUrls(cached.pageUrls);
+  let scopedLlmsTxtUrls = scopeLlmsTxtUrls(cached.pageUrls);
+  let llmsTxtUrls = refineUrls(scopedLlmsTxtUrls);
   let originalMdUrls = cached.originalMdUrls;
 
   // 2. Try fetching llms.txt directly (standalone mode, llms-txt-exists didn't run)
   if (llmsTxtUrls.length === 0 && !ctx.previousResults.has('llms-txt-exists')) {
     const fetched = await fetchLlmsTxtUrls(ctx);
-    llmsTxtUrls = scopeLlmsTxtUrls(fetched.pageUrls);
+    scopedLlmsTxtUrls = scopeLlmsTxtUrls(fetched.pageUrls);
+    llmsTxtUrls = refineUrls(scopedLlmsTxtUrls);
     originalMdUrls = fetched.originalMdUrls;
   }
 
@@ -1114,14 +1210,33 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
     }
 
     // llms.txt is thin — try sitemap to fill the gap
-    const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: filterBase });
+    // Merge the path-scoped pools *before* refining. Refining each source on
+    // its own lets them disagree about the locale variant (llms.txt lists
+    // only /en-us/, the sitemap also has the requested /en-gb/) and discards
+    // pages of the winning variant that only the other source listed. One
+    // refinement over the merged pool keeps every page of the one variant
+    // that wins, with the exact requested variant first (issue #164).
+    const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, {
+      pathFilterBase: filterBases,
+      deferRefinement: true,
+    });
     if (sitemapUrls.length > 0) {
       sources.push('sitemap');
+      // Refine once over the merged pool, then cap only the sitemap additions:
+      // llms.txt pages that survive refinement are kept in full, since
+      // maxLinksToTest has no upper bound and the 500-URL cap belongs to the
+      // sitemap contribution alone, as it did before the sources were merged.
+      const refined = refineUrls(mergeUrlSets(scopedLlmsTxtUrls, sitemapUrls));
+      const fromLlmsTxt = new Set(scopedLlmsTxtUrls);
+      let sitemapAdditions = 0;
+      const merged = refined.filter(
+        (url) => fromLlmsTxt.has(url) || sitemapAdditions++ < MAX_SITEMAP_URLS,
+      );
       return {
-        urls: mergeUrlSets(llmsTxtUrls, sitemapUrls),
+        urls: merged,
         warnings,
         sources,
-        originalMdUrls: filteredOriginals,
+        originalMdUrls: filterOriginalMdUrls(originalMdUrls, merged),
       };
     }
 
@@ -1130,7 +1245,7 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
   }
 
   // 3. Try sitemap (path, locale, and version filtering applied inside)
-  const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: filterBase });
+  const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: filterBases });
   if (sitemapUrls.length > 0) {
     sources.push('sitemap');
     return { urls: sitemapUrls, warnings, sources };

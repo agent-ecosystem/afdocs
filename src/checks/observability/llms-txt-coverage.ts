@@ -5,7 +5,12 @@ import {
 } from '../../helpers/get-page-urls.js';
 import { isSameSite } from '../../helpers/host-equivalence.js';
 import { isNonPageUrl } from '../../helpers/to-md-urls.js';
-import { isLocaleSegment, detectLocalePosition } from '../../helpers/locale-codes.js';
+import {
+  isLocaleSegment,
+  detectLocalePosition,
+  countLocaleCodesAt,
+  resolveLocaleVariant,
+} from '../../helpers/locale-codes.js';
 import {
   DEFAULT_COVERAGE_PASS_THRESHOLD,
   DEFAULT_COVERAGE_WARN_THRESHOLD,
@@ -324,12 +329,25 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     if (preferred) {
       // Explicit locale (--doc-locale / config preferredLocale) wins over
       // inference from llms.txt URLs.
-      const byPreferred = filterByLocale(scopedSitemapUrls, preferred, localePosition);
+      // Exact raw prefix first, as the page filter does, so a site-specific
+      // code such as `en-custom` is not displaced by its `en-us` variant. Only
+      // when absent does a regional or script variant of the same language
+      // stand in (`--doc-locale en` selects `/en-us/`, issue #164).
+      const exact = filterByLocale(scopedSitemapUrls, preferred, localePosition);
+      const resolved =
+        exact.length > 0
+          ? preferred
+          : (resolveLocaleVariant(
+              preferred,
+              countLocaleCodesAt(scopedSitemapUrls, localePosition),
+            ) ?? preferred);
+      const byPreferred =
+        exact.length > 0 ? exact : filterByLocale(scopedSitemapUrls, resolved, localePosition);
       const before = scopedSitemapUrls.length;
       if (byPreferred.length > 0) {
         scopedSitemapUrls = byPreferred;
         localeFiltered = scopedSitemapUrls.length < before;
-        if (localeFiltered) detectedLocale = preferred;
+        if (localeFiltered) detectedLocale = resolved;
       } else {
         // No URLs carry the preferred locale as a prefix, so it must be the
         // unprefixed default locale: drop the locale-prefixed translations.

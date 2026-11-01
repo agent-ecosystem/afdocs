@@ -458,6 +458,102 @@ used as locale prefixes, each a new false-positive surface); validating
 know, such as `latam`, is still honored by the raw-segment match from
 issue #158, and rejecting it would remove that escape hatch).
 
+### October 2026: locale preferences resolve to same-language variants (issue #164)
+
+Locale preferences were matched by exact code in three places: the
+locale-sitemap selector, the page-URL filter, and coverage's explicit-locale
+branch. A site organized by `en-us` and `fr-fr` therefore matched neither the
+default `en` nor a bare `--doc-locale en`, and `--doc-locale en-US` failed
+against a site that uses bare `en`. Microsoft Learn worked only because its
+base URL supplies `en-us`. Found while writing the PR #163 fixtures.
+
+Decision: **one resolver, `resolveLocaleVariant`, in
+`src/helpers/locale-codes.ts`, used by all three call sites.** Exact match
+wins. Otherwise the best-represented code with the same language is chosen,
+and when both the preference and the candidate name a script they must
+agree (`zh-Hans` resolves to `zh-Hans-CN`, never to `zh-Hant`). Ties break
+alphabetically. No same-language code resolves to null, which preserves the
+issue #158 unprefixed fallback. The page-URL filter still tries the exact
+raw segment first so a site-specific code such as `latam` keeps working.
+
+Rejected alternatives: selecting every same-language variant (`en-us` plus
+`en-gb` would put regional duplicates of each page into the sample, and the
+page-level filter has no later step that would remove them); preferring a
+canonical region such as `en-us` (arbitrary across languages; representation
+count is a property of the site); validating or normalizing `--doc-locale`
+at the CLI (the raw value is still useful as an escape hatch).
+
+Copilot review of the first draft found three gaps, all addressed:
+
+- Coverage's explicit-locale branch resolved before checking the exact raw
+  prefix, so `--doc-locale en-custom` selected `en-us`. It now mirrors the
+  page filter: exact prefix first, variant only when absent.
+- Coverage's raw sitemap walk (`skipRefinement`) ran the sitemap selector
+  with the built-in default `en`, which now resolved `{en-gb, en-us}` to
+  `en-gb` and discarded the US children before coverage inferred `en-us`
+  from llms.txt. Before this change the same case returned every child
+  because no `en` key existed. The raw walk now keeps every child when no
+  locale is known from the flag or the base URL. The fetch and byte budgets
+  from issue #120 still bound it; the trade-off is that a site with many
+  locale shards and no known locale may spend budget on other locales.
+- `rewriteFilterBase` replaced the base URL's locale with the preference
+  whenever they differed, so base `/en` with `--doc-locale en-US` scoped
+  discovery to `/en-us/` and found nothing. This predates the branch. The
+  first fix kept the base path for same-language variants, which Copilot
+  showed breaks the opposite case: base `/en-us` with `--doc-locale en-GB`
+  on a site that has both kept the US pages. Discovery is now scoped to
+  both paths when the preference is a same-language variant of the base
+  locale (primary: rewritten; secondary: original), for llms.txt links and
+  sitemap URLs alike, and `filterLocalizedUrls` takes the exact variant
+  when present and resolves to the base variant otherwise. A different
+  language still rewrites without fallback.
+- Three consequences of the dual scope, found on the next review pass:
+  a site-specific preference (`en-custom`) over a `/en-us` base kept both
+  paths and, with no recognized second code, locale detection never fired,
+  so both locales were returned (dual scope now applies only to recognized
+  locale codes); the thin-llms.txt branch refined each source alone and
+  merged two variants, and refining the merge again could not recover pages
+  of the winning variant that only one source listed (the path-scoped,
+  unrefined pools are merged first and refined once; the sitemap walker
+  gained `deferRefinement` for this, distinct from coverage's
+  `skipRefinement` because child selection and the collection cap stay as
+  in refined discovery); the 500-URL sitemap cap is then applied to the
+  sitemap additions only, because `maxLinksToTest` has no upper bound and
+  llms.txt pages were never subject to that cap;
+- A seventh review pass asked for human assessment of indexed-sitemap
+  pruning without a concrete finding. One real gap was identifiable:
+  child-sitemap selection resolved a variant by counting _sitemaps_, while
+  the page-level pass counts _pages_ and sees llms.txt. Two GB shards and
+  one US shard selected GB children only; if llms.txt then tipped the page
+  pass to en-us, the US sitemap pages had never been fetched. Child
+  selection is now inclusive when it resolves by variant: every
+  same-language child is fetched (`sameLanguageVariants`) and the single
+  page-level pass picks the variant. An exact code still selects its own
+  children alone. Fetching a rejected variant costs bounded budget;
+  skipping the chosen one loses pages. This is consistent with the raw
+  coverage walk keeping every child when no locale is known. The
+  same pass made an unrecognized explicit preference (`en-custom`) resolve
+  by language to the `en-us` child while dropping `fr-fr`, a two-locale pool
+  the page-level detector cannot separate from the custom pages. Child
+  pruning is now skipped entirely for a preference `isLocaleSegment` does
+  not recognize, matching the path-scope rule, so the page-level
+  exact-prefix filter decides.
+- A further review summary raised two concerns without a finding. On
+  "fallback discovery overlooking an exact match": every selection point
+  checks the exact code or path first (page filter raw segment, coverage
+  exact prefix, sitemap selector exact code, dual scope primary path); the
+  base-URL fallback at the end of discovery deliberately uses the original
+  base, since a rewritten locale path may not exist. No change. On
+  "duplicate sitemap URLs skewing regional selection": real. Nothing before
+  the final sampler deduplicated sitemap URLs, so a page repeated in one
+  sitemap or listed by two shards counted twice in the per-variant totals
+  that now choose a locale. The walker now collects distinct URLs, counted
+  once for the narrow-prefix warning as well, and the child selector
+  fetches a repeated index entry once. Coverage was already comparing
+  normalized sets, so its rate was unaffected. child-sitemap selection resolved the preference
+  alone and could pick an `en-au` child whose pages neither scope keeps
+  (children needed by any fallback scope's locale are kept as well).
+
 ## Documentation at scale: design considerations
 
 Drafting `docs/documentation-at-scale.md` after the #120 live reproduction
