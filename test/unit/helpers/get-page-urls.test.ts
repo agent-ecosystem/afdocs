@@ -227,15 +227,16 @@ describe('filterLocaleSitemaps', () => {
   });
 
   it('does not let a two-letter product prefix consume a regional locale shard', () => {
-    // Preferred-locale lookup is an exact key match, so the English shard is
-    // bare `en` here; the regional and script shards exercise the capture.
+    // A bare two-letter locale after a two-letter prefix (`cs-en`) is
+    // indistinguishable from language-region, so the shards here are
+    // region- or script-qualified, as Microsoft Learn's are.
     const urls = [
-      'https://example.com/dotnet-cs-en-1.xml',
+      'https://example.com/dotnet-cs-en-us-1.xml',
       'https://example.com/dotnet-cs-fr-fr-1.xml',
       'https://example.com/dotnet-cs-zh-hans-2.xml',
       'https://example.com/dotnet-cs-pages.xml',
     ];
-    expect(filterLocaleSitemaps(urls)).toEqual([urls[0], urls[3]]);
+    expect(filterLocaleSitemaps(urls, 'en-US')).toEqual([urls[0], urls[3]]);
     expect(filterLocaleSitemaps(urls, 'fr-FR')).toEqual([urls[1], urls[3]]);
     expect(filterLocaleSitemaps(urls, 'zh-Hans')).toEqual([urls[2], urls[3]]);
   });
