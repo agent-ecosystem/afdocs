@@ -894,12 +894,18 @@ export async function getUrlsFromSitemap(
       }
     }
 
-    // Follow one level of sitemap index, filtering to default locale if detected
+    // Follow one level of sitemap index, filtering to the preferred locale
+    // when one is known. A raw coverage walk (skipRefinement) with no
+    // preference keeps every child: coverage infers the locale from llms.txt
+    // afterwards, and choosing a default variant here (`en-gb` over `en-us`)
+    // would discard the children it ends up needing (issue #164). The fetch
+    // and byte budgets still bound the walk.
     if (parsed.sitemapIndexUrls.length > 0 && urls.length < collectLimit) {
-      const filteredSubSitemaps = filterLocaleSitemaps(
-        parsed.sitemapIndexUrls,
-        ctx.options.preferredLocale ?? extractLocaleFromUrl(ctx.baseUrl),
-      );
+      const knownLocale = ctx.options.preferredLocale ?? extractLocaleFromUrl(ctx.baseUrl);
+      const filteredSubSitemaps =
+        skipRefinement && !knownLocale
+          ? parsed.sitemapIndexUrls
+          : filterLocaleSitemaps(parsed.sitemapIndexUrls, knownLocale);
       for (const subSitemapUrl of filteredSubSitemaps) {
         if (urls.length >= collectLimit) break;
 
@@ -980,7 +986,14 @@ function rewriteFilterBase(
 
     if (preferredLocale) {
       const detected = extractLocaleFromUrl(filterBase);
-      if (detected && detected !== preferredLocale.toLowerCase()) {
+      // Rewrite only when the preference is a different language (or a
+      // conflicting script). A same-language variant such as `en-US` over a
+      // `/en/` base keeps the base path so the resolver can match the pages
+      // the site actually has (issue #164).
+      const sameLanguage =
+        detected !== null &&
+        resolveLocaleVariant(preferredLocale, new Map([[detected, 1]])) !== null;
+      if (detected && !sameLanguage) {
         const idx = segments.findIndex((s) => s.toLowerCase() === detected);
         if (idx >= 0) segments[idx] = preferredLocale.toLowerCase();
       }

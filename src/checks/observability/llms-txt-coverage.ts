@@ -329,12 +329,20 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
     if (preferred) {
       // Explicit locale (--doc-locale / config preferredLocale) wins over
       // inference from llms.txt URLs.
-      // A regional or script variant of the same language stands in for an
-      // absent exact code (`--doc-locale en` selects `/en-us/`, issue #164).
+      // Exact raw prefix first, as the page filter does, so a site-specific
+      // code such as `en-custom` is not displaced by its `en-us` variant. Only
+      // when absent does a regional or script variant of the same language
+      // stand in (`--doc-locale en` selects `/en-us/`, issue #164).
+      const exact = filterByLocale(scopedSitemapUrls, preferred, localePosition);
       const resolved =
-        resolveLocaleVariant(preferred, countLocaleCodesAt(scopedSitemapUrls, localePosition)) ??
-        preferred;
-      const byPreferred = filterByLocale(scopedSitemapUrls, resolved, localePosition);
+        exact.length > 0
+          ? preferred
+          : (resolveLocaleVariant(
+              preferred,
+              countLocaleCodesAt(scopedSitemapUrls, localePosition),
+            ) ?? preferred);
+      const byPreferred =
+        exact.length > 0 ? exact : filterByLocale(scopedSitemapUrls, resolved, localePosition);
       const before = scopedSitemapUrls.length;
       if (byPreferred.length > 0) {
         scopedSitemapUrls = byPreferred;

@@ -945,6 +945,100 @@ describe('llms-txt-coverage', () => {
     expect(result.details?.detectedLocale).toBe('en-us');
   });
 
+  test('prefers an exact custom locale prefix over a same-language variant', async () => {
+    const host = 'preferred-custom.local';
+    const customPages = [
+      `http://${host}/docs/en-custom/getting-started`,
+      `http://${host}/docs/en-custom/api-reference`,
+      `http://${host}/docs/en-custom/guides`,
+    ];
+    const sitemapPages = [
+      ...customPages,
+      `http://${host}/docs/en-us/getting-started`,
+      `http://${host}/docs/en-us/api-reference`,
+      `http://${host}/docs/en-us/guides`,
+      `http://${host}/docs/fr-fr/getting-started`,
+      `http://${host}/docs/fr-fr/api-reference`,
+      `http://${host}/docs/fr-fr/guides`,
+    ];
+
+    const ctx = makeCtx(host, customPages, '/docs', { preferredLocale: 'en-custom' });
+
+    server.use(
+      http.get(
+        `http://${host}/robots.txt`,
+        () => new HttpResponse(`Sitemap: http://${host}/sitemap.xml`, { status: 200 }),
+      ),
+      http.get(
+        `http://${host}/sitemap.xml`,
+        () =>
+          new HttpResponse(makeSitemap(sitemapPages), {
+            headers: { 'content-type': 'application/xml' },
+          }),
+      ),
+    );
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details?.sitemapDocPages).toBe(3);
+    expect(result.details?.coverageRate).toBe(100);
+    expect(result.details?.detectedLocale).toBe('en-custom');
+  });
+
+  test('keeps every locale child sitemap in the raw walk when no locale is known (issue #164)', async () => {
+    const host = 'raw-walk-variants.local';
+    const enUsPages = [
+      `http://${host}/docs/en-us/getting-started`,
+      `http://${host}/docs/en-us/api-reference`,
+      `http://${host}/docs/en-us/guides`,
+    ];
+    const enGbPages = enUsPages.map((u) => u.replace('/en-us/', '/en-gb/'));
+
+    // No --doc-locale and no locale in the base URL: coverage must not let
+    // the sitemap selector pick en-gb (alphabetical tie) before it infers
+    // en-us from llms.txt.
+    const ctx = makeCtx(host, enUsPages, '/docs');
+
+    mockSitemapNotFound(server, `http://${host}/docs`);
+    server.use(
+      http.get(
+        `http://${host}/robots.txt`,
+        () => new HttpResponse(`Sitemap: http://${host}/sitemap.xml`, { status: 200 }),
+      ),
+      http.get(
+        `http://${host}/sitemap.xml`,
+        () =>
+          new HttpResponse(
+            makeSitemapIndex([
+              `http://${host}/sitemap-en-gb.xml`,
+              `http://${host}/sitemap-en-us.xml`,
+            ]),
+            { headers: { 'content-type': 'application/xml' } },
+          ),
+      ),
+      http.get(
+        `http://${host}/sitemap-en-gb.xml`,
+        () =>
+          new HttpResponse(makeSitemap(enGbPages), {
+            headers: { 'content-type': 'application/xml' },
+          }),
+      ),
+      http.get(
+        `http://${host}/sitemap-en-us.xml`,
+        () =>
+          new HttpResponse(makeSitemap(enUsPages), {
+            headers: { 'content-type': 'application/xml' },
+          }),
+      ),
+    );
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details?.sitemapDocPages).toBe(3);
+    expect(result.details?.coverageRate).toBe(100);
+    expect(result.details?.detectedLocale).toBe('en-us');
+  });
+
   test('treats preferredLocale with no prefixed URLs as the unprefixed default', async () => {
     const host = 'preferred-default.local';
     const llmsPages = [

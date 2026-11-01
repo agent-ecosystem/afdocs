@@ -2526,6 +2526,20 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
     expect(result.urls).toEqual(['http://opt-locale.local/de/docs/intro']);
   });
 
+  it('keeps a locale-prefixed base when preferredLocale is a same-language variant (issue #164)', async () => {
+    const content = `# Docs\n## Links\n- [EN](http://opt-variant.local/en/docs/intro): Intro\n- [EN guide](http://opt-variant.local/en/docs/guide): Guide\n- [FR](http://opt-variant.local/fr/docs/intro): Intro\n- [FR guide](http://opt-variant.local/fr/docs/guide): Guide\n`;
+    // Base URL has /en/ and the option says en-US. The site has no /en-us/,
+    // so the base path must not be rewritten away from the pages that exist.
+    const ctx = makeCtx('http://opt-variant.local/en', content);
+    ctx.options.preferredLocale = 'en-US';
+
+    const result = await getPageUrls(ctx);
+    expect(result.urls).toEqual([
+      'http://opt-variant.local/en/docs/intro',
+      'http://opt-variant.local/en/docs/guide',
+    ]);
+  });
+
   it('explicit preferredVersion overrides version detected from base URL', async () => {
     const content = `# Docs\n## Links\n- [v1](http://opt-ver.local/docs/v1/intro): v1\n- [v2](http://opt-ver.local/docs/v2/intro): v2\n- [v3](http://opt-ver.local/docs/v3/intro): v3\n- [v1 Guide](http://opt-ver.local/docs/v1/guide): v1\n- [v2 Guide](http://opt-ver.local/docs/v2/guide): v2\n- [v3 Guide](http://opt-ver.local/docs/v3/guide): v3\n`;
     // Base URL has /v3/ but explicit option says 'v1' — path prefix

@@ -483,6 +483,25 @@ canonical region such as `en-us` (arbitrary across languages; representation
 count is a property of the site); validating or normalizing `--doc-locale`
 at the CLI (the raw value is still useful as an escape hatch).
 
+Copilot review of the first draft found three gaps, all addressed:
+
+- Coverage's explicit-locale branch resolved before checking the exact raw
+  prefix, so `--doc-locale en-custom` selected `en-us`. It now mirrors the
+  page filter: exact prefix first, variant only when absent.
+- Coverage's raw sitemap walk (`skipRefinement`) ran the sitemap selector
+  with the built-in default `en`, which now resolved `{en-gb, en-us}` to
+  `en-gb` and discarded the US children before coverage inferred `en-us`
+  from llms.txt. Before this change the same case returned every child
+  because no `en` key existed. The raw walk now keeps every child when no
+  locale is known from the flag or the base URL. The fetch and byte budgets
+  from issue #120 still bound it; the trade-off is that a site with many
+  locale shards and no known locale may spend budget on other locales.
+- `rewriteFilterBase` replaced the base URL's locale with the preference
+  whenever they differed, so base `/en` with `--doc-locale en-US` scoped
+  discovery to `/en-us/` and found nothing. This predates the branch. The
+  base is now rewritten only when the preference is a different language or
+  a conflicting script, so the resolver can match what the site has.
+
 ## Documentation at scale: design considerations
 
 Drafting `docs/documentation-at-scale.md` after the #120 live reproduction
