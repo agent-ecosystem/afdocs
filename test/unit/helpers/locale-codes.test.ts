@@ -3,6 +3,8 @@ import {
   isLocaleSegment,
   hasStructuralDuplication,
   detectLocalePosition,
+  countLocaleCodesAt,
+  resolveLocaleVariant,
 } from '../../../src/helpers/locale-codes.js';
 
 describe('isLocaleSegment', () => {
@@ -185,5 +187,121 @@ describe('detectLocalePosition', () => {
   test('returns null when no locale codes appear', () => {
     const urls = ['http://x.com/docs/intro', 'http://x.com/docs/api'];
     expect(detectLocalePosition(urls)).toBeNull();
+  });
+});
+
+describe('countLocaleCodesAt', () => {
+  test('counts lowercased locale codes at a position and ignores other segments', () => {
+    const urls = [
+      'http://x.com/docs/en-US/intro',
+      'http://x.com/docs/en-us/api',
+      'http://x.com/docs/fr-fr/intro',
+      'http://x.com/docs/intro',
+      'http://x.com/docs',
+      'not a url',
+    ];
+    expect(countLocaleCodesAt(urls, 1)).toEqual(
+      new Map([
+        ['en-us', 2],
+        ['fr-fr', 1],
+      ]),
+    );
+  });
+});
+
+describe('resolveLocaleVariant', () => {
+  const counts = (entries: [string, number][]) => new Map(entries);
+
+  test('returns the exact code when present, case-insensitively', () => {
+    expect(
+      resolveLocaleVariant(
+        'EN',
+        counts([
+          ['en', 1],
+          ['en-us', 5],
+        ]),
+      ),
+    ).toBe('en');
+  });
+
+  test('resolves a bare language to its regional variant (issue #164)', () => {
+    expect(
+      resolveLocaleVariant(
+        'en',
+        counts([
+          ['en-us', 3],
+          ['fr-fr', 3],
+        ]),
+      ),
+    ).toBe('en-us');
+  });
+
+  test('resolves a regional preference to the bare language', () => {
+    expect(
+      resolveLocaleVariant(
+        'en-US',
+        counts([
+          ['en', 3],
+          ['fr', 3],
+        ]),
+      ),
+    ).toBe('en');
+  });
+
+  test('picks the best-represented variant, then alphabetical on ties', () => {
+    expect(
+      resolveLocaleVariant(
+        'en',
+        counts([
+          ['en-gb', 2],
+          ['en-us', 7],
+        ]),
+      ),
+    ).toBe('en-us');
+    expect(
+      resolveLocaleVariant(
+        'en',
+        counts([
+          ['en-us', 2],
+          ['en-gb', 2],
+        ]),
+      ),
+    ).toBe('en-gb');
+  });
+
+  test('requires matching scripts when both sides specify one', () => {
+    expect(
+      resolveLocaleVariant(
+        'zh-Hans',
+        counts([
+          ['zh-hans-cn', 1],
+          ['zh-hant', 9],
+        ]),
+      ),
+    ).toBe('zh-hans-cn');
+    expect(resolveLocaleVariant('zh-Hans', counts([['zh-hant', 9]]))).toBeNull();
+    expect(
+      resolveLocaleVariant(
+        'zh',
+        counts([
+          ['zh-hant', 1],
+          ['zh-hans', 1],
+        ]),
+      ),
+    ).toBe('zh-hans');
+  });
+
+  test('returns null when no code shares the language', () => {
+    expect(
+      resolveLocaleVariant(
+        'en',
+        counts([
+          ['es', 1],
+          ['fr', 1],
+          ['zh', 1],
+        ]),
+      ),
+    ).toBeNull();
+    expect(resolveLocaleVariant('en', new Map())).toBeNull();
   });
 });

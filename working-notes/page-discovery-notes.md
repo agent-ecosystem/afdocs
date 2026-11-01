@@ -458,6 +458,31 @@ used as locale prefixes, each a new false-positive surface); validating
 know, such as `latam`, is still honored by the raw-segment match from
 issue #158, and rejecting it would remove that escape hatch).
 
+### October 2026: locale preferences resolve to same-language variants (issue #164)
+
+Locale preferences were matched by exact code in three places: the
+locale-sitemap selector, the page-URL filter, and coverage's explicit-locale
+branch. A site organized by `en-us` and `fr-fr` therefore matched neither the
+default `en` nor a bare `--doc-locale en`, and `--doc-locale en-US` failed
+against a site that uses bare `en`. Microsoft Learn worked only because its
+base URL supplies `en-us`. Found while writing the PR #163 fixtures.
+
+Decision: **one resolver, `resolveLocaleVariant`, in
+`src/helpers/locale-codes.ts`, used by all three call sites.** Exact match
+wins. Otherwise the best-represented code with the same language is chosen,
+and when both the preference and the candidate name a script they must
+agree (`zh-Hans` resolves to `zh-Hans-CN`, never to `zh-Hant`). Ties break
+alphabetically. No same-language code resolves to null, which preserves the
+issue #158 unprefixed fallback. The page-URL filter still tries the exact
+raw segment first so a site-specific code such as `latam` keeps working.
+
+Rejected alternatives: selecting every same-language variant (`en-us` plus
+`en-gb` would put regional duplicates of each page into the sample, and the
+page-level filter has no later step that would remove them); preferring a
+canonical region such as `en-us` (arbitrary across languages; representation
+count is a property of the site); validating or normalizing `--doc-locale`
+at the CLI (the raw value is still useful as an escape hatch).
+
 ## Documentation at scale: design considerations
 
 Drafting `docs/documentation-at-scale.md` after the #120 live reproduction

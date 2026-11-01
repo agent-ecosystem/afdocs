@@ -908,6 +908,43 @@ describe('llms-txt-coverage', () => {
     expect(result.details?.detectedLocale).toBe('fr');
   });
 
+  test('resolves preferredLocale to a regional variant when no exact prefix exists (issue #164)', async () => {
+    const host = 'preferred-variant.local';
+    const enUsPages = [
+      `http://${host}/docs/en-us/getting-started`,
+      `http://${host}/docs/en-us/api-reference`,
+      `http://${host}/docs/en-us/guides`,
+    ];
+    const sitemapPages = [
+      ...enUsPages,
+      `http://${host}/docs/fr-fr/getting-started`,
+      `http://${host}/docs/fr-fr/api-reference`,
+      `http://${host}/docs/fr-fr/guides`,
+    ];
+
+    const ctx = makeCtx(host, enUsPages, '/docs', { preferredLocale: 'en' });
+
+    server.use(
+      http.get(
+        `http://${host}/robots.txt`,
+        () => new HttpResponse(`Sitemap: http://${host}/sitemap.xml`, { status: 200 }),
+      ),
+      http.get(
+        `http://${host}/sitemap.xml`,
+        () =>
+          new HttpResponse(makeSitemap(sitemapPages), {
+            headers: { 'content-type': 'application/xml' },
+          }),
+      ),
+    );
+
+    const result = await check.run(ctx);
+    expect(result.status).toBe('pass');
+    expect(result.details?.sitemapDocPages).toBe(3);
+    expect(result.details?.localeFiltered).toBe(true);
+    expect(result.details?.detectedLocale).toBe('en-us');
+  });
+
   test('treats preferredLocale with no prefixed URLs as the unprefixed default', async () => {
     const host = 'preferred-default.local';
     const llmsPages = [

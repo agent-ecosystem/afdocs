@@ -4,7 +4,12 @@ import { getLlmsTxtFilesForAnalysis, selectCanonicalLlmsTxt } from './llms-txt.j
 import { isNonPageUrl, isMdUrl, toHtmlUrl } from './to-md-urls.js';
 import { isSameSite, canonicalHost } from './host-equivalence.js';
 import { fetchPage } from './fetch-page.js';
-import { isLocaleSegment, detectLocalePosition } from './locale-codes.js';
+import {
+  isLocaleSegment,
+  detectLocalePosition,
+  countLocaleCodesAt,
+  resolveLocaleVariant,
+} from './locale-codes.js';
 import type { CheckContext, DiscoveredFile, UrlPathPattern } from '../types.js';
 
 /**
@@ -517,9 +522,14 @@ export function filterLocaleSitemaps(
   // Need at least 2 distinct locale codes to consider this a locale-organized index
   if (locales.size < 2) return subSitemapUrls;
 
-  // Prefer the user's locale, then 'en', then any non-locale sitemaps
-  const locale = preferredLocale?.toLowerCase();
-  const preferred = (locale && locales.get(locale)) ?? locales.get('en') ?? [];
+  // Prefer the user's locale, then 'en', resolving a regional or script
+  // variant when the exact code is absent (`en` selects `en-us` shards,
+  // issue #164), then any non-locale sitemaps.
+  const counts = new Map([...locales].map(([code, list]) => [code, list.length]));
+  const resolved =
+    (preferredLocale ? resolveLocaleVariant(preferredLocale, counts) : null) ??
+    resolveLocaleVariant('en', counts);
+  const preferred = resolved ? locales.get(resolved)! : [];
   return [...preferred, ...nonLocale].length > 0 ? [...preferred, ...nonLocale] : subSitemapUrls;
 }
 
@@ -555,19 +565,24 @@ export function filterLocalizedUrls(urls: string[], preferredLocale?: string | n
   // unprefixed fallback below (issue #158). Compare raw segments rather than
   // the detection counts so that an explicit preference the locale helper does
   // not recognize (e.g. a site-specific code such as `latam`) still wins.
-  const hasTargetLocale = urls.some((url) => {
+  const hasExactTarget = urls.some((url) => {
     try {
       return segmentAtLocalePosition(url) === targetLocale;
     } catch {
       return false;
     }
   });
+  // Without an exact match, a regional or script variant of the same language
+  // stands in for the target (`en` selects `/en-us/` pages, issue #164).
+  const effectiveTarget = hasExactTarget
+    ? targetLocale
+    : resolveLocaleVariant(targetLocale, countLocaleCodesAt(urls, localePosition));
 
-  if (hasTargetLocale) {
+  if (effectiveTarget) {
     return urls.filter((url) => {
       try {
         const seg = segmentAtLocalePosition(url);
-        return seg === null || seg === targetLocale; // keep URLs without enough segments
+        return seg === null || seg === effectiveTarget; // keep URLs without enough segments
       } catch {
         return true;
       }

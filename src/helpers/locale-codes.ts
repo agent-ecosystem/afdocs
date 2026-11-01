@@ -252,6 +252,68 @@ export function isLocaleSegment(segment: string): boolean {
 }
 
 /**
+ * Count the locale codes that appear at `position` across a URL set, keyed by
+ * lowercased code. Segments that are not locale codes are ignored.
+ */
+export function countLocaleCodesAt(urls: string[], position: number): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const url of urls) {
+    try {
+      const segments = new URL(url).pathname.split('/').filter(Boolean);
+      if (segments.length <= position) continue;
+      const seg = segments[position].toLowerCase();
+      if (isLocaleSegment(seg)) counts.set(seg, (counts.get(seg) ?? 0) + 1);
+    } catch {
+      continue;
+    }
+  }
+  return counts;
+}
+
+function scriptOf(code: string): string | undefined {
+  return code
+    .split('-')
+    .slice(1)
+    .find((part) => ISO_15924.has(part));
+}
+
+/**
+ * Resolve a preferred locale against the codes a site actually uses.
+ *
+ * An exact match wins. Otherwise the best-represented code with the same
+ * language is chosen, provided the scripts agree when both specify one:
+ * `en` → `en-us`, `en-us` → `en`, `zh-hans` → `zh-hans-cn`, but never
+ * `zh-hans` → `zh-hant`. Ties break alphabetically so the choice is stable.
+ * Returns null when no code shares the language, which lets callers fall
+ * back to the unprefixed default (issue #164).
+ *
+ * One variant is returned rather than every same-language variant so that
+ * regional duplicates (`en-us` plus `en-gb`) do not both enter a sample.
+ */
+export function resolveLocaleVariant(
+  preferred: string,
+  available: Map<string, number>,
+): string | null {
+  const target = preferred.toLowerCase();
+  if (available.has(target)) return target;
+
+  const language = target.split('-')[0];
+  const targetScript = scriptOf(target);
+  let best: string | null = null;
+  let bestCount = -1;
+  for (const [code, count] of available) {
+    if (code.split('-')[0] !== language) continue;
+    const script = scriptOf(code);
+    if (targetScript && script && script !== targetScript) continue;
+    if (count > bestCount || (count === bestCount && best !== null && code < best)) {
+      best = code;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/**
  * Check whether a single locale code at `position` represents a real locale
  * prefix by testing for structural duplication: if stripping the code from
  * prefixed URLs produces paths that overlap with unprefixed URLs in the set,

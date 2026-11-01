@@ -216,6 +216,26 @@ describe('getPathFilterBase', () => {
 });
 
 describe('filterLocaleSitemaps', () => {
+  it('selects regional variants of the default locale when no bare code exists (issue #164)', () => {
+    const urls = [
+      'https://example.com/dotnet_en-us_1.xml',
+      'https://example.com/dotnet_en-us_2.xml',
+      'https://example.com/dotnet_fr-fr_1.xml',
+      'https://example.com/dotnet_pages.xml',
+    ];
+    expect(filterLocaleSitemaps(urls)).toEqual([urls[0], urls[1], urls[3]]);
+    expect(filterLocaleSitemaps(urls, 'fr')).toEqual([urls[2], urls[3]]);
+  });
+
+  it('resolves a regional preference to bare-language sitemaps', () => {
+    const urls = [
+      'https://example.com/sitemap-en.xml',
+      'https://example.com/sitemap-fr.xml',
+      'https://example.com/sitemap-pages.xml',
+    ];
+    expect(filterLocaleSitemaps(urls, 'en-US')).toEqual([urls[0], urls[2]]);
+  });
+
   it('falls through to a valid path locale when the filename capture is invalid', () => {
     const urls = [
       'https://example.com/en/sitemap-en-docs.xml',
@@ -360,11 +380,10 @@ describe('filterLocaleSitemaps', () => {
       'https://example.com/sitemap-fr-fr.xml',
       'https://example.com/sitemap-de-de.xml',
     ];
-    // No plain 'en', so all region-tagged locales returned (no preferred match)
-    // Actually, these are distinct locales with region tags; en is not present
-    const result = filterLocaleSitemaps(urls);
-    // No 'en' match, no non-locale sitemaps → falls back to all
-    expect(result).toEqual(urls);
+    // No plain 'en': the default resolves to its only English variant (issue
+    // #164). Before that change, no match meant every locale was returned.
+    expect(filterLocaleSitemaps(urls)).toEqual([urls[0]]);
+    expect(filterLocaleSitemaps(urls, 'de')).toEqual([urls[2]]);
   });
 
   it('prefers the locale from the base URL when preferredLocale is set', () => {
@@ -603,6 +622,30 @@ describe('filterLocalizedUrls', () => {
       'https://example.com/docs/latam/intro',
       'https://example.com/docs/latam/guide',
     ]);
+  });
+
+  it('resolves the target to a regional variant when no exact code exists (issue #164)', () => {
+    const urls = [
+      'https://example.com/docs',
+      'https://example.com/docs/en-us/intro',
+      'https://example.com/docs/en-us/guide',
+      'https://example.com/docs/fr-fr/intro',
+      'https://example.com/docs/fr-fr/guide',
+    ];
+    const enUs = [urls[0], urls[1], urls[2]];
+    expect(filterLocalizedUrls(urls)).toEqual(enUs);
+    expect(filterLocalizedUrls(urls, 'en-GB')).toEqual(enUs);
+    expect(filterLocalizedUrls(urls, 'fr')).toEqual([urls[0], urls[3], urls[4]]);
+  });
+
+  it('resolves a script preference only to a variant with the same script', () => {
+    const urls = [
+      'https://example.com/docs/zh-Hans-CN/intro',
+      'https://example.com/docs/zh-Hans-CN/guide',
+      'https://example.com/docs/zh-Hant/intro',
+      'https://example.com/docs/zh-Hant/guide',
+    ];
+    expect(filterLocalizedUrls(urls, 'zh-Hans')).toEqual([urls[0], urls[1]]);
   });
 
   it('treats script-subtag translations as localized (issue #161)', () => {

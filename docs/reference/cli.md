@@ -151,6 +151,8 @@ The resolution order for both flags is:
 
 Use the flags when the base URL doesn't contain locale or version segments but the site organizes content by locale or version.
 
+A locale preference also matches regional and script variants of the same language when the exact code is absent: `en` selects `en-us` pages and sitemaps, and `--doc-locale en-US` selects bare `en` ones. When several variants exist, the one with the most URLs is used.
+
 ```bash
 # Prefer French locale during discovery
 afdocs check https://docs.example.com --doc-locale fr
