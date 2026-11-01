@@ -461,6 +461,8 @@ export function filterLocaleSitemaps(
   preferredLocale?: string | null,
 ): string[] {
   if (subSitemapUrls.length < 2) return subSitemapUrls;
+  // Distinct children only, so a repeated index entry is fetched once.
+  subSitemapUrls = [...new Set(subSitemapUrls)];
   // An explicit preference the locale helper does not recognize (`en-custom`)
   // cannot be matched to a child by code, and resolving it by language would
   // keep the wrong children and drop others. Keep every child so the
@@ -889,6 +891,10 @@ export async function getUrlsFromSitemap(
     return fetchSitemap(ctx, sitemapUrl, warnings, budget);
   }
 
+  // Distinct URLs only. A page repeated within a sitemap or listed by two
+  // shards would otherwise count twice in the per-variant totals that choose
+  // a locale (issue #164) and in the prefix-coverage counts.
+  const seen = new Set<string>();
   function shouldInclude(url: string): boolean {
     try {
       new URL(url);
@@ -896,6 +902,8 @@ export async function getUrlsFromSitemap(
       return false;
     }
     if (!isSameSite(url, matchOrigin)) return false;
+    if (seen.has(url)) return false;
+    seen.add(url);
     examinedUrls++;
     if (prefixPaths.length > 0 && !prefixPaths.some((p) => matchesPathPrefix(url, p))) {
       return false;

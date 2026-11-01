@@ -402,6 +402,16 @@ describe('filterLocaleSitemaps', () => {
     expect(filterLocaleSitemaps(urls, 'en-US')).toEqual([urls[2], urls[4]]);
   });
 
+  it('fetches a repeated index entry once', () => {
+    const urls = [
+      'https://example.com/sitemap-en-us.xml',
+      'https://example.com/sitemap-en-us.xml',
+      'https://example.com/sitemap-fr-fr.xml',
+      'https://example.com/sitemap-pages.xml',
+    ];
+    expect(filterLocaleSitemaps(urls)).toEqual([urls[0], urls[3]]);
+  });
+
   it('keeps every child for an explicit preference the locale helper does not recognize', () => {
     // en-custom matches no child by code. Resolving by language would keep
     // en-us and drop fr-fr, leaving a two-locale pool that the page-level
@@ -2816,6 +2826,37 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
     expect(result.urls).toEqual(custom);
   });
 
+  it('counts each sitemap URL once when choosing a locale variant', async () => {
+    // One GB page listed three times against two distinct US pages. Counting
+    // entries would pick GB (3 > 2); counting distinct pages picks US (2 > 1).
+    mockSitemapNotFound(server, 'http://opt-dupes.local');
+    server.use(
+      http.get('http://opt-dupes.local/robots.txt', () => new HttpResponse('', { status: 404 })),
+      http.get(
+        'http://opt-dupes.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://opt-dupes.local/en-gb/docs/intro</loc></url>
+  <url><loc>http://opt-dupes.local/en-gb/docs/intro</loc></url>
+  <url><loc>http://opt-dupes.local/en-gb/docs/intro</loc></url>
+  <url><loc>http://opt-dupes.local/en-us/docs/intro</loc></url>
+  <url><loc>http://opt-dupes.local/en-us/docs/guide</loc></url>
+</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+    const ctx = makeCtx('http://opt-dupes.local');
+
+    const result = await getPageUrls(ctx);
+    expect(result.urls).toEqual([
+      'http://opt-dupes.local/en-us/docs/intro',
+      'http://opt-dupes.local/en-us/docs/guide',
+    ]);
+  });
+
   it('keeps child sitemaps needed by the fallback scope (issue #164)', async () => {
     // Preferred en-GB resolves to en-au among the children (alphabetical tie),
     // but the fallback scope /en-us needs the en-us child.
@@ -3148,7 +3189,10 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
       server.use(
         http.get(`${origin}/*`, ({ request }) => {
           requested.push(request.url);
-          return new HttpResponse(`<urlset><url><loc>${origin}/page</loc></url></urlset>`);
+          // One distinct page per root: collected URLs are deduplicated, so a
+          // shared page would never reach the URL cap.
+          const index = /map-(\d+)\.xml$/.exec(request.url)?.[1];
+          return new HttpResponse(`<urlset><url><loc>${origin}/page-${index}</loc></url></urlset>`);
         }),
       );
       const ctx = createContext(origin, { requestDelay: 0 });

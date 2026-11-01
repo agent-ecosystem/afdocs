@@ -537,7 +537,20 @@ Copilot review of the first draft found three gaps, all addressed:
   the page-level detector cannot separate from the custom pages. Child
   pruning is now skipped entirely for a preference `isLocaleSegment` does
   not recognize, matching the path-scope rule, so the page-level
-  exact-prefix filter decides. child-sitemap selection resolved the preference
+  exact-prefix filter decides.
+- A further review summary raised two concerns without a finding. On
+  "fallback discovery overlooking an exact match": every selection point
+  checks the exact code or path first (page filter raw segment, coverage
+  exact prefix, sitemap selector exact code, dual scope primary path); the
+  base-URL fallback at the end of discovery deliberately uses the original
+  base, since a rewritten locale path may not exist. No change. On
+  "duplicate sitemap URLs skewing regional selection": real. Nothing before
+  the final sampler deduplicated sitemap URLs, so a page repeated in one
+  sitemap or listed by two shards counted twice in the per-variant totals
+  that now choose a locale. The walker now collects distinct URLs, counted
+  once for the narrow-prefix warning as well, and the child selector
+  fetches a repeated index entry once. Coverage was already comparing
+  normalized sets, so its rate was unaffected. child-sitemap selection resolved the preference
   alone and could pick an `en-au` child whose pages neither scope keeps
   (children needed by any fallback scope's locale are kept as well).
 
