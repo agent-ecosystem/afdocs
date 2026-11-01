@@ -7,7 +7,6 @@ import { MAX_SITEMAP_FETCHES } from '../../../src/constants.js';
 import type { DiscoveredFile } from '../../../src/types.js';
 import { mockSitemapNotFound } from '../../helpers/mock-sitemap-not-found.js';
 import {
-  detectLocalePosition,
   hasLocaleCodeAt,
   filterToUnprefixedLocale,
   compileExclusionMatcher,
@@ -1045,53 +1044,6 @@ describe('llms-txt-coverage', () => {
     // Only 2 doc pages remain after excluding /docs/blog and /docs/pricing
     expect(result.details?.sitemapDocPages).toBe(2);
     expect(result.details?.excludedNonDocPages).toBe(3);
-  });
-});
-
-describe('detectLocalePosition', () => {
-  test('detects locale position when locale URLs are the majority', () => {
-    const urls = [
-      'http://x.com/docs/en/intro',
-      'http://x.com/docs/en/api',
-      'http://x.com/docs/de/intro',
-      'http://x.com/docs/de/api',
-      'http://x.com/docs/changelog',
-    ];
-    expect(detectLocalePosition(urls)).toBe(1);
-  });
-
-  test('detects minority multi-locale prefixes via structural duplication', () => {
-    // 6 unprefixed + 4 localized (40%): below the majority threshold, but
-    // stripping each locale code produces paths matching unprefixed URLs.
-    const urls = [
-      'http://x.com/docs/intro',
-      'http://x.com/docs/api',
-      'http://x.com/docs/guides',
-      'http://x.com/docs/integrations',
-      'http://x.com/docs/dashboards',
-      'http://x.com/docs/alerts',
-      'http://x.com/docs/fr/intro',
-      'http://x.com/docs/ja/api',
-      'http://x.com/docs/ko/guides',
-      'http://x.com/docs/es/integrations',
-    ];
-    expect(detectLocalePosition(urls)).toBe(1);
-  });
-
-  test('returns null for minority locale-like codes without structural duplication', () => {
-    // "it" is a valid ISO 639-1 code but has no unprefixed twins here.
-    const urls = [
-      'http://x.com/docs/intro',
-      'http://x.com/docs/api',
-      'http://x.com/docs/it/service-management',
-      'http://x.com/docs/it/asset-tracking',
-    ];
-    expect(detectLocalePosition(urls)).toBeNull();
-  });
-
-  test('returns null when no locale codes appear', () => {
-    const urls = ['http://x.com/docs/intro', 'http://x.com/docs/api'];
-    expect(detectLocalePosition(urls)).toBeNull();
   });
 });
 

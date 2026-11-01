@@ -1,5 +1,9 @@
 import { describe, test, expect } from 'vitest';
-import { isLocaleSegment, hasStructuralDuplication } from '../../../src/helpers/locale-codes.js';
+import {
+  isLocaleSegment,
+  hasStructuralDuplication,
+  detectLocalePosition,
+} from '../../../src/helpers/locale-codes.js';
 
 describe('isLocaleSegment', () => {
   test('accepts common ISO 639-1 language codes', () => {
@@ -99,5 +103,63 @@ describe('hasStructuralDuplication', () => {
     ];
     // 1 out of 3 stripped paths matches → 33% < 50%
     expect(hasStructuralDuplication(urls, 1, 'de')).toBe(false);
+  });
+});
+
+describe('detectLocalePosition', () => {
+  test('detects locale position when locale URLs are the majority', () => {
+    const urls = [
+      'http://x.com/docs/en/intro',
+      'http://x.com/docs/en/api',
+      'http://x.com/docs/de/intro',
+      'http://x.com/docs/de/api',
+      'http://x.com/docs/changelog',
+    ];
+    expect(detectLocalePosition(urls)).toBe(1);
+  });
+
+  test('detects minority multi-locale prefixes via structural duplication', () => {
+    // 6 unprefixed + 4 localized (40%): below the majority threshold, but
+    // stripping each locale code produces paths matching unprefixed URLs.
+    const urls = [
+      'http://x.com/docs/intro',
+      'http://x.com/docs/api',
+      'http://x.com/docs/guides',
+      'http://x.com/docs/integrations',
+      'http://x.com/docs/dashboards',
+      'http://x.com/docs/alerts',
+      'http://x.com/docs/fr/intro',
+      'http://x.com/docs/ja/api',
+      'http://x.com/docs/ko/guides',
+      'http://x.com/docs/es/integrations',
+    ];
+    expect(detectLocalePosition(urls)).toBe(1);
+  });
+
+  test('detects a single minority locale via structural duplication', () => {
+    const urls = [
+      'http://x.com/docs/intro',
+      'http://x.com/docs/api',
+      'http://x.com/docs/guide',
+      'http://x.com/docs/de/intro',
+      'http://x.com/docs/de/api',
+    ];
+    expect(detectLocalePosition(urls)).toBe(1);
+  });
+
+  test('returns null for minority locale-like codes without structural duplication', () => {
+    // "it" is a valid ISO 639-1 code but has no unprefixed twins here.
+    const urls = [
+      'http://x.com/docs/intro',
+      'http://x.com/docs/api',
+      'http://x.com/docs/it/service-management',
+      'http://x.com/docs/it/asset-tracking',
+    ];
+    expect(detectLocalePosition(urls)).toBeNull();
+  });
+
+  test('returns null when no locale codes appear', () => {
+    const urls = ['http://x.com/docs/intro', 'http://x.com/docs/api'];
+    expect(detectLocalePosition(urls)).toBeNull();
   });
 });
