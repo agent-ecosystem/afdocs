@@ -2540,6 +2540,54 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
     ]);
   });
 
+  it('selects the requested same-language variant when both variants exist (issue #164)', async () => {
+    const content = `# Docs\n## Links\n- [US](http://opt-both.local/en-us/docs/intro): Intro\n- [US guide](http://opt-both.local/en-us/docs/guide): Guide\n- [GB](http://opt-both.local/en-gb/docs/intro): Intro\n- [GB guide](http://opt-both.local/en-gb/docs/guide): Guide\n- [FR](http://opt-both.local/fr-fr/docs/intro): Intro\n`;
+    // Base URL has /en-us/ and the option asks for en-GB, which the site has.
+    // The requested variant must win over the base variant.
+    const ctx = makeCtx('http://opt-both.local/en-us', content);
+    ctx.options.preferredLocale = 'en-GB';
+
+    const result = await getPageUrls(ctx);
+    expect(result.urls).toEqual([
+      'http://opt-both.local/en-gb/docs/intro',
+      'http://opt-both.local/en-gb/docs/guide',
+    ]);
+  });
+
+  it('selects the requested same-language variant from a sitemap when both exist', async () => {
+    mockSitemapNotFound(server, 'http://opt-both-sitemap.local');
+    server.use(
+      http.get(
+        'http://opt-both-sitemap.local/robots.txt',
+        () => new HttpResponse('', { status: 404 }),
+      ),
+      http.get(
+        'http://opt-both-sitemap.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://opt-both-sitemap.local/en-us/docs/intro</loc></url>
+  <url><loc>http://opt-both-sitemap.local/en-us/docs/guide</loc></url>
+  <url><loc>http://opt-both-sitemap.local/en-gb/docs/intro</loc></url>
+  <url><loc>http://opt-both-sitemap.local/en-gb/docs/guide</loc></url>
+  <url><loc>http://opt-both-sitemap.local/fr-fr/docs/intro</loc></url>
+</urlset>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+    );
+
+    const ctx = makeCtx('http://opt-both-sitemap.local/en-us');
+    ctx.options.preferredLocale = 'en-GB';
+
+    const result = await getPageUrls(ctx);
+    expect(result.urls).toEqual([
+      'http://opt-both-sitemap.local/en-gb/docs/intro',
+      'http://opt-both-sitemap.local/en-gb/docs/guide',
+    ]);
+  });
+
   it('explicit preferredVersion overrides version detected from base URL', async () => {
     const content = `# Docs\n## Links\n- [v1](http://opt-ver.local/docs/v1/intro): v1\n- [v2](http://opt-ver.local/docs/v2/intro): v2\n- [v3](http://opt-ver.local/docs/v3/intro): v3\n- [v1 Guide](http://opt-ver.local/docs/v1/guide): v1\n- [v2 Guide](http://opt-ver.local/docs/v2/guide): v2\n- [v3 Guide](http://opt-ver.local/docs/v3/guide): v3\n`;
     // Base URL has /v3/ but explicit option says 'v1' — path prefix

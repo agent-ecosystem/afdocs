@@ -499,8 +499,14 @@ Copilot review of the first draft found three gaps, all addressed:
 - `rewriteFilterBase` replaced the base URL's locale with the preference
   whenever they differed, so base `/en` with `--doc-locale en-US` scoped
   discovery to `/en-us/` and found nothing. This predates the branch. The
-  base is now rewritten only when the preference is a different language or
-  a conflicting script, so the resolver can match what the site has.
+  first fix kept the base path for same-language variants, which Copilot
+  showed breaks the opposite case: base `/en-us` with `--doc-locale en-GB`
+  on a site that has both kept the US pages. Discovery is now scoped to
+  both paths when the preference is a same-language variant of the base
+  locale (primary: rewritten; secondary: original), for llms.txt links and
+  sitemap URLs alike, and `filterLocalizedUrls` takes the exact variant
+  when present and resolves to the base variant otherwise. A different
+  language still rewrites without fallback.
 
 ## Documentation at scale: design considerations
 

@@ -823,7 +823,8 @@ export interface SitemapOptions {
   maxUrls?: number;
   sitemapUrls?: string[];
   originOverride?: string;
-  pathFilterBase?: string;
+  /** One or more base URLs; a URL is kept when it falls under any of them. */
+  pathFilterBase?: string | string[];
   /** Skip URL-level locale/version refinement. Use when the caller needs raw URLs (e.g. coverage check). */
   skipRefinement?: boolean;
 }
@@ -838,9 +839,13 @@ export async function getUrlsFromSitemap(
   const urls: string[] = [];
   const matchOrigin = originOverride ?? ctx.origin;
 
-  // Pre-compute the path prefix so we can filter before counting against the cap.
-  // When pathFilterBase is provided, only URLs under that prefix consume cap slots.
-  const prefixPath = pathFilterBase ? new URL(pathFilterBase).pathname.replace(/\/$/, '') : '';
+  // Pre-compute the path prefixes so we can filter before counting against the cap.
+  // When pathFilterBase is provided, only URLs under one of those prefixes consume
+  // cap slots. The first prefix is the primary scope used in warnings.
+  const prefixPaths = (
+    Array.isArray(pathFilterBase) ? pathFilterBase : pathFilterBase ? [pathFilterBase] : []
+  ).map((base) => new URL(base).pathname.replace(/\/$/, ''));
+  const prefixPath = prefixPaths[0] ?? '';
   let examinedUrls = 0;
   let matchingUrls = 0;
   const budget: SitemapBudget = { fetches: 0, bytes: 0 };
@@ -870,7 +875,9 @@ export async function getUrlsFromSitemap(
     }
     if (!isSameSite(url, matchOrigin)) return false;
     examinedUrls++;
-    if (prefixPath && !matchesPathPrefix(url, prefixPath)) return false;
+    if (prefixPaths.length > 0 && !prefixPaths.some((p) => matchesPathPrefix(url, p))) {
+      return false;
+    }
     matchingUrls++;
     return true;
   }
@@ -971,7 +978,8 @@ export function getPathFilterBase(ctx: CheckContext): string {
  *
  * For example, base URL `example.com/en/docs` with `--locale de` rewrites
  * to `example.com/de/docs` so that path prefix filtering matches the
- * preferred locale's URL space.
+ * preferred locale's URL space. See `pathFilterBases` for the same-language
+ * case, where the original base is kept as a second scope.
  */
 function rewriteFilterBase(
   filterBase: string,
@@ -986,14 +994,7 @@ function rewriteFilterBase(
 
     if (preferredLocale) {
       const detected = extractLocaleFromUrl(filterBase);
-      // Rewrite only when the preference is a different language (or a
-      // conflicting script). A same-language variant such as `en-US` over a
-      // `/en/` base keeps the base path so the resolver can match the pages
-      // the site actually has (issue #164).
-      const sameLanguage =
-        detected !== null &&
-        resolveLocaleVariant(preferredLocale, new Map([[detected, 1]])) !== null;
-      if (detected && !sameLanguage) {
+      if (detected && detected !== preferredLocale.toLowerCase()) {
         const idx = segments.findIndex((s) => s.toLowerCase() === detected);
         if (idx >= 0) segments[idx] = preferredLocale.toLowerCase();
       }
@@ -1063,6 +1064,34 @@ function mergeUrlSets(primary: string[], secondary: string[]): string[] {
 }
 
 /**
+ * Path scopes for discovery, primary first.
+ *
+ * The primary scope is the base URL with the preferred locale and version
+ * substituted. When the preference is a same-language variant of the base
+ * URL's locale (`en-GB` over `/en-us/`, `en-US` over `/en/`), the original
+ * locale path is kept as a second scope. Scoping to the rewritten path alone
+ * would discard every page on a site that lacks the exact variant; scoping to
+ * the original alone would keep the base variant even when the requested one
+ * exists. With both in scope, `filterLocalizedUrls` takes the exact variant
+ * when present and resolves to the base variant otherwise (issue #164).
+ * A different language never falls back to the base locale.
+ */
+function pathFilterBases(ctx: CheckContext): string[] {
+  const original = getPathFilterBase(ctx);
+  const { preferredLocale, preferredVersion } = ctx.options;
+  const primary = rewriteFilterBase(original, preferredLocale, preferredVersion);
+  if (!preferredLocale) return [primary];
+
+  const detected = extractLocaleFromUrl(original);
+  if (!detected || detected === preferredLocale.toLowerCase()) return [primary];
+  const sameLanguage = resolveLocaleVariant(preferredLocale, new Map([[detected, 1]])) !== null;
+  if (!sameLanguage) return [primary];
+
+  const secondary = rewriteFilterBase(original, undefined, preferredVersion);
+  return secondary === primary ? [primary] : [primary, secondary];
+}
+
+/**
  * Discover page URLs from llms.txt links, sitemap, or fall back to baseUrl.
  *
  * Priority:
@@ -1083,11 +1112,8 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
 
   const locale = ctx.options.preferredLocale ?? extractLocaleFromUrl(ctx.baseUrl);
   const version = ctx.options.preferredVersion ?? extractVersionFromUrl(ctx.baseUrl);
-  const filterBase = rewriteFilterBase(
-    getPathFilterBase(ctx),
-    ctx.options.preferredLocale,
-    ctx.options.preferredVersion,
-  );
+  const filterBases = pathFilterBases(ctx);
+  const filterPaths = filterBases.map((base) => new URL(base).pathname.replace(/\/$/, ''));
 
   /** Apply locale and version filtering to a discovered URL set. */
   function refineUrls(urls: string[]): string[] {
@@ -1096,14 +1122,8 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
   }
 
   function scopeLlmsTxtUrls(urls: string[]): string[] {
-    const scoped = filterByPathPrefix(urls, filterBase);
-    warnOnNarrowPathPrefix(
-      warnings,
-      'llms.txt',
-      new URL(filterBase).pathname.replace(/\/$/, ''),
-      scoped.length,
-      urls.length,
-    );
+    const scoped = urls.filter((url) => filterPaths.some((p) => matchesPathPrefix(url, p)));
+    warnOnNarrowPathPrefix(warnings, 'llms.txt', filterPaths[0], scoped.length, urls.length);
     return refineUrls(scoped);
   }
 
@@ -1142,7 +1162,7 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
     }
 
     // llms.txt is thin — try sitemap to fill the gap
-    const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: filterBase });
+    const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: filterBases });
     if (sitemapUrls.length > 0) {
       sources.push('sitemap');
       return {
@@ -1158,7 +1178,7 @@ export async function getPageUrls(ctx: CheckContext): Promise<PageUrlResult> {
   }
 
   // 3. Try sitemap (path, locale, and version filtering applied inside)
-  const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: filterBase });
+  const sitemapUrls = await getUrlsFromSitemap(ctx, warnings, { pathFilterBase: filterBases });
   if (sitemapUrls.length > 0) {
     sources.push('sitemap');
     return { urls: sitemapUrls, warnings, sources };
