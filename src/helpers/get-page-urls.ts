@@ -456,11 +456,18 @@ export function filterLocaleSitemaps(
 ): string[] {
   if (subSitemapUrls.length < 2) return subSitemapUrls;
 
+  // Locale shape shared by all three patterns: language[-Script][-REGION],
+  // e.g. `en`, `fr-fr`, `zh-hans`, `zh-hans-cn`. Fixing the subtag order keeps
+  // a two-letter product prefix such as `cs` in `dotnet-cs-fr-fr-1.xml` from
+  // consuming the real locale. Captures are validated by `isLocaleSegment`.
+  const LOCALE = '([a-z]{2}(?:-[a-z]{4})?(?:-[a-z]{2})?)';
   // Pattern 1: locale code in filename (sitemap-{locale}.xml)
-  const filenameLocalePattern = /\/sitemap-([a-z]{2}(?:-[a-z]{2,4}){0,2})\.xml$/i;
+  const filenameLocalePattern = new RegExp(`/sitemap-${LOCALE}\\.xml$`, 'i');
   // Pattern 2: locale code in path segment (/{locale}/sitemap.xml)
-  const pathLocalePattern = /\/([a-z]{2}(?:-[a-z]{2,4}){0,2})\/sitemap[^/]*\.xml$/i;
-  const infixLocalePattern = /[_-]([a-z]{2}(?:-[a-z]{2,4}){0,2})(?:[_-]\d+)?\.xml$/i;
+  const pathLocalePattern = new RegExp(`/${LOCALE}/sitemap[^/]*\\.xml$`, 'i');
+  // Pattern 3: locale token inside a filename, optionally followed by a shard
+  // number (dotnet_en-us_1.xml, previous-versions-fr-fr-3.xml)
+  const infixLocalePattern = new RegExp(`[_-]${LOCALE}(?:[_-]\\d+)?\\.xml$`, 'i');
 
   const locales = new Map<string, string[]>();
   const nonLocale: string[] = [];
@@ -473,13 +480,14 @@ export function filterLocaleSitemaps(
       nonLocale.push(url);
       continue;
     }
-    const filenameMatch = filenameLocalePattern.exec(pathname);
-    const pathMatch = pathLocalePattern.exec(pathname);
-    const infixMatch = infixLocalePattern.exec(pathname);
-    const match = filenameMatch ?? pathMatch ?? infixMatch;
+    // First *validated* candidate wins, so an invalid filename capture such as
+    // `en-docs` in `/fr/sitemap-en-docs.xml` falls through to the path locale.
+    const locale = [filenameLocalePattern, pathLocalePattern, infixLocalePattern]
+      .map((pattern) => pattern.exec(pathname)?.[1])
+      .find((candidate) => candidate !== undefined && isLocaleSegment(candidate))
+      ?.toLowerCase();
 
-    if (match && isLocaleSegment(match[1])) {
-      const locale = match[1].toLowerCase();
+    if (locale) {
       if (!locales.has(locale)) locales.set(locale, []);
       locales.get(locale)!.push(url);
     } else {

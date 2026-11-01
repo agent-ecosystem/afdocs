@@ -216,6 +216,30 @@ describe('getPathFilterBase', () => {
 });
 
 describe('filterLocaleSitemaps', () => {
+  it('falls through to a valid path locale when the filename capture is invalid', () => {
+    const urls = [
+      'https://example.com/en/sitemap-en-docs.xml',
+      'https://example.com/fr/sitemap-en-docs.xml',
+      'https://example.com/sitemap-pages.xml',
+    ];
+    expect(filterLocaleSitemaps(urls)).toEqual([urls[0], urls[2]]);
+    expect(filterLocaleSitemaps(urls, 'fr')).toEqual([urls[1], urls[2]]);
+  });
+
+  it('does not let a two-letter product prefix consume a regional locale shard', () => {
+    // Preferred-locale lookup is an exact key match, so the English shard is
+    // bare `en` here; the regional and script shards exercise the capture.
+    const urls = [
+      'https://example.com/dotnet-cs-en-1.xml',
+      'https://example.com/dotnet-cs-fr-fr-1.xml',
+      'https://example.com/dotnet-cs-zh-hans-2.xml',
+      'https://example.com/dotnet-cs-pages.xml',
+    ];
+    expect(filterLocaleSitemaps(urls)).toEqual([urls[0], urls[3]]);
+    expect(filterLocaleSitemaps(urls, 'fr-FR')).toEqual([urls[1], urls[3]]);
+    expect(filterLocaleSitemaps(urls, 'zh-Hans')).toEqual([urls[2], urls[3]]);
+  });
+
   it('recognizes script-subtag locale sitemaps (issue #161)', () => {
     const urls = [
       'https://example.com/sitemap-en.xml',

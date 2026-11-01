@@ -435,9 +435,14 @@ Decision: **accept `language-Script` and `language-Script-REGION` where the
 language is ISO 639-1 and the script is in a curated ISO 15924 list.** The
 list holds scripts that appear as path prefixes on docs sites; it is not
 the full registry. Region stays a two-character tail. The three
-locale-sitemap regexes capture up to two extra subtags of two to four
-letters and still defer to `isLocaleSegment` for validation, so a captured
-`en-docs` is rejected as before.
+locale-sitemap regexes share one capture shape, `language[-Script][-REGION]`,
+and defer to `isLocaleSegment` for validation. Copilot review caught two
+regressions in the first draft, which captured any two to four letter
+subtags: a two-letter product prefix (`dotnet-cs-fr-fr-1.xml`) consumed
+the real locale, and an invalid filename capture (`/fr/sitemap-en-docs.xml`)
+masked the valid path locale because the first regex to match won. The
+fixed shape blocks the first; taking the first _validated_ candidate
+across the three patterns fixes the second.
 
 Rejected alternatives: a length rule such as "two letters, hyphen, four
 letters" (lowercased `en-vivo`, `es-tudo`, `de-dupe` would pass; the
