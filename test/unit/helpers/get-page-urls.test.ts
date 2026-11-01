@@ -216,6 +216,19 @@ describe('getPathFilterBase', () => {
 });
 
 describe('filterLocaleSitemaps', () => {
+  it('recognizes script-subtag locale sitemaps (issue #161)', () => {
+    const urls = [
+      'https://example.com/sitemap-en.xml',
+      'https://example.com/sitemap-zh-hans.xml',
+      'https://example.com/sitemap-zh-hant.xml',
+      'https://example.com/zh-Hans/sitemap.xml',
+      'https://example.com/docs_zh-hant_1.xml',
+      'https://example.com/sitemap-pages.xml',
+    ];
+    expect(filterLocaleSitemaps(urls)).toEqual([urls[0], urls[5]]);
+    expect(filterLocaleSitemaps(urls, 'zh-Hant')).toEqual([urls[2], urls[4], urls[5]]);
+  });
+
   it.each(['_', '-'])(
     'recognizes %s-delimited locale shards and query strings (#120)',
     (separator) => {
@@ -354,6 +367,11 @@ describe('extractLocaleFromUrl', () => {
 
   it('detects locale after a non-locale segment', () => {
     expect(extractLocaleFromUrl('https://example.com/docs/en/intro')).toBe('en');
+  });
+
+  it('detects script-subtag locales (issue #161)', () => {
+    expect(extractLocaleFromUrl('https://example.com/docs/zh-Hans/intro')).toBe('zh-hans');
+    expect(extractLocaleFromUrl('https://example.com/sr-Latn-RS/docs')).toBe('sr-latn-rs');
   });
 
   it('returns null when no locale segment is found', () => {
@@ -516,16 +534,16 @@ describe('filterLocalizedUrls', () => {
     expect(result).toEqual(['https://example.com/docs/', 'https://example.com/docs/intro']);
   });
 
-  it('honors an explicit script-subtag locale the locale helper does not recognize (issue #161)', () => {
-    // zh-Hans is not an isLocaleSegment match, so it never enters the detection
-    // counts. Detection fires on es/fr; the explicit target must still be
-    // confirmed against the raw segments rather than falling back to unprefixed.
+  it('honors an explicit locale the locale helper does not recognize', () => {
+    // `latam` is not an isLocaleSegment match, so it never enters detection.
+    // Detection fires on es/fr; the explicit target must still be confirmed
+    // against the raw segments rather than falling back to unprefixed.
     const urls = [
       'https://example.com/docs',
       'https://example.com/docs/intro',
       'https://example.com/docs/guide',
-      'https://example.com/docs/zh-Hans/intro',
-      'https://example.com/docs/zh-Hans/guide',
+      'https://example.com/docs/latam/intro',
+      'https://example.com/docs/latam/guide',
       'https://example.com/docs/es/intro',
       'https://example.com/docs/es/guide',
       'https://example.com/docs/es/api',
@@ -533,11 +551,31 @@ describe('filterLocalizedUrls', () => {
       'https://example.com/docs/fr/guide',
       'https://example.com/docs/fr/api',
     ];
-    const result = filterLocalizedUrls(urls, 'zh-Hans');
+    const result = filterLocalizedUrls(urls, 'latam');
     expect(result).toEqual([
       'https://example.com/docs',
+      'https://example.com/docs/latam/intro',
+      'https://example.com/docs/latam/guide',
+    ]);
+  });
+
+  it('treats script-subtag translations as localized (issue #161)', () => {
+    const urls = [
+      'https://example.com/docs',
+      'https://example.com/docs/intro',
+      'https://example.com/docs/guide',
       'https://example.com/docs/zh-Hans/intro',
       'https://example.com/docs/zh-Hans/guide',
+      'https://example.com/docs/zh-Hant/intro',
+      'https://example.com/docs/zh-Hant/guide',
+    ];
+    // Default target 'en' is absent, so the unprefixed default wins and the
+    // script-subtag pages are excluded rather than mistaken for unprefixed.
+    expect(filterLocalizedUrls(urls)).toEqual(urls.slice(0, 3));
+    expect(filterLocalizedUrls(urls, 'zh-Hant')).toEqual([
+      'https://example.com/docs',
+      'https://example.com/docs/zh-Hant/intro',
+      'https://example.com/docs/zh-Hant/guide',
     ]);
   });
 

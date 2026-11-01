@@ -445,7 +445,7 @@ export function extractLocaleFromUrl(url: string): string | null {
  * filter to the preferred locale. Defaults to 'en' when no preference is given.
  *
  * Common patterns:
- * - `sitemap-en.xml`, `sitemap-fr.xml`, `sitemap-el.xml`
+ * - `sitemap-en.xml`, `sitemap-fr.xml`, `sitemap-zh-hans.xml`
  * - `/en/sitemap.xml`, `/fr/sitemap.xml`
  *
  * Returns the original array unchanged if no locale pattern is detected.
@@ -457,10 +457,10 @@ export function filterLocaleSitemaps(
   if (subSitemapUrls.length < 2) return subSitemapUrls;
 
   // Pattern 1: locale code in filename (sitemap-{locale}.xml)
-  const filenameLocalePattern = /\/sitemap-([a-z]{2}(?:-[a-z]{2})?)\.xml$/i;
+  const filenameLocalePattern = /\/sitemap-([a-z]{2}(?:-[a-z]{2,4}){0,2})\.xml$/i;
   // Pattern 2: locale code in path segment (/{locale}/sitemap.xml)
-  const pathLocalePattern = /\/([a-z]{2}(?:-[a-z]{2})?)\/sitemap[^/]*\.xml$/i;
-  const infixLocalePattern = /[_-]([a-z]{2}(?:-[a-z]{2})?)(?:[_-]\d+)?\.xml$/i;
+  const pathLocalePattern = /\/([a-z]{2}(?:-[a-z]{2,4}){0,2})\/sitemap[^/]*\.xml$/i;
+  const infixLocalePattern = /[_-]([a-z]{2}(?:-[a-z]{2,4}){0,2})(?:[_-]\d+)?\.xml$/i;
 
   const locales = new Map<string, string[]>();
   const nonLocale: string[] = [];
@@ -527,7 +527,7 @@ export function filterLocalizedUrls(urls: string[], preferredLocale?: string | n
   // unprefixed would collapse to the base URL alone and never reach the
   // unprefixed fallback below (issue #158). Compare raw segments rather than
   // the detection counts so that an explicit preference the locale helper does
-  // not recognize (e.g. a script subtag such as zh-Hans, issue #161) still wins.
+  // not recognize (e.g. a site-specific code such as `latam`) still wins.
   const hasTargetLocale = urls.some((url) => {
     try {
       return segmentAtLocalePosition(url) === targetLocale;

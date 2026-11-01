@@ -54,7 +54,7 @@ options:
 
 ### Locale handling
 
-Multi-locale sites usually list only one language in `llms.txt`, so localized sitemap URLs would otherwise read as missing coverage. The check detects locale-prefixed paths (like `/fr/` or `/docs/ja/`) and compares `llms.txt` against a single locale:
+Multi-locale sites usually list only one language in `llms.txt`, so localized sitemap URLs would otherwise read as missing coverage. The check detects locale-prefixed paths (like `/fr/`, `/docs/ja/`, or `/zh-Hans/`) and compares `llms.txt` against a single locale:
 
 - When locale prefixes cover most of the sitemap, the prefix position is detected directly.
 - When translations are a minority of the sitemap (an unprefixed default language plus a few translated locales), the check confirms the prefixes by structural duplication: stripping a locale code must produce paths that match unprefixed URLs.

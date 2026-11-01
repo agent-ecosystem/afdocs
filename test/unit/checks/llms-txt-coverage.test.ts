@@ -1058,6 +1058,11 @@ describe('hasLocaleCodeAt', () => {
     expect(hasLocaleCodeAt('http://x.com/docs/zh-cn/intro', 1)).toBe(true);
   });
 
+  test('returns true for script subtags (issue #161)', () => {
+    expect(hasLocaleCodeAt('http://x.com/docs/zh-Hans/intro', 1)).toBe(true);
+    expect(hasLocaleCodeAt('http://x.com/docs/sr-Latn/intro', 1)).toBe(true);
+  });
+
   test('returns false for non-locale segments', () => {
     expect(hasLocaleCodeAt('http://x.com/docs/getting-started', 1)).toBe(false);
     expect(hasLocaleCodeAt('http://x.com/docs/api', 1)).toBe(false);

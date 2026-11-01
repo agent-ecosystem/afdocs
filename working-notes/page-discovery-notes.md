@@ -423,6 +423,31 @@ module (keeps a helper under a check's namespace for no reason). The
 target-locale and unprefixed-fallback rules from issue #158 are unchanged;
 only how the position is found moved.
 
+### October 2026: script-subtag locale codes (issue #161)
+
+`isLocaleSegment` accepted `xx` and `xx-yy` only, so `zh-Hans`, `zh-Hant`,
+and `sr-Latn` were invisible to every locale consumer: base-URL locale
+extraction, position detection, the unprefixed fallback (which treated
+`/docs/zh-Hans/intro` as an unprefixed page), coverage's locale filter, and
+the locale-sitemap patterns. Raised by Copilot's review of PR #160.
+
+Decision: **accept `language-Script` and `language-Script-REGION` where the
+language is ISO 639-1 and the script is in a curated ISO 15924 list.** The
+list holds scripts that appear as path prefixes on docs sites; it is not
+the full registry. Region stays a two-character tail. The three
+locale-sitemap regexes capture up to two extra subtags of two to four
+letters and still defer to `isLocaleSegment` for validation, so a captured
+`en-docs` is rejected as before.
+
+Rejected alternatives: a length rule such as "two letters, hyphen, four
+letters" (lowercased `en-vivo`, `es-tudo`, `de-dupe` would pass; the
+original two-letter regex was replaced with the ISO 639-1 set for the same
+reason in PR #60); the full ISO 15924 registry (over 200 codes, most never
+used as locale prefixes, each a new false-positive surface); validating
+`--doc-locale` against the helper (an explicit value the helper does not
+know, such as `latam`, is still honored by the raw-segment match from
+issue #158, and rejecting it would remove that escape hatch).
+
 ## Documentation at scale: design considerations
 
 Drafting `docs/documentation-at-scale.md` after the #120 live reproduction

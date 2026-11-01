@@ -189,19 +189,66 @@ const ISO_639_1 = new Set([
   'zu',
 ]);
 
+// ISO 15924 script subtags seen as locale path segments on documentation
+// sites (`zh-Hans`, `zh-Hant`, `sr-Latn`, `uz-Cyrl`). Curated rather than the
+// full registry so that lowercased segments such as `en-vivo` or `es-tudo`
+// keep failing validation (issue #161).
+const ISO_15924 = new Set([
+  'arab',
+  'armn',
+  'beng',
+  'cyrl',
+  'deva',
+  'ethi',
+  'geor',
+  'grek',
+  'gujr',
+  'guru',
+  'hang',
+  'hani',
+  'hans',
+  'hant',
+  'hebr',
+  'hira',
+  'jpan',
+  'kana',
+  'khmr',
+  'knda',
+  'kore',
+  'laoo',
+  'latn',
+  'mlym',
+  'mong',
+  'mymr',
+  'sinh',
+  'taml',
+  'telu',
+  'thai',
+  'tibt',
+]);
+
+/** Two-character region subtag (`br`, `us`, `cn`). */
+function isRegionSubtag(part: string): boolean {
+  return part.length === 2;
+}
+
 /**
  * Test whether a path segment is a valid locale code.
- * Accepts ISO 639-1 language codes ("en", "de") and BCP 47 language-region
- * subtags where the language part is a valid ISO 639-1 code ("pt-br", "zh-cn").
+ * Accepts ISO 639-1 language codes ("en", "de") and BCP 47 forms whose
+ * language part is a valid ISO 639-1 code:
+ * - language-region ("pt-br", "zh-cn")
+ * - language-script ("zh-hans", "sr-latn")
+ * - language-script-region ("zh-hans-cn")
  */
 export function isLocaleSegment(segment: string): boolean {
   const lower = segment.toLowerCase();
   if (ISO_639_1.has(lower)) return true;
-  const hyphen = lower.indexOf('-');
-  if (hyphen === 2 && lower.length === 5) {
-    return ISO_639_1.has(lower.slice(0, 2));
+  const parts = lower.split('-');
+  if (parts.length < 2 || parts.length > 3 || !ISO_639_1.has(parts[0])) return false;
+  if (parts.length === 2) {
+    return isRegionSubtag(parts[1]) || ISO_15924.has(parts[1]);
   }
-  return false;
+  return ISO_15924.has(parts[1]) && isRegionSubtag(parts[2]);
 }
 
 /**
