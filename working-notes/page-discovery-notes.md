@@ -360,6 +360,38 @@ discovery, sampling, fetching, and link verification. Heading extraction,
 content-parity analysis, fence validity, and llms.txt structural validation
 remain separate work.
 
+### October 2026: unprefixed default locale when the base URL is listed (issue #158)
+
+Mintlify's docs (`/docs/intro`, `/docs/es/intro`, `/docs/fr/intro`,
+`/docs/zh/intro`) collapsed to two tested pages and a `single-page-sample`
+cap. Three locale codes at position 1 covered 75% of discovered URLs, so
+detection fired with the default target `en`. No URL carried `en`, but the
+base URL `/docs` survived the target filter because URLs with fewer segments
+than the locale position are always kept. That non-empty result
+short-circuited the unprefixed fallback added for issue #56 (PR #60). The
+fallback's tests never caught this because their fixtures omit the base URL.
+Both discovery paths were affected: the llms.txt walk follows Mintlify's
+nested `_llms/{en,es,fr,zh}` aggregates and the sitemap lists every locale,
+and each collapsed independently to the base URL.
+
+Decision: **filter to the target locale only when the per-position code
+counts gathered during detection contain the target.** Otherwise go
+straight to the unprefixed fallback. The short-URL keep rule is unchanged
+in both branches, so the base URL stays in the sample either way.
+
+Rejected alternatives: a second pass over the URLs to look for the target
+(the reporter's suggestion; equivalent, but recomputes what detection
+already knows); dropping the short-URL keep rule (would exclude the base
+URL on prefixed sites and break the existing test); triggering the fallback
+when the filtered set is "mostly" short URLs (a threshold where a direct
+check exists).
+
+The coverage check was not affected: its `filterByLocale` requires the
+segment to exist, so the base URL never masks a missing target there.
+Coverage's second detection pass handles several minority locale codes
+(PR #100) while discovery's handles one; that drift is tracked in
+issue #159.
+
 ## Documentation at scale: design considerations
 
 Drafting `docs/documentation-at-scale.md` after the #120 live reproduction

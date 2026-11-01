@@ -479,6 +479,43 @@ describe('filterLocalizedUrls', () => {
     expect(result).not.toContain('https://example.com/docs/fr/intro');
   });
 
+  it('falls back to unprefixed default when only the base URL survives the target filter (issue #158)', () => {
+    // Default language unprefixed, translations prefixed, and the base URL
+    // itself in the list. Before the fix, /docs alone survived the 'en'
+    // filter (too few segments to reach the locale position), so the
+    // non-empty result short-circuited the unprefixed fallback.
+    const urls = [
+      'https://example.com/docs',
+      'https://example.com/docs/intro',
+      'https://example.com/docs/guide',
+      'https://example.com/docs/es/intro',
+      'https://example.com/docs/es/guide',
+      'https://example.com/docs/fr/intro',
+      'https://example.com/docs/fr/guide',
+      'https://example.com/docs/zh/intro',
+      'https://example.com/docs/zh/guide',
+    ];
+    const result = filterLocalizedUrls(urls);
+    expect(result).toEqual([
+      'https://example.com/docs',
+      'https://example.com/docs/intro',
+      'https://example.com/docs/guide',
+    ]);
+  });
+
+  it('falls back to unprefixed default with an explicit preferred locale when the base URL is listed', () => {
+    const urls = [
+      'https://example.com/docs/',
+      'https://example.com/docs/intro',
+      'https://example.com/docs/es/intro',
+      'https://example.com/docs/es/guide',
+      'https://example.com/docs/fr/intro',
+      'https://example.com/docs/fr/guide',
+    ];
+    const result = filterLocalizedUrls(urls, 'en');
+    expect(result).toEqual(['https://example.com/docs/', 'https://example.com/docs/intro']);
+  });
+
   it('detects single-locale site via structural duplication and filters to unprefixed', () => {
     const urls = [
       'https://example.com/docs/intro',

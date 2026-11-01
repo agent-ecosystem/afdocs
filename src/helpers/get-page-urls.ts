@@ -558,17 +558,23 @@ export function filterLocalizedUrls(urls: string[], preferredLocale?: string | n
 
   const targetLocale = preferredLocale?.toLowerCase() ?? 'en';
 
-  const filtered = urls.filter((url) => {
-    try {
-      const segments = new URL(url).pathname.split('/').filter(Boolean);
-      if (segments.length <= localePosition!) return true; // keep URLs without enough segments
-      return segments[localePosition!].toLowerCase() === targetLocale;
-    } catch {
-      return true;
-    }
-  });
-
-  if (filtered.length > 0) return filtered;
+  // Only filter to the target locale when some URL actually carries it at the
+  // detected position. Deciding by whether the filtered set is non-empty does
+  // not work: URLs with fewer segments than the position (typically the base
+  // URL, e.g. /docs) are always kept, so a site whose default language is
+  // unprefixed would collapse to the base URL alone and never reach the
+  // unprefixed fallback below (issue #158).
+  if (positionCounts.get(localePosition)?.has(targetLocale)) {
+    return urls.filter((url) => {
+      try {
+        const segments = new URL(url).pathname.split('/').filter(Boolean);
+        if (segments.length <= localePosition!) return true; // keep URLs without enough segments
+        return segments[localePosition!].toLowerCase() === targetLocale;
+      } catch {
+        return true;
+      }
+    });
+  }
 
   // Target locale not found. The default language may use unprefixed paths
   // (e.g. /docs/intro instead of /docs/en/intro). Filter to URLs that don't
