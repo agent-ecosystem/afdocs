@@ -442,7 +442,12 @@ subtags: a two-letter product prefix (`dotnet-cs-fr-fr-1.xml`) consumed
 the real locale, and an invalid filename capture (`/fr/sitemap-en-docs.xml`)
 masked the valid path locale because the first regex to match won. The
 fixed shape blocks the first; taking the first _validated_ candidate
-across the three patterns fixes the second.
+across the three patterns fixes the second. A third review pass found that a regex only returns its
+leftmost match, so `dotnet-cs-docs-en-1.xml` produced the invalid
+`cs-docs-en` and never reached the valid `en`. The infix pattern is now
+anchored to the filename tail and tried from every `_` or `-` delimiter
+left to right, and the first valid candidate across filename, path
+segment, and infix positions wins.
 
 Rejected alternatives: a length rule such as "two letters, hyphen, four
 letters" (lowercased `en-vivo`, `es-tudo`, `de-dupe` would pass; the

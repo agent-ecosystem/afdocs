@@ -456,18 +456,40 @@ export function filterLocaleSitemaps(
 ): string[] {
   if (subSitemapUrls.length < 2) return subSitemapUrls;
 
-  // Locale shape shared by all three patterns: language[-Script][-REGION],
-  // e.g. `en`, `fr-fr`, `zh-hans`, `zh-hans-cn`. Fixing the subtag order keeps
-  // a two-letter product prefix such as `cs` in `dotnet-cs-fr-fr-1.xml` from
-  // consuming the real locale. Captures are validated by `isLocaleSegment`.
+  // Locale shape shared by all patterns: language[-Script][-REGION], e.g.
+  // `en`, `fr-fr`, `zh-hans`, `zh-hans-cn`. Fixing the subtag order keeps a
+  // two-letter product prefix such as `cs` in `dotnet-cs-fr-fr-1.xml` from
+  // consuming the real locale. Every capture is validated by `isLocaleSegment`.
   const LOCALE = '([a-z]{2}(?:-[a-z]{4})?(?:-[a-z]{2})?)';
   // Pattern 1: locale code in filename (sitemap-{locale}.xml)
   const filenameLocalePattern = new RegExp(`/sitemap-${LOCALE}\\.xml$`, 'i');
   // Pattern 2: locale code in path segment (/{locale}/sitemap.xml)
   const pathLocalePattern = new RegExp(`/${LOCALE}/sitemap[^/]*\\.xml$`, 'i');
   // Pattern 3: locale token inside a filename, optionally followed by a shard
-  // number (dotnet_en-us_1.xml, previous-versions-fr-fr-3.xml)
-  const infixLocalePattern = new RegExp(`[_-]${LOCALE}(?:[_-]\\d+)?\\.xml$`, 'i');
+  // number (dotnet_en-us_1.xml, previous-versions-fr-fr-3.xml). Anchored to
+  // the tail so it can be tried from every delimiter in turn.
+  const infixLocaleTail = new RegExp(`^${LOCALE}(?:[_-]\\d+)?\\.xml$`, 'i');
+
+  /**
+   * Locale-shaped candidates in a pathname, most specific source first:
+   * filename, path segment, then each delimiter-aligned infix from left to
+   * right. Enumerating every infix start matters because a regex returns only
+   * its leftmost match: `dotnet-cs-docs-en-1.xml` yields the invalid
+   * `cs-docs-en` first and the valid `en` only from a later delimiter.
+   */
+  function localeCandidates(pathname: string): string[] {
+    const candidates: string[] = [];
+    const filename = filenameLocalePattern.exec(pathname)?.[1];
+    if (filename) candidates.push(filename);
+    const segment = pathLocalePattern.exec(pathname)?.[1];
+    if (segment) candidates.push(segment);
+    for (let i = 0; i < pathname.length; i++) {
+      if (pathname[i] !== '_' && pathname[i] !== '-') continue;
+      const infix = infixLocaleTail.exec(pathname.slice(i + 1))?.[1];
+      if (infix) candidates.push(infix);
+    }
+    return candidates;
+  }
 
   const locales = new Map<string, string[]>();
   const nonLocale: string[] = [];
@@ -480,12 +502,9 @@ export function filterLocaleSitemaps(
       nonLocale.push(url);
       continue;
     }
-    // First *validated* candidate wins, so an invalid filename capture such as
-    // `en-docs` in `/fr/sitemap-en-docs.xml` falls through to the path locale.
-    const locale = [filenameLocalePattern, pathLocalePattern, infixLocalePattern]
-      .map((pattern) => pattern.exec(pathname)?.[1])
-      .find((candidate) => candidate !== undefined && isLocaleSegment(candidate))
-      ?.toLowerCase();
+    // First *validated* candidate wins, so an invalid capture such as `en-docs`
+    // in `/fr/sitemap-en-docs.xml` falls through to the path locale.
+    const locale = localeCandidates(pathname).find(isLocaleSegment)?.toLowerCase();
 
     if (locale) {
       if (!locales.has(locale)) locales.set(locale, []);

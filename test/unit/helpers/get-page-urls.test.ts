@@ -241,6 +241,27 @@ describe('filterLocaleSitemaps', () => {
     expect(filterLocaleSitemaps(urls, 'zh-Hans')).toEqual([urls[2], urls[3]]);
   });
 
+  it('retries later infix candidates after an invalid leftmost capture', () => {
+    // The leftmost infix capture is `cs-docs-en`, which is not a locale; the
+    // valid `en` and `fr` only appear from a later delimiter.
+    const shards = [
+      'https://example.com/dotnet-cs-docs-en-1.xml',
+      'https://example.com/dotnet-cs-docs-fr-1.xml',
+      'https://example.com/dotnet-cs-docs.xml',
+    ];
+    expect(filterLocaleSitemaps(shards)).toEqual([shards[0], shards[2]]);
+    expect(filterLocaleSitemaps(shards, 'fr')).toEqual([shards[1], shards[2]]);
+
+    // Same shape through the filename pattern: `en-docs-en` is invalid, and
+    // the trailing `en`/`fr` is reached only as an infix candidate.
+    const files = [
+      'https://example.com/sitemap-en-docs-en.xml',
+      'https://example.com/sitemap-en-docs-fr.xml',
+    ];
+    expect(filterLocaleSitemaps(files)).toEqual([files[0]]);
+    expect(filterLocaleSitemaps(files, 'fr')).toEqual([files[1]]);
+  });
+
   it('recognizes script-subtag locale sitemaps (issue #161)', () => {
     const urls = [
       'https://example.com/sitemap-en.xml',
