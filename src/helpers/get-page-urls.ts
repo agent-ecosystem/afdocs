@@ -461,6 +461,11 @@ export function filterLocaleSitemaps(
   preferredLocale?: string | null,
 ): string[] {
   if (subSitemapUrls.length < 2) return subSitemapUrls;
+  // An explicit preference the locale helper does not recognize (`en-custom`)
+  // cannot be matched to a child by code, and resolving it by language would
+  // keep the wrong children and drop others. Keep every child so the
+  // page-level exact-prefix filter can decide (issue #164).
+  if (preferredLocale && !isLocaleSegment(preferredLocale)) return subSitemapUrls;
 
   // Locale shape shared by all patterns: language[-Script][-REGION], e.g.
   // `en`, `fr-fr`, `zh-hans`, `zh-hans-cn`. Fixing the subtag order keeps a

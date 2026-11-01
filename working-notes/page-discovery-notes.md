@@ -531,7 +531,13 @@ Copilot review of the first draft found three gaps, all addressed:
   page-level pass picks the variant. An exact code still selects its own
   children alone. Fetching a rejected variant costs bounded budget;
   skipping the chosen one loses pages. This is consistent with the raw
-  coverage walk keeping every child when no locale is known. child-sitemap selection resolved the preference
+  coverage walk keeping every child when no locale is known. The
+  same pass made an unrecognized explicit preference (`en-custom`) resolve
+  by language to the `en-us` child while dropping `fr-fr`, a two-locale pool
+  the page-level detector cannot separate from the custom pages. Child
+  pruning is now skipped entirely for a preference `isLocaleSegment` does
+  not recognize, matching the path-scope rule, so the page-level
+  exact-prefix filter decides. child-sitemap selection resolved the preference
   alone and could pick an `en-au` child whose pages neither scope keeps
   (children needed by any fallback scope's locale are kept as well).
 

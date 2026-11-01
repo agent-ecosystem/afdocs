@@ -402,6 +402,18 @@ describe('filterLocaleSitemaps', () => {
     expect(filterLocaleSitemaps(urls, 'en-US')).toEqual([urls[2], urls[4]]);
   });
 
+  it('keeps every child for an explicit preference the locale helper does not recognize', () => {
+    // en-custom matches no child by code. Resolving by language would keep
+    // en-us and drop fr-fr, leaving a two-locale pool that the page-level
+    // detector cannot separate from the custom pages.
+    const urls = [
+      'https://example.com/sitemap-en-custom.xml',
+      'https://example.com/sitemap-en-us.xml',
+      'https://example.com/sitemap-fr-fr.xml',
+    ];
+    expect(filterLocaleSitemaps(urls, 'en-custom')).toEqual(urls);
+  });
+
   it('prefers the locale from the base URL when preferredLocale is set', () => {
     const urls = [
       'https://example.com/sitemap-el.xml',
@@ -2755,6 +2767,53 @@ ${urls.map((url) => `<url><loc>${url}</loc></url>`).join('\n')}
     const result = await getPageUrls(ctx);
     expect(result.sources).toEqual(['llms-txt', 'sitemap']);
     expect(result.urls).toEqual([...usLlms, 'http://opt-shards.local/en-us/docs/extra']);
+  });
+
+  it('selects custom-locale pages from an index when the preference is unrecognized', async () => {
+    const custom = ['intro', 'guide', 'api'].map(
+      (p) => `http://opt-custom-idx.local/en-custom/docs/${p}`,
+    );
+    const urlset = (locs: string[]) =>
+      `<?xml version="1.0"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${locs.map((u) => `<url><loc>${u}</loc></url>`).join('\n')}\n</urlset>`;
+    const child = (name: string, locs: string[]) =>
+      http.get(
+        `http://opt-custom-idx.local/sitemap-${name}.xml`,
+        () =>
+          new HttpResponse(urlset(locs), {
+            status: 200,
+            headers: { 'Content-Type': 'application/xml' },
+          }),
+      );
+    mockSitemapNotFound(server, 'http://opt-custom-idx.local');
+    server.use(
+      http.get(
+        'http://opt-custom-idx.local/robots.txt',
+        () => new HttpResponse('', { status: 404 }),
+      ),
+      http.get(
+        'http://opt-custom-idx.local/sitemap.xml',
+        () =>
+          new HttpResponse(
+            `<?xml version="1.0"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${['en-custom', 'en-us', 'fr-fr'].map((n) => `<sitemap><loc>http://opt-custom-idx.local/sitemap-${n}.xml</loc></sitemap>`).join('\n')}\n</sitemapindex>`,
+            { status: 200, headers: { 'Content-Type': 'application/xml' } },
+          ),
+      ),
+      child('en-custom', custom),
+      child(
+        'en-us',
+        ['intro', 'guide', 'api'].map((p) => `http://opt-custom-idx.local/en-us/docs/${p}`),
+      ),
+      child(
+        'fr-fr',
+        ['intro', 'guide', 'api'].map((p) => `http://opt-custom-idx.local/fr-fr/docs/${p}`),
+      ),
+    );
+    const ctx = makeCtx('http://opt-custom-idx.local');
+    ctx.options.preferredLocale = 'en-custom';
+
+    const result = await getPageUrls(ctx);
+    expect(result.sources).toEqual(['sitemap']);
+    expect(result.urls).toEqual(custom);
   });
 
   it('keeps child sitemaps needed by the fallback scope (issue #164)', async () => {
