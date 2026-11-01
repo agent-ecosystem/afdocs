@@ -216,6 +216,65 @@ describe('getPathFilterBase', () => {
 });
 
 describe('filterLocaleSitemaps', () => {
+  it('falls through to a valid path locale when the filename capture is invalid', () => {
+    const urls = [
+      'https://example.com/en/sitemap-en-docs.xml',
+      'https://example.com/fr/sitemap-en-docs.xml',
+      'https://example.com/sitemap-pages.xml',
+    ];
+    expect(filterLocaleSitemaps(urls)).toEqual([urls[0], urls[2]]);
+    expect(filterLocaleSitemaps(urls, 'fr')).toEqual([urls[1], urls[2]]);
+  });
+
+  it('does not let a two-letter product prefix consume a regional locale shard', () => {
+    // A bare two-letter locale after a two-letter prefix (`cs-en`) is
+    // indistinguishable from language-region, so the shards here are
+    // region- or script-qualified, as Microsoft Learn's are.
+    const urls = [
+      'https://example.com/dotnet-cs-en-us-1.xml',
+      'https://example.com/dotnet-cs-fr-fr-1.xml',
+      'https://example.com/dotnet-cs-zh-hans-2.xml',
+      'https://example.com/dotnet-cs-pages.xml',
+    ];
+    expect(filterLocaleSitemaps(urls, 'en-US')).toEqual([urls[0], urls[3]]);
+    expect(filterLocaleSitemaps(urls, 'fr-FR')).toEqual([urls[1], urls[3]]);
+    expect(filterLocaleSitemaps(urls, 'zh-Hans')).toEqual([urls[2], urls[3]]);
+  });
+
+  it('retries later infix candidates after an invalid leftmost capture', () => {
+    // The leftmost infix capture is `cs-docs-en`, which is not a locale; the
+    // valid `en` and `fr` only appear from a later delimiter.
+    const shards = [
+      'https://example.com/dotnet-cs-docs-en-1.xml',
+      'https://example.com/dotnet-cs-docs-fr-1.xml',
+      'https://example.com/dotnet-cs-docs.xml',
+    ];
+    expect(filterLocaleSitemaps(shards)).toEqual([shards[0], shards[2]]);
+    expect(filterLocaleSitemaps(shards, 'fr')).toEqual([shards[1], shards[2]]);
+
+    // Same shape through the filename pattern: `en-docs-en` is invalid, and
+    // the trailing `en`/`fr` is reached only as an infix candidate.
+    const files = [
+      'https://example.com/sitemap-en-docs-en.xml',
+      'https://example.com/sitemap-en-docs-fr.xml',
+    ];
+    expect(filterLocaleSitemaps(files)).toEqual([files[0]]);
+    expect(filterLocaleSitemaps(files, 'fr')).toEqual([files[1]]);
+  });
+
+  it('recognizes script-subtag locale sitemaps (issue #161)', () => {
+    const urls = [
+      'https://example.com/sitemap-en.xml',
+      'https://example.com/sitemap-zh-hans.xml',
+      'https://example.com/sitemap-zh-hant.xml',
+      'https://example.com/zh-Hans/sitemap.xml',
+      'https://example.com/docs_zh-hant_1.xml',
+      'https://example.com/sitemap-pages.xml',
+    ];
+    expect(filterLocaleSitemaps(urls)).toEqual([urls[0], urls[5]]);
+    expect(filterLocaleSitemaps(urls, 'zh-Hant')).toEqual([urls[2], urls[4], urls[5]]);
+  });
+
   it.each(['_', '-'])(
     'recognizes %s-delimited locale shards and query strings (#120)',
     (separator) => {
@@ -354,6 +413,11 @@ describe('extractLocaleFromUrl', () => {
 
   it('detects locale after a non-locale segment', () => {
     expect(extractLocaleFromUrl('https://example.com/docs/en/intro')).toBe('en');
+  });
+
+  it('detects script-subtag locales (issue #161)', () => {
+    expect(extractLocaleFromUrl('https://example.com/docs/zh-Hans/intro')).toBe('zh-hans');
+    expect(extractLocaleFromUrl('https://example.com/sr-Latn-RS/docs')).toBe('sr-latn-rs');
   });
 
   it('returns null when no locale segment is found', () => {
@@ -516,16 +580,16 @@ describe('filterLocalizedUrls', () => {
     expect(result).toEqual(['https://example.com/docs/', 'https://example.com/docs/intro']);
   });
 
-  it('honors an explicit script-subtag locale the locale helper does not recognize (issue #161)', () => {
-    // zh-Hans is not an isLocaleSegment match, so it never enters the detection
-    // counts. Detection fires on es/fr; the explicit target must still be
-    // confirmed against the raw segments rather than falling back to unprefixed.
+  it('honors an explicit locale the locale helper does not recognize', () => {
+    // `latam` is not an isLocaleSegment match, so it never enters detection.
+    // Detection fires on es/fr; the explicit target must still be confirmed
+    // against the raw segments rather than falling back to unprefixed.
     const urls = [
       'https://example.com/docs',
       'https://example.com/docs/intro',
       'https://example.com/docs/guide',
-      'https://example.com/docs/zh-Hans/intro',
-      'https://example.com/docs/zh-Hans/guide',
+      'https://example.com/docs/latam/intro',
+      'https://example.com/docs/latam/guide',
       'https://example.com/docs/es/intro',
       'https://example.com/docs/es/guide',
       'https://example.com/docs/es/api',
@@ -533,11 +597,31 @@ describe('filterLocalizedUrls', () => {
       'https://example.com/docs/fr/guide',
       'https://example.com/docs/fr/api',
     ];
-    const result = filterLocalizedUrls(urls, 'zh-Hans');
+    const result = filterLocalizedUrls(urls, 'latam');
     expect(result).toEqual([
       'https://example.com/docs',
+      'https://example.com/docs/latam/intro',
+      'https://example.com/docs/latam/guide',
+    ]);
+  });
+
+  it('treats script-subtag translations as localized (issue #161)', () => {
+    const urls = [
+      'https://example.com/docs',
+      'https://example.com/docs/intro',
+      'https://example.com/docs/guide',
       'https://example.com/docs/zh-Hans/intro',
       'https://example.com/docs/zh-Hans/guide',
+      'https://example.com/docs/zh-Hant/intro',
+      'https://example.com/docs/zh-Hant/guide',
+    ];
+    // Default target 'en' is absent, so the unprefixed default wins and the
+    // script-subtag pages are excluded rather than mistaken for unprefixed.
+    expect(filterLocalizedUrls(urls)).toEqual(urls.slice(0, 3));
+    expect(filterLocalizedUrls(urls, 'zh-Hant')).toEqual([
+      'https://example.com/docs',
+      'https://example.com/docs/zh-Hant/intro',
+      'https://example.com/docs/zh-Hant/guide',
     ]);
   });
 

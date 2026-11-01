@@ -51,6 +51,30 @@ describe('isLocaleSegment', () => {
     expect(isLocaleSegment('v')).toBe(false);
   });
 
+  test('accepts BCP 47 script subtags (issue #161)', () => {
+    for (const code of ['zh-Hans', 'zh-hant', 'sr-Latn', 'uz-Cyrl', 'ZH-HANS']) {
+      expect(isLocaleSegment(code), code).toBe(true);
+    }
+  });
+
+  test('accepts language-script-region forms', () => {
+    expect(isLocaleSegment('zh-Hans-CN')).toBe(true);
+    expect(isLocaleSegment('sr-Latn-RS')).toBe(true);
+  });
+
+  test('rejects hyphenated words whose tail is not a known script', () => {
+    for (const seg of ['en-vivo', 'es-tudo', 'go-live', 'en-docs', 'de-dupe', 'is-this']) {
+      expect(isLocaleSegment(seg), seg).toBe(false);
+    }
+  });
+
+  test('rejects script subtags with an invalid language part or wrong order', () => {
+    expect(isLocaleSegment('xx-Hans')).toBe(false);
+    expect(isLocaleSegment('zh-CN-Hans')).toBe(false);
+    expect(isLocaleSegment('zh-Hans-Hant')).toBe(false);
+    expect(isLocaleSegment('zh-Hans-CN-x')).toBe(false);
+  });
+
   test('rejects region-only subtags with invalid language part', () => {
     expect(isLocaleSegment('xx-us')).toBe(false);
     expect(isLocaleSegment('zz-cn')).toBe(false);

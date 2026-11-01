@@ -122,7 +122,7 @@ afdocs check https://docs.example.com --max-links 100
 
 | Flag                           | Default     | Description                                                                                            |
 | ------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------ |
-| `--doc-locale <code>`          | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)                                             |
+| `--doc-locale <code>`          | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`, `zh-Hans`)                                  |
 | `--doc-version <version>`      | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`, `latest`)                                       |
 | `--url-path-pattern <pattern>` | `clean`     | How llms.txt `.md` links map to page URLs: `clean`, `html`, or `md`                                    |
 | `--network-context <class>`    | detected    | Where the scan runs from, reported with bot-protection findings: `developer-machine`, `ci`, or `cloud` |

@@ -48,7 +48,7 @@ export function registerCheckCommand(program: Command): void {
       '--network-context <class>',
       'Where the scan runs from, for bot-protection findings: developer-machine, ci, or cloud (default: detected from environment)',
     )
-    .option('--doc-locale <code>', 'Preferred locale for URL discovery (e.g. en, fr, ja)')
+    .option('--doc-locale <code>', 'Preferred locale for URL discovery (e.g. en, fr, ja, zh-Hans)')
     .option('--doc-version <version>', 'Preferred version for URL discovery (e.g. v3, 2.x, latest)')
     .option('--pass-threshold <n>', 'Pass threshold in characters')
     .option('--fail-threshold <n>', 'Fail threshold in characters')

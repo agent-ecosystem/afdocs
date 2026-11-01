@@ -99,7 +99,7 @@ Override default runner options. All fields are optional:
 | `maxConcurrency`          | `3`         | Maximum concurrent HTTP requests                                                                         |
 | `requestDelay`            | `200`       | Delay between requests in milliseconds                                                                   |
 | `requestTimeout`          | `30000`     | Timeout for individual HTTP requests in milliseconds                                                     |
-| `preferredLocale`         | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`)                                               |
+| `preferredLocale`         | auto-detect | Preferred locale for URL discovery (e.g. `en`, `fr`, `ja`, `zh-Hans`)                                    |
 | `preferredVersion`        | auto-detect | Preferred version for URL discovery (e.g. `v3`, `2.x`)                                                   |
 | `canonicalOrigin`         |             | The production base URL (origin, or origin plus a path prefix) your content links to                     |
 | `llmsTxtUrl`              |             | Explicit llms.txt URL to use as canonical (overrides the discovery heuristic; see CLI docs)              |

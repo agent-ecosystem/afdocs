@@ -423,6 +423,41 @@ module (keeps a helper under a check's namespace for no reason). The
 target-locale and unprefixed-fallback rules from issue #158 are unchanged;
 only how the position is found moved.
 
+### October 2026: script-subtag locale codes (issue #161)
+
+`isLocaleSegment` accepted `xx` and `xx-yy` only, so `zh-Hans`, `zh-Hant`,
+and `sr-Latn` were invisible to every locale consumer: base-URL locale
+extraction, position detection, the unprefixed fallback (which treated
+`/docs/zh-Hans/intro` as an unprefixed page), coverage's locale filter, and
+the locale-sitemap patterns. Raised by Copilot's review of PR #160.
+
+Decision: **accept `language-Script` and `language-Script-REGION` where the
+language is ISO 639-1 and the script is in a curated ISO 15924 list.** The
+list holds scripts that appear as path prefixes on docs sites; it is not
+the full registry. Region stays a two-character tail. The three
+locale-sitemap regexes share one capture shape, `language[-Script][-REGION]`,
+and defer to `isLocaleSegment` for validation. Copilot review caught two
+regressions in the first draft, which captured any two to four letter
+subtags: a two-letter product prefix (`dotnet-cs-fr-fr-1.xml`) consumed
+the real locale, and an invalid filename capture (`/fr/sitemap-en-docs.xml`)
+masked the valid path locale because the first regex to match won. The
+fixed shape blocks the first; taking the first _validated_ candidate
+across the three patterns fixes the second. A third review pass found that a regex only returns its
+leftmost match, so `dotnet-cs-docs-en-1.xml` produced the invalid
+`cs-docs-en` and never reached the valid `en`. The infix pattern is now
+anchored to the filename tail and tried from every `_` or `-` delimiter
+left to right, and the first valid candidate across filename, path
+segment, and infix positions wins.
+
+Rejected alternatives: a length rule such as "two letters, hyphen, four
+letters" (lowercased `en-vivo`, `es-tudo`, `de-dupe` would pass; the
+original two-letter regex was replaced with the ISO 639-1 set for the same
+reason in PR #60); the full ISO 15924 registry (over 200 codes, most never
+used as locale prefixes, each a new false-positive surface); validating
+`--doc-locale` against the helper (an explicit value the helper does not
+know, such as `latam`, is still honored by the raw-segment match from
+issue #158, and rejecting it would remove that escape hatch).
+
 ## Documentation at scale: design considerations
 
 Drafting `docs/documentation-at-scale.md` after the #120 live reproduction
