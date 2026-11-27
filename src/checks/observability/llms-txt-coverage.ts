@@ -392,7 +392,10 @@ async function check(ctx: CheckContext): Promise<CheckResult> {
       userExcludedCount++;
       continue;
     }
-    if (omittedPrefixes.length > 0 && omittedPrefixes.some((p) => norm.startsWith(p))) {
+    if (
+      omittedPrefixes.length > 0 &&
+      omittedPrefixes.some((p) => norm === p || norm.startsWith(p.endsWith('/') ? p : `${p}/`))
+    ) {
       omittedSubtreeCount++;
       continue;
     }
