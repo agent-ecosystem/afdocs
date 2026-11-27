@@ -1141,6 +1141,41 @@ describe('check command config integration', () => {
     stdoutSpy.mockRestore();
   });
 
+  it('passes requestTimeout from config to the runner', async () => {
+    server.use(
+      http.get('http://cmd-timeout-cfg.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
+      http.get(
+        'http://cmd-timeout-cfg.local/docs/llms.txt',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+
+    const configPath = resolve(CONFIG_TMP, 'agent-docs.config.yml');
+    await writeFile(
+      configPath,
+      [
+        'url: http://cmd-timeout-cfg.local',
+        'checks:',
+        '  - llms-txt-exists',
+        'options:',
+        '  requestDelay: 0',
+        '  requestTimeout: 45000',
+        '',
+      ].join('\n'),
+    );
+
+    const spy = vi.spyOn(validationMod, 'validateRunnerOptions');
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const { run } = await import('../../../src/cli/index.js');
+
+    await run(['node', 'afdocs', 'check', '--config', configPath]);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(spy.mock.calls.at(-1)?.[0]?.requestTimeout).toBe(45000);
+
+    spy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
   it('displays validation warnings on stderr', async () => {
     server.use(
       http.get('http://cmd-warn.local/llms.txt', () => HttpResponse.text(VALID_LLMS_TXT)),
