@@ -77,6 +77,40 @@ describe('parseSitemapUrls', () => {
     ]);
   });
 
+  it('decodes XML character references in <loc> values', () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/docs/search?q=auth&amp;lang=en</loc></url>
+  <url><loc>https://example.com/docs/it&apos;s-ok?a=1&#38;b=2</loc></url>
+</urlset>`;
+
+    const result = parseSitemapUrls(xml);
+    expect(result.urls).toEqual([
+      'https://example.com/docs/search?q=auth&lang=en',
+      "https://example.com/docs/it's-ok?a=1&b=2",
+    ]);
+  });
+
+  it('decodes XML character references in sitemap index <loc> values', () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://example.com/sitemap.xml?page=2&amp;type=docs</loc></sitemap>
+</sitemapindex>`;
+
+    const result = parseSitemapUrls(xml);
+    expect(result.sitemapIndexUrls).toEqual(['https://example.com/sitemap.xml?page=2&type=docs']);
+  });
+
+  it('reads <loc> values wrapped in CDATA', () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc><![CDATA[https://example.com/docs/page?a=1&b=2]]></loc></url>
+</urlset>`;
+
+    const result = parseSitemapUrls(xml);
+    expect(result.urls).toEqual(['https://example.com/docs/page?a=1&b=2']);
+  });
+
   it('handles malformed XML gracefully', () => {
     const result = parseSitemapUrls('this is not xml at all');
     expect(result.urls).toEqual([]);
