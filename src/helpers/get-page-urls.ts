@@ -4,6 +4,7 @@ import { getLlmsTxtFilesForAnalysis, selectCanonicalLlmsTxt } from './llms-txt.j
 import { isNonPageUrl, isMdUrl, toHtmlUrl } from './to-md-urls.js';
 import { isSameSite, canonicalHost } from './host-equivalence.js';
 import { fetchPage } from './fetch-page.js';
+import { decodeCharacterReferences } from './classify-markdown-links.js';
 import {
   isLocaleSegment,
   detectLocalePosition,
@@ -12,6 +13,17 @@ import {
   sameLanguageVariants,
 } from './locale-codes.js';
 import type { CheckContext, DiscoveredFile, UrlPathPattern } from '../types.js';
+
+/**
+ * The URL in a `<loc>` element. A sitemap is XML, so the protocol requires
+ * `&` in a URL to be written as `&amp;` (other characters may be escaped
+ * too), and some generators wrap the URL in a CDATA section. The URL is the
+ * element's decoded text, not its markup.
+ */
+function locText(raw: string): string {
+  const cdata = /^<!\[CDATA\[([\s\S]*?)\]\]>$/.exec(raw);
+  return cdata ? cdata[1].trim() : decodeCharacterReferences(raw);
+}
 
 /**
  * Extract `<loc>` URLs from a sitemap XML string.
@@ -31,7 +43,7 @@ export function parseSitemapUrls(xml: string): { urls: string[]; sitemapIndexUrl
     while ((block = sitemapBlockRegex.exec(xml)) !== null) {
       const locMatch = /<loc>\s*(.*?)\s*<\/loc>/i.exec(block[0]);
       if (locMatch) {
-        sitemapIndexUrls.push(locMatch[1]);
+        sitemapIndexUrls.push(locText(locMatch[1]));
       }
     }
   } else {
@@ -39,7 +51,7 @@ export function parseSitemapUrls(xml: string): { urls: string[]; sitemapIndexUrl
     const locRegex = /<loc>\s*(.*?)\s*<\/loc>/gi;
     let match;
     while ((match = locRegex.exec(xml)) !== null) {
-      urls.push(match[1]);
+      urls.push(locText(match[1]));
     }
   }
 
