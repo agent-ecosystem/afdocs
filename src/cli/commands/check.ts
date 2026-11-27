@@ -199,6 +199,8 @@ export function registerCheckCommand(program: Command): void {
         String((opts.requestDelay as string | undefined) ?? config?.options?.requestDelay ?? 200),
         10,
       );
+      // Config-only: there is no CLI flag for the request timeout.
+      const requestTimeout = config?.options?.requestTimeout;
       const maxLinksToTest = parseInt(
         String((opts.maxLinks as string | undefined) ?? config?.options?.maxLinksToTest ?? 50),
         10,
@@ -358,6 +360,7 @@ export function registerCheckCommand(program: Command): void {
         skipCheckIds,
         maxConcurrency,
         requestDelay,
+        ...(requestTimeout != null && { requestTimeout }),
         maxLinksToTest,
         samplingStrategy: sampling,
         curatedPages,
