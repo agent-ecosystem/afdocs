@@ -1563,6 +1563,75 @@ describe('omitted subtrees', () => {
     expect(result.message).toContain('nested indexes omitted');
   });
 
+  test('an omitted subtree does not swallow sibling paths that share its name as a prefix', async () => {
+    const host = 'cov-omitted-sibling.local';
+    const rootLlmsTxt = [
+      '# Docs\n',
+      `- [Chains](http://${host}/docs/chains/llms.txt)`,
+      `- [Intro](http://${host}/docs/intro)`,
+    ].join('\n');
+
+    // chains/llms.txt links to the eth index (depth 1, omitted) + one page.
+    // Nothing under /docs/chains/ethereum-classic is listed anywhere.
+    const chainsLlmsTxt = [
+      '# Chains\n',
+      `- [Eth](http://${host}/docs/chains/eth/llms.txt)`,
+      `- [Overview](http://${host}/docs/chains/overview)`,
+    ].join('\n');
+
+    const sitemapPages = [
+      `http://${host}/docs/intro`,
+      `http://${host}/docs/chains/overview`,
+      `http://${host}/docs/chains/eth/method-a`,
+      `http://${host}/docs/chains/ethereum-classic/method-a`,
+    ];
+
+    const ctx = createContext(`http://${host}/docs`, { requestDelay: 0 });
+    ctx.previousResults.set('llms-txt-exists', {
+      id: 'llms-txt-exists',
+      category: 'content-discoverability',
+      status: 'pass',
+      message: 'Found',
+      details: {
+        discoveredFiles: [
+          { url: `http://${host}/llms.txt`, content: rootLlmsTxt, status: 200, redirected: false },
+        ],
+      },
+    });
+
+    server.use(
+      http.get(
+        `http://${host}/docs/chains/llms.txt`,
+        () =>
+          new HttpResponse(chainsLlmsTxt, {
+            status: 200,
+            headers: { 'content-type': 'text/plain' },
+          }),
+      ),
+      http.get(
+        `http://${host}/robots.txt`,
+        () => new HttpResponse(`Sitemap: http://${host}/sitemap.xml`, { status: 200 }),
+      ),
+      http.get(
+        `http://${host}/sitemap.xml`,
+        () =>
+          new HttpResponse(makeSitemap(sitemapPages), {
+            status: 200,
+            headers: { 'content-type': 'application/xml' },
+          }),
+      ),
+    );
+
+    const result = await check.run(ctx);
+    // Only /docs/chains/eth/method-a is under the omitted subtree. The
+    // ethereum-classic page is not covered by llms.txt and must count.
+    expect(result.details?.omittedSubtreePages).toBe(1);
+    expect(result.details?.sitemapDocPages).toBe(3);
+    expect(result.details?.missingFromLlmsTxt).toEqual([
+      `http://${host}/docs/chains/ethereum-classic/method-a`,
+    ]);
+  });
+
   test('omitted subtrees without matching sitemap pages do not affect results', async () => {
     const host = 'cov-omitted-empty.local';
     const rootLlmsTxt = [
